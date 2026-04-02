@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --package-lock-only
+      - run: npm install --package-lock-only --ignore-scripts
         working-directory: packages/gateway
       - run: npm audit --audit-level=high
         working-directory: packages/gateway
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --package-lock-only
+      - run: npm install --package-lock-only --ignore-scripts
         working-directory: packages/web
       - run: npm audit --audit-level=high
         working-directory: packages/web
