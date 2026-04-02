@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    container_name: arcflow-wiki
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-wikijs}
+      DB_PASS: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-wikijs}
+    ports:
+      - "${WIKI_PORT:-3000}:3000"
+    restart: unless-stopped
+    volumes:
+      - wiki-data:/wiki/data
+
+  db:
+    image: postgres:15-alpine
+    container_name: arcflow-wiki-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wikijs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-wikijs}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wikijs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  wiki-data:
+  db-data:
