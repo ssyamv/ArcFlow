@@ -20,7 +20,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          model: claude-sonnet-4-6-20250514
+          model: claude-sonnet-4-20250514
           direct_prompt: |
             Review this PR for:
             1. Logic errors and bugs (critical)
