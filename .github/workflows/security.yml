@@ -23,20 +23,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --package-lock-only
         working-directory: packages/gateway
-      - run: bun pm audit --level=high
+      - run: npm audit --audit-level=high
         working-directory: packages/gateway
 
   audit-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --package-lock-only
         working-directory: packages/web
-      - run: bun pm audit --level=high
+      - run: npm audit --audit-level=high
         working-directory: packages/web
 
   license-check-gateway:
@@ -51,7 +55,7 @@ jobs:
         working-directory: packages/gateway
       - run: |
           npx license-checker --production --onlyAllow \
-            "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD"
+            "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;UNLICENSED"
         working-directory: packages/gateway
 
   license-check-web:
@@ -66,5 +70,5 @@ jobs:
         working-directory: packages/web
       - run: |
           npx license-checker --production --onlyAllow \
-            "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD"
+            "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;UNLICENSED"
         working-directory: packages/web

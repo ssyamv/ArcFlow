@@ -19,6 +19,7 @@ jobs:
       - uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           model: claude-sonnet-4-6-20250514
           direct_prompt: |
             Review this PR for:
