@@ -1,6 +1,6 @@
 # ArcFlow — AI 研发运营一体化平台设计规格文档
 
-> 版本：v2.0 · 2026-04-02 · 基于 v1.0 技术架构方案头脑风暴后的修订版
+> 版本：v2.1 · 2026-04-02 · 整合 7 份详细设计规格文档后的更新版
 
 ---
 
@@ -17,9 +17,9 @@
 - 团队规模：10-30 人
 - 技术栈：
   - 后端：Java 17 + Spring Boot 3.x + MyBatis-Plus + MySQL 8.0
-  - Web 前端：Vue3
-  - 移动端：Flutter 3.x + GetX
-  - 客户端：原生 Android
+  - Web 前端：Vue3 + Element Plus / shadcn-vue + Pinia + Vue Router + Vite
+  - 移动端：Flutter 3.x + GetX + Dio
+  - 客户端：Kotlin Android（Jetpack Compose + 传统 XML）
 - 已有 AI 辅助：团队已在使用 Claude Code 辅助编码，但流程串联仍为手工
 - CI/CD：Web 与服务端已有，客户端尚不完善
 - 网络：可直接访问外网 API，无需代理
@@ -59,7 +59,7 @@
 | 文档知识库 | Wiki.js 2.x | 人写文档的界面，底层存 Git `.md` |
 | 任务管理 | Plane CE | 任务/Issue 管理，原生 MCP |
 | AI 编排引擎 | Dify | 工作流编排，RAG |
-| 胶水服务 | Node.js + TypeScript | Webhook 路由、Git 读写、Claude Code 调度、飞书通知 |
+| 胶水服务 | Bun + Hono + bun:sqlite | Webhook 路由、Git 读写、Claude Code 调度、飞书通知 |
 | AI 工作台 | NanoClaw | 团队统一 AI 交互入口（飞书 + 微信渠道） |
 | 代码生成 | Claude Code（headless 模式） | 读文档生成代码，自动修复 Bug |
 | 文档生成 | Claude API | PRD → 技术文档，日志分析 |
@@ -79,8 +79,8 @@ NanoClaw 作为团队统一 AI 工作台，提供四类能力：
 | 文档操作 | "帮我查一下用户登录的 PRD" | docs Git 读写 + Wiki.js 同步 |
 
 渠道接入：
-- **微信**：使用腾讯官方 `@tencent-weixin/openclaw-weixin-cli` 插件
-- **飞书**：已有完善的接入方案
+- **飞书**：已实现（FeishuChannel + feishu-docs 技能），API 指向讯飞版飞书（`open.xfchat.iflytek.com`）
+- **微信**：待后续接入，计划使用腾讯官方 `@tencent-weixin/openclaw-weixin-cli` 插件
 
 NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操作（看板全貌、Prompt 调试、长文档编辑）仍使用各组件的 Web UI。
 
@@ -124,11 +124,10 @@ NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操
 - 通过 → 胶水服务更新 Plane Issue 状态
 - 打回 → 通知 PM 修改 PRD 或手动调整技术文档后重新提审
 
-**阶段四：代码生成**
-- 胶水服务在服务器上以 headless 模式启动 Claude Code
-- Claude Code 读取各仓库 CLAUDE.md + 技术设计文档 + OpenAPI yaml
-- 按需生成：后端 Spring Boot / 前端 Vue3 / 移动端 Flutter / Android 代码
-- 自动创建 MR → 胶水服务 → 飞书通知研发 Review
+**阶段四：代码生成（两轮策略）**
+- **第一轮（后端）**：胶水服务以 headless 模式启动 Claude Code，读取 CLAUDE.md + 技术设计文档 + OpenAPI yaml，生成后端 Spring Boot 代码 → 提 MR → 研发 Review → 合并
+- **第二轮（前端/客户端）**：后端 MR 合并 + Figma 设计稿交付后触发。Claude Code 通过 Figma MCP Server 读取设计稿，结合技术文档生成 UI 代码（Vue3 / Flutter / Android）→ 各端提 MR → 研发 Review / 微调
+- 后端先行确认接口，前端基于已确认的接口生成，减少不一致
 
 **阶段五：质量闭环**（全端覆盖，客户端 CI/CD 补齐后接入）
 - MR 合并触发 CI/CD 跑测试
@@ -175,7 +174,7 @@ NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操
 | PRD → 技术设计文档 | claude-opus-4-6 | 复杂推理，架构设计需最强理解能力 |
 | 技术文档 → OpenAPI yaml | claude-sonnet-4-6 | 结构化输出，速度质量平衡 |
 | CI 日志分析 / Bug 报告 | claude-sonnet-4-6 | 够用，日均频率较高，控制成本 |
-| 知识库问答（NanoClaw → Dify RAG） | claude-haiku-4-5 | 高频低延迟，成本最低 |
+| 知识库问答（NanoClaw → Dify RAG） | claude-sonnet-4-6 | 回答质量优先 |
 | 代码生成 / Bug 修复 | Claude Code headless（claude-sonnet-4-6） | 完整上下文理解和自修正能力 |
 | NanoClaw 对话 | claude-sonnet-4-6（via Agent SDK） | 意图路由 + 对话管理 |
 
@@ -204,7 +203,7 @@ NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操
 | Wiki.js + PostgreSQL | 2C / 4GB | 文档读写，并发低 |
 | Plane（含 Worker、Beat、MQ） | 4C / 8GB | 任务管理，有 Celery 后台任务 |
 | Dify（含 Worker + Weaviate） | 4C / 8GB | 工作流执行 + 向量检索 |
-| 胶水服务 | 2C / 2GB | Node.js，Webhook 路由 + 通知 |
+| 胶水服务 | 2C / 2GB | Bun，Webhook 路由 + 通知 |
 | Claude Code 运行环境 | 2C / 4GB | headless 模式，Node 运行时 |
 | NanoClaw | 2C / 4GB | Docker 容器隔离运行 |
 | **合计建议** | **≥ 16C / 30GB / 200GB SSD** | 单台物理机或云主机 |
@@ -274,10 +273,10 @@ NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操
 | PRD → 技术设计文档（~25 次/月） | claude-opus-4-6 | ≈ $75 |
 | 技术文档 → OpenAPI（~25 次/月） | claude-sonnet-4-6 | ≈ $9 |
 | Bug 分析（~50 次/月） | claude-sonnet-4-6 | ≈ $6 |
-| 知识问答（~500 次/月） | claude-haiku-4-5 | ≈ $1.25 |
+| 知识问答（~500 次/月） | claude-sonnet-4-6 | ≈ $15 |
 | Claude Code 代码生成（~100 次/月） | claude-sonnet-4-6 | ≈ $60 |
 | NanoClaw 对话（~1000 次/月） | claude-sonnet-4-6（via Agent SDK） | ≈ $30 |
-| **合计** | | **≈ $180/月** |
+| **合计** | | **≈ $195/月** |
 
 建议设置月度 Token 用量告警（$250），超出后审核是否需优化 Prompt 或调整模型选型。
 
@@ -294,3 +293,19 @@ NanoClaw **不取代** Web UI，而是提供额外的对话式入口。深度操
 | Phase 1 启动 | 计划何时启动？是否能分出 1 名研发专职推进？ |
 | AI 文档质量标准 | 达到什么水平算"通过"？ |
 | NanoClaw 权限控制 | 哪些操作允许通过对话触发，哪些必须在 Web UI 操作？ |
+
+---
+
+## 附录：详细设计规格文档索引
+
+以下文档对本规格的各模块做了详细设计，位于 `docs/superpowers/specs/`：
+
+| 文档 | 内容 |
+|------|------|
+| `2026-04-02-document-templates-design.md` | 分级 PRD 模板（模块级/功能点级）、技术设计文档模板、Figma 设计稿流程 |
+| `2026-04-02-claude-md-specs-design.md` | 5 个仓库（docs/后端/Vue3/Flutter/Android）的 CLAUDE.md 规范 |
+| `2026-04-02-dify-workflow-prompts-design.md` | 四条 Dify 工作流的 System Prompt 设计 |
+| `2026-04-02-gateway-service-design.md` | 胶水服务 API 接口、数据模型、流程时序、错误处理 |
+| `2026-04-02-feishu-approval-design.md` | 5 类飞书消息卡片模板、审批回调协议 |
+| `2026-04-02-multi-platform-codegen-design.md` | 两轮代码生成策略、各端生成规则、Claude Code 任务描述模板 |
+| `2026-04-02-nanoclaw-routing-design.md` | NanoClaw 工具接入、CLAUDE.md、意图路由指引 |
