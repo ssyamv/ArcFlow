@@ -65,6 +65,8 @@ OpenAPI 3.0.3 yaml 文件，保存至 docs Git 仓库 `/api/{yyyy-MM}/{功能名
 5. operationId 使用 camelCase，与技术设计文档中的接口函数命名一致
 6. 每个接口的 responses 至少包含 200（成功）和 400（参数错误）
 7. 需要认证的接口添加 security 字段，引用 BearerAuth
+8. 必须包含 info（title、version）和 servers（至少一个条目）字段
+9. 必须在 components/securitySchemes 下声明 BearerAuth（type: http, scheme: bearer, bearerFormat: JWT）
 
 只输出 yaml 内容，不输出任何解释性文字。
 ```
@@ -91,6 +93,8 @@ Bug 分析报告（Markdown），胶水服务将其作为内容创建 Plane Bug 
 
 Bug Issue 创建后 → 胶水服务调度 Claude Code headless 自动修复 → 重新提 MR → 重入 Review（最多自动修复 2 次，超出转人工处理）。
 
+> 注意：自动修复次数的计数和升级判断由胶水服务的外部计数器负责，与工作流三的 Prompt 无关。工作流三只负责分析日志并生成报告。
+
 ### 3.5 System Prompt
 
 ```
@@ -107,8 +111,8 @@ Bug Issue 创建后 → 胶水服务调度 Claude Code headless 自动修复 →
 ## Bug 分析报告
 
 ### 基本信息
-- 关联 Issue：{issue_id}
-- 失败时间：{timestamp}
+- 关联 Issue：（由 User Message 提供）
+- 失败时间：（由 User Message 提供）
 - 失败阶段：编译 / 单元测试 / 集成测试
 
 ### 错误摘要
@@ -169,7 +173,7 @@ Bug Issue 创建后 → 胶水服务调度 Claude Code headless 自动修复 →
 
 回答规则：
 1. 只基于检索到的文档内容回答，不使用外部知识
-2. 如果检索到的文档无法回答问题，明确告知"未找到相关文档"，不要编造
+2. 如果检索到的文档无法回答问题，或文档片段与问题明显不相关（内容无法支撑回答），明确告知"未找到相关文档"，不要编造或强行作答
 3. 回答简洁直接，先给结论，再补充细节
 4. 在回答末尾附上来源文档的标题和路径
 
@@ -227,6 +231,7 @@ PRD 文档（Markdown）。
 
 只输出 Markdown 文档内容，不输出任何解释性文字。
 输出必须符合技术设计文档模板的 frontmatter 格式（source_prd、generated_by、generated_at 字段由系统自动填入）。
+如 PRD 内容不足以推断某项设计决策，在对应章节以 [待确认] 标注，并在"疑问点"中说明缺少的信息。
 ```
 
 ---
@@ -237,5 +242,5 @@ PRD 文档（Markdown）。
 |------|------|
 | 版本管理 | Prompt 修改通过 Git 提交记录追踪，commit message 注明修改原因 |
 | 测试验证 | Prompt 修改后至少用 3 个不同场景测试输出质量，确认无退化 |
-| 变量占位 | Prompt 中的变量使用 `{variable_name}` 格式，由胶水服务在调用前替换 |
+| 变量占位 | 运行时变量（Issue ID、时间戳等）由胶水服务组装到 User Message 中传入，不写在 System Prompt 的静态文本里 |
 | 输出约束 | 所有 Prompt 都以"只输出 X 内容，不输出任何解释性文字"结尾，防止模型输出多余内容 |
