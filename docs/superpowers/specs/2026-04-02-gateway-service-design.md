@@ -51,9 +51,66 @@
 | 查询执行记录 | GET | /api/workflow/executions | NanoClaw / 管理界面 | 查询工作流执行历史和状态 |
 | 健康检查 | GET | /health | Docker / 监控 | 服务存活检测 |
 
-### 3.3 Webhook 去重
+### 3.3 Webhook 验签与去重
 
-所有 Webhook 接口通过请求头或 body 中的 event ID 去重，SQLite 记录已处理事件，24 小时后自动清理。
+**验签**：每个 Webhook 来源使用独立的验签机制：
+
+| 来源 | 验签方式 |
+|------|---------|
+| Plane | Webhook Secret Token（请求头校验） |
+| Gitea/GitLab | Webhook Secret Token（请求头校验） |
+| CI/CD | Webhook Secret Token（请求头校验） |
+| 飞书 | HMAC-SHA256 签名验证（`X-Lark-Signature` + timestamp 防重放） |
+
+验签失败直接返回 401，不处理请求。
+
+**去重**：所有 Webhook 接口通过请求头或 body 中的 event ID 去重，SQLite 记录已处理事件，24 小时后自动清理。
+
+### 3.4 内部 API 请求/响应格式
+
+**POST /api/workflow/trigger**
+
+请求 body：
+```json
+{
+  "workflow_type": "prd_to_tech | tech_to_openapi | bug_analysis | code_gen",
+  "plane_issue_id": "ISSUE-123",
+  "params": {
+    "input_path": "/prd/2026-04/feature-xxx.md",
+    "target_repos": ["backend", "vue3"]
+  }
+}
+```
+
+响应：
+```json
+{
+  "execution_id": 42,
+  "status": "pending",
+  "message": "工作流已触发"
+}
+```
+
+**GET /api/workflow/executions**
+
+查询参数：`?workflow_type=code_gen&status=running&limit=20`
+
+响应：
+```json
+{
+  "data": [
+    {
+      "id": 42,
+      "workflow_type": "code_gen",
+      "plane_issue_id": "ISSUE-123",
+      "status": "running",
+      "started_at": "2026-04-02T10:00:00",
+      "completed_at": null
+    }
+  ],
+  "total": 1
+}
+```
 
 ---
 
@@ -70,6 +127,7 @@ CREATE TABLE workflow_execution (
   output_path TEXT,                       -- 输出文件路径（如生成的技术文档路径）
   status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'success' | 'failed'
   error_message TEXT,                     -- 失败时的错误信息
+  retry_count INTEGER NOT NULL DEFAULT 0, -- Dify API 重试次数
   started_at TEXT,
   completed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -128,9 +186,10 @@ Plane Webhook (Issue status → Approved)
   → 解析回调，提取 action（approve/reject）+ Issue ID
   → 通过:
     → Plane API: 更新 Issue 状态
-    → 检查 PRD 设计稿状态
-    → 如果设计稿已交付 → 触发 UI 代码生成（流程 C）
-    → 触发后端代码生成（流程 C）
+    → 读取 PRD 中"设计稿"字段（Figma 链接 + 状态），判断设计稿是否已交付
+    → 如果设计稿已交付 → 触发 UI 代码生成（流程 C，传入 Figma 链接）
+    → 触发后端代码生成（流程 C，不依赖设计稿）
+    → 如果设计稿未交付 → 仅触发后端代码生成，UI 代码生成待设计稿交付后手动触发
   → 打回:
     → Plane API: 更新 Issue 状态为 Rejected
     → 飞书通知 PM 修改
@@ -145,13 +204,29 @@ Plane Webhook (Issue status → Approved)
   → 对每个目标仓库:
     → simple-git: clone/pull 目标代码仓库
     → 组装 Claude Code 任务描述（含技术文档路径 + OpenAPI 路径 + Figma 链接）
-    → Bun.spawn: claude -p "任务描述" --output-format json
+    → Bun.spawn 调用 Claude Code（完整参数见下方说明）
     → 监听 stdout/stderr，设置超时（10 分钟）
     → 完成后: simple-git 创建分支 + commit + push + 创建 MR
   → 更新 workflow_execution (status: success)
   → 飞书通知 @研发 Review MR
   → 超时或失败: 更新 workflow_execution (status: failed)，飞书通知
 ```
+
+**Claude Code 调用参数说明**：
+
+```bash
+claude -p "任务描述" \
+  --output-format json \
+  --dangerously-skip-permissions \
+  --mcp-config /path/to/.mcp.json    # 包含 Figma MCP Server 配置（仅 UI 代码生成时需要）
+```
+
+- 工作目录：Bun.spawn 的 `cwd` 设为目标代码仓库的本地克隆路径
+- 任务描述中包含：技术设计文档内容、OpenAPI yaml 路径、Figma 链接（如有）
+- `.mcp.json` 由胶水服务在目标仓库目录中动态生成，包含 Figma MCP Server 配置
+- `--dangerously-skip-permissions`：headless 模式必须，因为无人交互
+
+**多仓库并发控制**：多端代码生成串行执行（一个仓库完成后再处理下一个），避免同时启动多个 Claude Code 进程导致资源争抢。后续可根据服务器资源调整为并发（最大并发数 2）。
 
 ### 5.4 流程 D：CI/CD 失败 → Bug 自动修复
 
@@ -163,6 +238,7 @@ CI/CD Webhook (Test Failed)
   → 调用 Dify 工作流三 API（传入日志 + 上下文）
   → 接收 Bug 分析报告
   → Plane API: 创建 Bug Issue（内容为分析报告）
+  → Bug Issue 创建成功后，写入 bug_fix_retry 表（创建失败则记录日志 + 飞书通知，不进入自动修复）
   → 查询 bug_fix_retry 表
     → retry_count < 2:
       → retry_count++
@@ -216,7 +292,9 @@ gateway-service/
 │   │   └── queries.ts        # 查询函数封装
 │   ├── middleware/
 │   │   ├── dedup.ts          # Webhook 去重中间件
+│   │   ├── verify.ts         # Webhook 验签中间件
 │   │   └── logger.ts         # 请求日志
+│   ├── scheduler.ts          # 定时任务（webhook_event 清理等）
 │   ├── types/
 │   │   └── index.ts          # TypeScript 类型定义
 │   └── config.ts             # 环境变量配置
@@ -252,9 +330,16 @@ FLUTTER_GIT_REPO=git@内网IP:flutter.git
 ANDROID_GIT_REPO=git@内网IP:android.git
 GIT_WORK_DIR=/tmp/gateway-git
 
+# Webhook 验签
+PLANE_WEBHOOK_SECRET=
+GIT_WEBHOOK_SECRET=
+CICD_WEBHOOK_SECRET=
+
 # 飞书
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
+FEISHU_VERIFICATION_TOKEN=
+FEISHU_ENCRYPT_KEY=
 
 # Wiki.js
 WIKIJS_BASE_URL=http://内网IP:3000
