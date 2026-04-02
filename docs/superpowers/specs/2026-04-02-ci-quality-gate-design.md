@@ -283,13 +283,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run lint -- --max-warnings 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run lint
         working-directory: packages/web
-      - run: npx prettier --check packages/web/
+      - run: bunx prettier --check packages/web/
 
   lint-docs:
     needs: changes
@@ -297,10 +295,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npx markdownlint-cli2 "docs/**/*.md"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bunx markdownlint-cli2 "docs/**/*.md"
 
   test-gateway:
     needs: changes
@@ -330,11 +327,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npx vitest run --coverage --coverage.reporter=lcov
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bunx vitest run --coverage --coverage.reporter=lcov
         working-directory: packages/web
       - name: Install lcov
         run: sudo apt-get install -y lcov
@@ -430,12 +425,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
         working-directory: packages/web
-      - run: npm audit --audit-level=high
+      - run: bun pm audit --level=high
         working-directory: packages/web
 
   license-check-gateway:
@@ -457,10 +450,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: bun install
         working-directory: packages/web
       - run: |
           npx license-checker --production --onlyAllow \
@@ -510,7 +504,7 @@ bun run format
 
 # 单包测试
 cd packages/gateway && bun test
-cd packages/web && npx vitest run
+cd packages/web && bun run test
 
 # 全局测试
 bun run test
@@ -525,7 +519,7 @@ bun run test
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "bun run --cwd packages/gateway test && npm run --prefix packages/web test",
+    "test": "bun run --cwd packages/gateway test && bun run --cwd packages/web test",
     "prepare": "husky"
   }
 }
