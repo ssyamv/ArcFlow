@@ -1,0 +1,22 @@
+services:
+  gateway:
+    build: .
+    container_name: arcflow-gateway
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - gateway-data:/app/data
+      - git-workdir:/tmp/gateway-git
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 3s
+      start-period: 5s
+      retries: 3
+
+volumes:
+  gateway-data:
+  git-workdir:
