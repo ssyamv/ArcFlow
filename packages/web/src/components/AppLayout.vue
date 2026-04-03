@@ -6,6 +6,9 @@
       </div>
       <ul class="nav-list">
         <li>
+          <router-link to="/dashboard" active-class="active">系统概览</router-link>
+        </li>
+        <li>
           <router-link to="/workflows" active-class="active">工作流执行</router-link>
         </li>
         <li>
