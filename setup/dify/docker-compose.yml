@@ -1,0 +1,105 @@
+services:
+  dify-web:
+    image: langgenius/dify-web:latest
+    container_name: arcflow-dify-web
+    restart: unless-stopped
+    ports:
+      - "${DIFY_WEB_PORT:-3001}:3000"
+    environment:
+      CONSOLE_API_URL: http://dify-api:5001
+      APP_API_URL: http://dify-api:5001
+
+  dify-api:
+    image: langgenius/dify-api:latest
+    container_name: arcflow-dify-api
+    restart: unless-stopped
+    depends_on:
+      dify-db:
+        condition: service_healthy
+      dify-redis:
+        condition: service_healthy
+    ports:
+      - "5001:5001"
+    environment:
+      MODE: api
+      SECRET_KEY: ${DIFY_SECRET_KEY:-change-me-to-a-random-secret}
+      DB_USERNAME: ${DIFY_DB_USER:-dify}
+      DB_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      DB_HOST: dify-db
+      DB_PORT: 5432
+      DB_DATABASE: ${DIFY_DB_NAME:-dify}
+      REDIS_HOST: dify-redis
+      REDIS_PORT: 6379
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/api/storage
+      VECTOR_STORE: weaviate
+      WEAVIATE_ENDPOINT: http://dify-weaviate:8080
+    volumes:
+      - dify-storage:/app/api/storage
+
+  dify-worker:
+    image: langgenius/dify-api:latest
+    container_name: arcflow-dify-worker
+    restart: unless-stopped
+    depends_on:
+      - dify-api
+    environment:
+      MODE: worker
+      SECRET_KEY: ${DIFY_SECRET_KEY:-change-me-to-a-random-secret}
+      DB_USERNAME: ${DIFY_DB_USER:-dify}
+      DB_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      DB_HOST: dify-db
+      DB_PORT: 5432
+      DB_DATABASE: ${DIFY_DB_NAME:-dify}
+      REDIS_HOST: dify-redis
+      REDIS_PORT: 6379
+      VECTOR_STORE: weaviate
+      WEAVIATE_ENDPOINT: http://dify-weaviate:8080
+    volumes:
+      - dify-storage:/app/api/storage
+
+  dify-db:
+    image: postgres:15-alpine
+    container_name: arcflow-dify-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DIFY_DB_USER:-dify}
+      POSTGRES_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      POSTGRES_DB: ${DIFY_DB_NAME:-dify}
+    volumes:
+      - dify-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DIFY_DB_USER:-dify}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dify-redis:
+    image: redis:7-alpine
+    container_name: arcflow-dify-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dify-weaviate:
+    image: semitechnologies/weaviate:1.24.1
+    container_name: arcflow-dify-weaviate
+    restart: unless-stopped
+    ports:
+      - "${WEAVIATE_PORT:-8080}:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      CLUSTER_HOSTNAME: node1
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+
+volumes:
+  dify-storage:
+  dify-db-data:
+  weaviate-data:

@@ -1,3 +1,12 @@
+# ArcFlow Core Services
+# - Gateway: Bun + Hono API (port 3100)
+# - Web: Vue3 管理界面 (port 80)
+# - Wiki.js: 文档知识库 (port 3000)
+#
+# 其他服务独立部署：
+# - Plane CE: setup/plane/docker-compose.yml
+# - Dify: setup/dify/docker-compose.yml
+
 services:
   # ─── ArcFlow Gateway (Bun + Hono) ────────────────────────────────
   gateway:

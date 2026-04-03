@@ -1,0 +1,68 @@
+services:
+  plane-web:
+    image: makeplane/plane-frontend:stable
+    container_name: arcflow-plane-web
+    restart: unless-stopped
+    ports:
+      - "${PLANE_PORT:-8082}:3000"
+    depends_on:
+      - plane-api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://plane-api:8000
+
+  plane-api:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-api
+    restart: unless-stopped
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+    ports:
+      - "8000:8000"
+
+  plane-worker:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "plane", "worker", "-l", "info"]
+    depends_on:
+      - plane-api
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+
+  plane-db:
+    image: postgres:15-alpine
+    container_name: arcflow-plane-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PLANE_DB_USER:-plane}
+      POSTGRES_PASSWORD: ${PLANE_DB_PASSWORD:-plane}
+      POSTGRES_DB: ${PLANE_DB_NAME:-plane}
+    volumes:
+      - plane-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLANE_DB_USER:-plane}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plane-redis:
+    image: redis:7-alpine
+    container_name: arcflow-plane-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  plane-db-data:
