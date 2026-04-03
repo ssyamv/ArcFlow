@@ -1,0 +1,72 @@
+services:
+  # ─── ArcFlow Gateway (Bun + Hono) ────────────────────────────────
+  gateway:
+    build: ./packages/gateway
+    container_name: arcflow-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-3100}:3100"
+    volumes:
+      - gateway-data:/app/data
+      - git-workdir:/tmp/gateway-git
+    env_file:
+      - ./packages/gateway/.env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 3s
+      start-period: 5s
+      retries: 3
+
+  # ─── ArcFlow Web (Vue3 + Nginx) ──────────────────────────────────
+  web:
+    build: ./packages/web
+    container_name: arcflow-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  # ─── Wiki.js ─────────────────────────────────────────────────────
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    container_name: arcflow-wiki
+    restart: unless-stopped
+    depends_on:
+      wiki-db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: wiki-db
+      DB_PORT: 5432
+      DB_USER: ${WIKI_DB_USER:-wikijs}
+      DB_PASS: ${WIKI_DB_PASSWORD:-wikijs}
+      DB_NAME: ${WIKI_DB_NAME:-wikijs}
+    ports:
+      - "${WIKI_PORT:-3000}:3000"
+    volumes:
+      - wiki-data:/wiki/data
+
+  wiki-db:
+    image: postgres:15-alpine
+    container_name: arcflow-wiki-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WIKI_DB_USER:-wikijs}
+      POSTGRES_PASSWORD: ${WIKI_DB_PASSWORD:-wikijs}
+      POSTGRES_DB: ${WIKI_DB_NAME:-wikijs}
+    volumes:
+      - wiki-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WIKI_DB_USER:-wikijs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gateway-data:
+  git-workdir:
+  wiki-data:
+  wiki-db-data:
