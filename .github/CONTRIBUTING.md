@@ -10,47 +10,39 @@
 
 | 分支 | 用途 | 保护规则 |
 |------|------|---------|
-| `main` | 生产环境，始终稳定可部署 | 受保护，仅接受来自 `test` 的 PR，需 1 人 Approve |
-| `test` | 测试环境，QA 验证 | 受保护，仅接受来自 `develop` 的 PR，需 1 人 Approve |
-| `develop` | 开发集成，日常开发的合并目标 | 受保护，接受来自 feature 分支的 PR，需 1 人 Approve |
+| `main` | 主干分支，始终保持稳定 | 受保护，仅接受 PR 合并，需 1 人 Approve |
+
+> **说明**：当前为早期开发阶段，仅使用 `main` 单分支。待项目进入多人协作 / QA 阶段后，再引入 `develop`（集成开发）和 `test`（QA 验证）分支。
 
 ### 1.2 临时分支
 
 | 分支 | 命名规则 | 用途 | 从哪创建 | PR 目标 |
 |------|---------|------|---------|---------|
-| `feature/*` | `feature/#{issue号}-{简短描述}` | 新功能开发 | `develop` | `develop` |
-| `fix/*` | `fix/#{issue号}-{简短描述}` | Bug 修复 | `develop` | `develop` |
-| `hotfix/*` | `hotfix/#{issue号}-{简短描述}` | 生产紧急修复 | `main` | `main` + `develop` |
-| `docs/*` | `docs/#{issue号}-{简短描述}` | 文档更新 | `develop` | `develop` |
-| `infra/*` | `infra/#{issue号}-{简短描述}` | 基础设施搭建 | `develop` | `develop` |
+| `feat/*` | `feat/#{issue号}-{简短描述}` | 新功能开发 | `main` | `main` |
+| `fix/*` | `fix/#{issue号}-{简短描述}` | Bug 修复 | `main` | `main` |
+| `docs/*` | `docs/#{issue号}-{简短描述}` | 文档更新 | `main` | `main` |
+| `infra/*` | `infra/#{issue号}-{简短描述}` | 基础设施搭建 | `main` | `main` |
 
 ### 1.3 命名示例
 
-```
-feature/#7-gateway-service
+```text
+feat/#7-gateway-service
 fix/#12-webhook-dedup
-hotfix/#15-feishu-auth-crash
 docs/#3-prd-templates
 infra/#1-docs-repo-setup
 ```
 
 ### 1.4 分支流转
 
-```
-feature/* ──PR──→ develop ──PR──→ test ──PR──→ main
-                  (集成开发)      (QA 验证)    (生产部署)
+```text
+feat/* ──PR──→ main
 ```
 
 **日常开发流程**：
-1. 从 `develop` 创建 feature 分支
-2. 开发完成后提 PR 回 `develop`，Review 后合并
-3. `develop` 积累一批功能后，提 PR 到 `test` 进行 QA 验证
-4. `test` 验证通过后，提 PR 到 `main` 发布上线
-5. PR 合并后自动删除 feature 分支
 
-**紧急修复流程**：
-1. 从 `main` 创建 hotfix 分支
-2. 修复后同时提 PR 到 `main` 和 `develop`（保持两端同步）
+1. 从 `main` 创建 feature 分支
+2. 开发完成后提 PR 回 `main`，Review 后合并
+3. PR 合并后自动删除 feature 分支
 
 ---
 
@@ -58,13 +50,14 @@ feature/* ──PR──→ develop ──PR──→ test ──PR──→ mai
 
 ### 2.1 Issue 生命周期
 
-```
+```text
 创建 Issue → 分配负责人 → 创建分支开发 → 提 PR 关联 Issue → Review → 合并 → Issue 自动关闭
 ```
 
 ### 2.2 Issue 规范
 
 **创建 Issue 时必须包含**：
+
 - 清晰的标题（动词开头，如"搭建""部署""编写""修复"）
 - 描述（做什么、为什么）
 - 任务清单（checkbox 列表）
@@ -98,11 +91,13 @@ feature/* ──PR──→ develop ──PR──→ test ──PR──→ mai
 ### 3.1 创建 PR
 
 **何时创建**：
+
 - 功能开发完成，本地测试通过后
 - 也可以提前创建 Draft PR，标记为 WIP（Work In Progress），用于讨论方案
 
 **PR 标题格式**：
-```
+
+```text
 <type>(#<issue号>): <简短描述>
 
 示例：
@@ -113,6 +108,7 @@ infra(#1): 搭建 docs 仓库目录结构
 ```
 
 **Type 枚举**：
+
 | Type | 说明 |
 |------|------|
 | `feat` | 新功能 |
@@ -145,11 +141,12 @@ Closes #<issue号>
 
 ### 3.2 关联 Issue
 
-PR 描述中使用 `Closes #1` 或 `Fixes #1` 关键字。注意：仅当 PR 合并到仓库的**默认分支**（main）时 Issue 才会自动关闭。合并到 develop/test 时不会自动关闭，这是预期行为——Issue 应在功能上线到 main 后才关闭。
+PR 描述中使用 `Closes #1` 或 `Fixes #1` 关键字，PR 合并到 `main` 后 Issue 会自动关闭。
 
 ### 3.3 Code Review
 
 **Review 规则**：
+
 - 每个 PR 至少需要 **1 名** 团队成员 Approve
 - 作者不能 Approve 自己的 PR
 - Review 应在 PR 创建后 **24 小时内** 完成（工作日）
@@ -163,6 +160,7 @@ PR 描述中使用 `Closes #1` 或 `Fixes #1` 关键字。注意：仅当 PR 合
 | 配置 PR | 配置正确性、敏感信息是否泄露 |
 
 **Review 评论规范**：
+
 - `[必须]` — 必须修改才能合并
 - `[建议]` — 建议修改，但不阻塞合并
 - `[疑问]` — 需要作者解释
@@ -179,14 +177,15 @@ PR 描述中使用 `Closes #1` 或 `Fixes #1` 关键字。注意：仅当 PR 合
 
 ### 4.1 Commit Message 格式
 
-```
+```text
 <type>(#<issue号>): <简短描述>
 
 <可选的详细说明>
 ```
 
 **示例**：
-```
+
+```text
 feat(#7): 实现 Plane Webhook 接收和去重
 
 - 添加 POST /webhook/plane 路由
@@ -234,45 +233,32 @@ feat(#7): 实现 Plane Webhook 接收和去重
 ```bash
 # 1. 认领 Issue，将自己设为 Assignee
 
-# 2. 从 develop 创建分支
-git checkout develop
-git pull origin develop
-git checkout -b feature/#7-gateway-service
+# 2. 从 main 创建分支
+git checkout main
+git pull origin main
+git checkout -b feat/#7-gateway-service
 
 # 3. 开发 + 提交
 git add .
 git commit -m "feat(#7): 实现 Webhook 路由框架"
 
 # 4. 推送分支
-git push -u origin feature/#7-gateway-service
+git push -u origin feat/#7-gateway-service
 
-# 5. 在 GitHub 创建 PR 到 develop，关联 Issue
+# 5. 在 GitHub 创建 PR 到 main，关联 Issue
 #    标题：feat(#7): 实现胶水服务 Webhook 路由
 #    描述：Closes #7
-#    Base 分支：develop（不是 main！）
 
 # 6. 等待 Review，根据反馈修改
 
-# 7. Review 通过后 Squash and Merge 到 develop
+# 7. Review 通过后 Squash and Merge 到 main
 
-# 8. 本地切回 develop 并更新
-git checkout develop
-git pull origin develop
+# 8. 本地切回 main 并更新
+git checkout main
+git pull origin main
 ```
 
-### 6.2 集成发布流程（由负责人操作）
-
-```bash
-# 1. develop 积累一批功能后，创建 PR: develop → test
-#    标题：release: Phase 1 功能集成测试
-#    在 test 环境部署并验证
-
-# 2. QA 验证通过后，创建 PR: test → main
-#    标题：release: Phase 1 上线发布
-#    合并后部署到生产环境
-```
-
-### 6.3 Review 者流程
+### 6.2 Review 者流程
 
 1. 收到 Review 请求通知
 2. 24 小时内完成 Review
@@ -284,9 +270,9 @@ git pull origin develop
 
 ```bash
 # 如果 PR 提示冲突
-git checkout feature/#7-gateway-service
+git checkout feat/#7-gateway-service
 git fetch origin
-git rebase origin/develop
+git rebase origin/main
 # 解决冲突
 git add .
 git rebase --continue
@@ -308,7 +294,8 @@ git push --force-with-lease
 ### 7.2 .gitignore
 
 每个项目根目录必须包含 `.gitignore`，至少排除：
-```
+
+```text
 .env
 .DS_Store
 node_modules/
