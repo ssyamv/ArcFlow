@@ -10,7 +10,8 @@
     "test": "bun test --coverage --coverage-reporter lcov"
   },
   "dependencies": {
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "simple-git": "^3.33.0"
   },
   "devDependencies": {
     "bun-types": "latest"
