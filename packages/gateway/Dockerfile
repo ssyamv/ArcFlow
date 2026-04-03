@@ -8,9 +8,9 @@ RUN bun install --production
 # Copy source
 COPY src/ ./src/
 
-# Health check
+# Health check (bun image has no curl)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD curl -f http://localhost:3100/health || exit 1
+  CMD bun -e "fetch('http://localhost:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 EXPOSE 3100
 
