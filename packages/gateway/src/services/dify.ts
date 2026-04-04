@@ -10,7 +10,11 @@ interface DifyWorkflowResponse {
   };
 }
 
-async function callDifyWorkflow(inputs: Record<string, string>, retries = 2): Promise<string> {
+async function callDifyWorkflow(
+  apiKey: string,
+  inputs: Record<string, string>,
+  retries = 2,
+): Promise<string> {
   const config = getConfig();
   const url = `${config.difyBaseUrl}/v1/workflows/run`;
 
@@ -20,7 +24,7 @@ async function callDifyWorkflow(inputs: Record<string, string>, retries = 2): Pr
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${config.difyApiKey}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           inputs,
@@ -57,13 +61,16 @@ async function callDifyWorkflow(inputs: Record<string, string>, retries = 2): Pr
 }
 
 export async function generateTechDoc(prdContent: string): Promise<string> {
-  return callDifyWorkflow({ prd_content: prdContent });
+  const config = getConfig();
+  return callDifyWorkflow(config.difyTechDocApiKey, { prd_content: prdContent });
 }
 
 export async function generateOpenApi(techDocContent: string): Promise<string> {
-  return callDifyWorkflow({ tech_doc_content: techDocContent });
+  const config = getConfig();
+  return callDifyWorkflow(config.difyOpenApiApiKey, { tech_doc_content: techDocContent });
 }
 
 export async function analyzeBug(ciLog: string, context: string): Promise<string> {
-  return callDifyWorkflow({ ci_log: ciLog, context });
+  const config = getConfig();
+  return callDifyWorkflow(config.difyBugAnalysisApiKey, { ci_log: ciLog, context });
 }

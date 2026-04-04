@@ -72,20 +72,12 @@ export async function createBranchAndPush(
   repoName: string,
   branchName: string,
   commitMessage: string,
-  files: Array<{ path: string; content: string }>,
 ): Promise<void> {
   const repoDir = getRepoDir(repoName);
   const git = simpleGit(repoDir);
 
   await git.checkoutLocalBranch(branchName);
-
-  for (const file of files) {
-    const fullPath = join(repoDir, file.path);
-    mkdirSync(dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, file.content, "utf-8");
-    await git.add(file.path);
-  }
-
+  await git.add("-A");
   await git.commit(commitMessage);
   await git.push("origin", branchName, { "--set-upstream": null });
 }

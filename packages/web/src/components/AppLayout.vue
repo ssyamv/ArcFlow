@@ -1,74 +1,41 @@
 <template>
-  <div class="app-layout">
-    <nav class="sidebar">
-      <div class="logo">
-        <h2>ArcFlow</h2>
+  <div class="flex min-h-screen">
+    <nav class="w-56 bg-slate-900 text-gray-300 shrink-0">
+      <div class="px-5 py-5 border-b border-slate-700">
+        <h2 class="m-0 text-white text-lg font-bold">ArcFlow</h2>
       </div>
-      <ul class="nav-list">
+      <ul class="list-none p-0 m-0 mt-2">
         <li>
-          <router-link to="/dashboard" active-class="active">系统概览</router-link>
+          <router-link
+            to="/dashboard"
+            active-class="!bg-slate-800 !text-white"
+            class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            系统概览
+          </router-link>
         </li>
         <li>
-          <router-link to="/workflows" active-class="active">工作流执行</router-link>
+          <router-link
+            to="/workflows"
+            active-class="!bg-slate-800 !text-white"
+            class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            工作流执行
+          </router-link>
         </li>
         <li>
-          <router-link to="/trigger" active-class="active">触发工作流</router-link>
+          <router-link
+            to="/trigger"
+            active-class="!bg-slate-800 !text-white"
+            class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            触发工作流
+          </router-link>
         </li>
       </ul>
     </nav>
-    <main class="content">
+    <main class="flex-1 p-6 bg-gray-50">
       <router-view />
     </main>
   </div>
 </template>
-
-<style scoped>
-.app-layout {
-  display: flex;
-  min-height: 100vh;
-}
-
-.sidebar {
-  width: 220px;
-  background: #1a1a2e;
-  color: #e0e0e0;
-  padding: 20px 0;
-  flex-shrink: 0;
-}
-
-.logo {
-  padding: 0 20px 20px;
-  border-bottom: 1px solid #333;
-}
-
-.logo h2 {
-  margin: 0;
-  color: #fff;
-}
-
-.nav-list {
-  list-style: none;
-  padding: 10px 0;
-  margin: 0;
-}
-
-.nav-list li a {
-  display: block;
-  padding: 10px 20px;
-  color: #b0b0b0;
-  text-decoration: none;
-  transition: background 0.2s;
-}
-
-.nav-list li a:hover,
-.nav-list li a.active {
-  background: #16213e;
-  color: #fff;
-}
-
-.content {
-  flex: 1;
-  padding: 24px;
-  background: #f5f5f5;
-}
-</style>

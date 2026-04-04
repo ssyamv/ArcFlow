@@ -22,6 +22,11 @@ const router = createRouter({
       name: "trigger",
       component: () => import("../pages/WorkflowTrigger.vue"),
     },
+    {
+      path: "/:pathMatch(.*)*",
+      name: "NotFound",
+      component: () => import("../pages/NotFound.vue"),
+    },
   ],
 });
 

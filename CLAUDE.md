@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-ArcFlow 是一个 AI 研发运营一体化平台，以 Markdown + Git 为数据底座、AI 为执行引擎，串联从 PRD 到代码生成的全流程。目前已完成基础设施搭建和胶水服务核心框架开发。
+ArcFlow 是一个 AI 研发运营一体化平台，以 Markdown + Git 为数据底座、AI 为执行引擎，串联从 PRD 到代码生成的全流程。目前已完成胶水服务核心框架和 Web 管理界面，处于服务联调前阶段。
 
 ## 技术栈
 
 - 后端：Java 17 + Spring Boot 3.x + MyBatis-Plus + MySQL 8.0
-- Web 前端：Vue3 + Element Plus / shadcn-vue + Pinia + Vue Router + Vite
+- Web 前端：Vue 3 + Tailwind CSS + Pinia + Vue Router + Vite
 - 移动端：Flutter 3.x + GetX + Dio
 - 客户端：Kotlin Android（Jetpack Compose + 传统 XML）
 - 胶水服务：Bun + Hono + bun:sqlite
@@ -47,28 +47,14 @@ PM 写 PRD (Wiki.js) → docs Git → Plane Issue Approved
 
 ## 仓库结构
 
-Monorepo 结构，使用 Bun workspace 管理：
+当前仓库为 monorepo，包含：
 
-- `packages/gateway/` — 胶水服务（Bun + Hono + bun:sqlite），含路由、中间件、数据库、定时任务
-- `packages/web/` — Web 前端（Vue3 + Vite + Pinia），含页面、组件、路由、状态管理
+- `packages/gateway/` — 胶水服务（Bun + Hono + SQLite），62 个测试
+- `packages/web/` — Web 管理界面（Vue 3 + Tailwind CSS）
 - `docs/` — 技术架构方案文档和设计规格文档
 - `docs/superpowers/specs/` — 详细设计规格文档（见下方索引）
-- `setup/` — 第三方服务部署配置（Wiki.js、Plane、Dify、docs 仓库、CLAUDE.md 模板）
-- `.github/workflows/` — CI 流水线（lint、test、security、AI review）
-- `docker-compose.yml` — 核心服务编排
-- `deploy.sh` — 一键部署脚本
-
-## 开发命令
-
-```bash
-bun install          # 安装依赖
-bun run dev          # 启动 gateway 开发服务（packages/gateway 下）
-bun run lint         # 代码检查（根目录执行）
-bun run test         # 全量测试（根目录执行）
-bun run format       # 格式化
-```
-
-## docs 仓库目录规范
+- `docs/superpowers/plans/` — 实施计划文档
+- `setup/` — 第三方服务部署配置（Wiki.js / Plane / Dify）
 
 docs 仓库（规划中）的目录规范：
 
@@ -114,5 +100,3 @@ docs 仓库（规划中）的目录规范：
 | `2026-04-02-feishu-approval-design.md` | 飞书消息卡片 + 审批回调协议 |
 | `2026-04-02-multi-platform-codegen-design.md` | 多端代码生成策略（两轮生成） |
 | `2026-04-02-nanoclaw-routing-design.md` | NanoClaw 意图路由 + 工具接入 |
-| `2026-04-02-ci-quality-gate-design.md` | CI 质量门禁设计 |
-| `2026-04-03-claude-code-github-workflow-guide-design.md` | Claude Code GitHub 工作流指南设计 |

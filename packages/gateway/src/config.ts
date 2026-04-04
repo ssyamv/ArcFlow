@@ -4,6 +4,9 @@ export interface Config {
   // Dify
   difyBaseUrl: string;
   difyApiKey: string;
+  difyTechDocApiKey: string;
+  difyOpenApiApiKey: string;
+  difyBugAnalysisApiKey: string;
 
   // Plane
   planeBaseUrl: string;
@@ -43,6 +46,9 @@ export function getConfig(): Config {
 
     difyBaseUrl: process.env.DIFY_BASE_URL ?? "",
     difyApiKey: process.env.DIFY_API_KEY ?? "",
+    difyTechDocApiKey: process.env.DIFY_TECH_DOC_API_KEY ?? process.env.DIFY_API_KEY ?? "",
+    difyOpenApiApiKey: process.env.DIFY_OPENAPI_API_KEY ?? process.env.DIFY_API_KEY ?? "",
+    difyBugAnalysisApiKey: process.env.DIFY_BUG_ANALYSIS_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     planeBaseUrl: process.env.PLANE_BASE_URL ?? "",
     planeApiToken: process.env.PLANE_API_TOKEN ?? "",

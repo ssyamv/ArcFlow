@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { closeDb, getDb } from "../db";
+import * as workflowService from "../services/workflow";
 
 describe("api routes", () => {
   let app: Hono;
@@ -15,9 +16,12 @@ describe("api routes", () => {
 
   afterEach(() => {
     closeDb();
+    mock.restore();
   });
 
-  it("POST /api/workflow/trigger creates execution", async () => {
+  it("POST /api/workflow/trigger calls triggerWorkflow", async () => {
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(42);
+
     const res = await app.request("/api/workflow/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -29,18 +33,52 @@ describe("api routes", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.execution_id).toBeGreaterThan(0);
-    expect(body.status).toBe("pending");
+    expect(body.execution_id).toBe(42);
+    expect(body.status).toBe("running");
+    expect(body.message).toBe("工作流已触发");
+
+    expect(triggerSpy).toHaveBeenCalledTimes(1);
+    expect(triggerSpy).toHaveBeenCalledWith({
+      workflow_type: "prd_to_tech",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-1",
+      input_path: "/prd/test.md",
+      target_repos: undefined,
+    });
   });
 
-  it("GET /api/workflow/executions returns list", async () => {
-    await app.request("/api/workflow/trigger", {
+  it("POST /api/workflow/trigger passes target_repos param", async () => {
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(99);
+
+    const res = await app.request("/api/workflow/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         workflow_type: "code_gen",
-        plane_issue_id: "ISSUE-2",
+        plane_issue_id: "ISSUE-5",
+        params: { target_repos: ["backend", "web"] },
       }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.execution_id).toBe(99);
+
+    expect(triggerSpy).toHaveBeenCalledWith({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-5",
+      input_path: undefined,
+      target_repos: ["backend", "web"],
+    });
+  });
+
+  it("GET /api/workflow/executions returns list", async () => {
+    // Seed data by calling triggerWorkflow directly (bypassing mock)
+    const { createWorkflowExecution } = await import("../db/queries");
+    createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-2",
     });
 
     const res = await app.request("/api/workflow/executions");
@@ -51,13 +89,11 @@ describe("api routes", () => {
   });
 
   it("GET /api/workflow/executions filters by type", async () => {
-    await app.request("/api/workflow/trigger", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflow_type: "bug_analysis",
-        plane_issue_id: "ISSUE-3",
-      }),
+    const { createWorkflowExecution } = await import("../db/queries");
+    createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-3",
     });
 
     const res = await app.request("/api/workflow/executions?workflow_type=bug_analysis");
