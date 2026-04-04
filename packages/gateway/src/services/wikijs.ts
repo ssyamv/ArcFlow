@@ -23,8 +23,8 @@ export async function triggerSync(): Promise<void> {
   try {
     await graphql(`
       mutation {
-        site {
-          importAll
+        storage {
+          executeAction(handler: "sync")
         }
       }
     `);
