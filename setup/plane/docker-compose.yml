@@ -38,6 +38,18 @@ services:
       REDIS_URL: redis://plane-redis:6379
       SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
 
+  plane-beat:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-beat
+    restart: unless-stopped
+    command: ["celery", "-A", "plane", "beat", "-l", "info"]
+    depends_on:
+      - plane-api
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+
   plane-db:
     image: postgres:15-alpine
     container_name: arcflow-plane-db

@@ -1,0 +1,259 @@
+# ArcFlow 统一部署 — Gateway + Plane + Dify + Weaviate
+# 用法: cp .env.example .env && 编辑 .env && docker compose up -d
+
+services:
+  # ========================
+  # Gateway 胶水服务
+  # ========================
+  gateway:
+    build:
+      context: ../packages/gateway
+      dockerfile: Dockerfile
+    container_name: arcflow-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-3100}:3100"
+    environment:
+      PORT: 3100
+      DIFY_BASE_URL: http://dify-api:5001
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_TECH_DOC_API_KEY: ${DIFY_TECH_DOC_API_KEY:-}
+      DIFY_OPENAPI_API_KEY: ${DIFY_OPENAPI_API_KEY:-}
+      DIFY_BUG_ANALYSIS_API_KEY: ${DIFY_BUG_ANALYSIS_API_KEY:-}
+      PLANE_BASE_URL: http://plane-api:8000
+      PLANE_API_TOKEN: ${PLANE_API_TOKEN:-}
+      PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:-arcflow}
+      DOCS_GIT_REPO: ${DOCS_GIT_REPO:-}
+      BACKEND_GIT_REPO: ${BACKEND_GIT_REPO:-}
+      VUE3_GIT_REPO: ${VUE3_GIT_REPO:-}
+      FLUTTER_GIT_REPO: ${FLUTTER_GIT_REPO:-}
+      ANDROID_GIT_REPO: ${ANDROID_GIT_REPO:-}
+      GIT_WORK_DIR: /app/git-repos
+      PLANE_WEBHOOK_SECRET: ${PLANE_WEBHOOK_SECRET:-}
+      GIT_WEBHOOK_SECRET: ${GIT_WEBHOOK_SECRET:-}
+      CICD_WEBHOOK_SECRET: ${CICD_WEBHOOK_SECRET:-}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
+      FEISHU_ENCRYPT_KEY: ${FEISHU_ENCRYPT_KEY:-}
+      WIKIJS_BASE_URL: ${WIKIJS_BASE_URL:-}
+      WIKIJS_API_KEY: ${WIKIJS_API_KEY:-}
+      CLAUDE_CODE_TIMEOUT: ${CLAUDE_CODE_TIMEOUT:-600000}
+    volumes:
+      - gateway-data:/app/data
+      - gateway-git:/app/git-repos
+      - ${SSH_KEY_DIR:-~/.ssh}:/root/.ssh:ro
+    depends_on:
+      dify-api:
+        condition: service_healthy
+      plane-api:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+
+  # ========================
+  # Plane CE（任务管理）
+  # ========================
+  plane-web:
+    image: makeplane/plane-frontend:stable
+    container_name: arcflow-plane-web
+    restart: unless-stopped
+    ports:
+      - "${PLANE_PORT:-8082}:3000"
+    depends_on:
+      - plane-api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://plane-api:8000
+
+  plane-api:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-api
+    restart: unless-stopped
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+    ports:
+      - "8000:8000"
+
+  plane-worker:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "plane", "worker", "-l", "info"]
+    depends_on:
+      - plane-api
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+
+  plane-beat:
+    image: makeplane/plane-backend:stable
+    container_name: arcflow-plane-beat
+    restart: unless-stopped
+    command: ["celery", "-A", "plane", "beat", "-l", "info"]
+    depends_on:
+      - plane-api
+    environment:
+      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379
+      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
+
+  plane-db:
+    image: postgres:15-alpine
+    container_name: arcflow-plane-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PLANE_DB_USER:-plane}
+      POSTGRES_PASSWORD: ${PLANE_DB_PASSWORD:-plane}
+      POSTGRES_DB: ${PLANE_DB_NAME:-plane}
+    volumes:
+      - plane-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLANE_DB_USER:-plane}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  plane-redis:
+    image: redis:7-alpine
+    container_name: arcflow-plane-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # Dify（AI 编排）
+  # ========================
+  dify-web:
+    image: langgenius/dify-web:latest
+    container_name: arcflow-dify-web
+    restart: unless-stopped
+    ports:
+      - "${DIFY_WEB_PORT:-3001}:3000"
+    environment:
+      CONSOLE_API_URL: http://dify-api:5001
+      APP_API_URL: http://dify-api:5001
+
+  dify-api:
+    image: langgenius/dify-api:latest
+    container_name: arcflow-dify-api
+    restart: unless-stopped
+    depends_on:
+      dify-db:
+        condition: service_healthy
+      dify-redis:
+        condition: service_healthy
+    ports:
+      - "5001:5001"
+    environment:
+      MODE: api
+      SECRET_KEY: ${DIFY_SECRET_KEY:-change-me-to-a-random-secret}
+      DB_USERNAME: ${DIFY_DB_USER:-dify}
+      DB_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      DB_HOST: dify-db
+      DB_PORT: 5432
+      DB_DATABASE: ${DIFY_DB_NAME:-dify}
+      REDIS_HOST: dify-redis
+      REDIS_PORT: 6379
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/api/storage
+      VECTOR_STORE: weaviate
+      WEAVIATE_ENDPOINT: http://dify-weaviate:8080
+    volumes:
+      - dify-storage:/app/api/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -sf http://localhost:5001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  dify-worker:
+    image: langgenius/dify-api:latest
+    container_name: arcflow-dify-worker
+    restart: unless-stopped
+    depends_on:
+      - dify-api
+    environment:
+      MODE: worker
+      SECRET_KEY: ${DIFY_SECRET_KEY:-change-me-to-a-random-secret}
+      DB_USERNAME: ${DIFY_DB_USER:-dify}
+      DB_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      DB_HOST: dify-db
+      DB_PORT: 5432
+      DB_DATABASE: ${DIFY_DB_NAME:-dify}
+      REDIS_HOST: dify-redis
+      REDIS_PORT: 6379
+      VECTOR_STORE: weaviate
+      WEAVIATE_ENDPOINT: http://dify-weaviate:8080
+    volumes:
+      - dify-storage:/app/api/storage
+
+  dify-db:
+    image: postgres:15-alpine
+    container_name: arcflow-dify-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DIFY_DB_USER:-dify}
+      POSTGRES_PASSWORD: ${DIFY_DB_PASSWORD:-dify}
+      POSTGRES_DB: ${DIFY_DB_NAME:-dify}
+    volumes:
+      - dify-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DIFY_DB_USER:-dify}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dify-redis:
+    image: redis:7-alpine
+    container_name: arcflow-dify-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Weaviate 向量数据库
+  dify-weaviate:
+    image: semitechnologies/weaviate:1.24.1
+    container_name: arcflow-dify-weaviate
+    restart: unless-stopped
+    ports:
+      - "${WEAVIATE_PORT:-8080}:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      CLUSTER_HOSTNAME: node1
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+
+volumes:
+  gateway-data:
+  gateway-git:
+  plane-db-data:
+  dify-storage:
+  dify-db-data:
+  weaviate-data:

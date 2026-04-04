@@ -3,7 +3,7 @@ name: AI Code Review
 on:
   pull_request:
     branches: [main, develop, test]
-    types: [opened, synchronize]
+    types: [labeled]
   pull_request_target:
     branches: [main, develop, test]
     types: [labeled]
@@ -15,13 +15,13 @@ permissions:
 jobs:
   ai-review:
     # 触发条件：
-    # 1. 仓库内部 PR → 自动触发
-    # 2. 外部 fork PR → maintainer 打上 approved-for-ci 标签后触发
+    # 1. 仓库内部 PR → 打上 ai-review 标签时触发（CI 通过后、合并前手动打标签）
+    # 2. 外部 fork PR → 打上 approved-for-ci 标签后触发
     # 3. Dependabot → 跳过
     if: >-
       github.actor != 'dependabot[bot]' && (
-        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-        (github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'approved-for-ci' && github.event.pull_request.head.repo.full_name != github.repository)
+        (github.event_name == 'pull_request' && github.event.label.name == 'ai-review') ||
+        (github.event_name == 'pull_request_target' && github.event.label.name == 'approved-for-ci' && github.event.pull_request.head.repo.full_name != github.repository)
       )
     runs-on: ubuntu-latest
     steps:
