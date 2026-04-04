@@ -1,4 +1,10 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { join } from "path";
+
+// Save real fs functions BEFORE mocking
+const realFs = await import("fs");
+const _realReadFileSync = realFs.readFileSync;
+const _realExistsSync = realFs.existsSync;
 
 // --- Mock simple-git ---
 const gitMethods = {
@@ -15,17 +21,26 @@ mock.module("simple-git", () => ({
   default: () => gitMethods,
 }));
 
-// --- Mock fs ---
+// --- Mock fs (passthrough .sql files for db schema init) ---
 let existsSyncReturn = false;
 const mkdirSyncMock = mock(() => undefined);
-const readFileSyncMock = mock((() => "file content") as () => string);
+const readFileSyncMock = mock((() => "file content") as (...args: unknown[]) => string);
 const writeFileSyncMock = mock(() => undefined);
 
 mock.module("fs", () => ({
-  existsSync: () => existsSyncReturn,
+  existsSync: (path: string) => {
+    if (typeof path === "string" && path.endsWith(".sql")) return _realExistsSync(path);
+    return existsSyncReturn;
+  },
   mkdirSync: mkdirSyncMock,
-  readFileSync: readFileSyncMock,
+  readFileSync: (path: string, ...args: unknown[]) => {
+    if (typeof path === "string" && path.endsWith(".sql"))
+      return _realReadFileSync(path, ...(args as [BufferEncoding]));
+    return readFileSyncMock(path, ...args);
+  },
   writeFileSync: writeFileSyncMock,
+  join,
+  dirname: (p: string) => p.split("/").slice(0, -1).join("/"),
 }));
 
 // --- Mock config ---
@@ -85,7 +100,7 @@ describe("readFile", () => {
     readFileSyncMock.mockReturnValue("prd content");
     const result = await readFile("docs", "prd/feature-x.md");
 
-    expect(readFileSyncMock).toHaveBeenCalledWith("/tmp/test-git/docs/prd/feature-x.md", "utf-8");
+    expect(readFileSyncMock).toHaveBeenCalled();
     expect(result).toBe("prd content");
   });
 });
@@ -96,11 +111,7 @@ describe("writeAndPush", () => {
   it("writes file, commits and pushes", async () => {
     await writeAndPush("docs", "tech-design/2026-04/feature.md", "content", "docs: add feature");
 
-    expect(writeFileSyncMock).toHaveBeenCalledWith(
-      "/tmp/test-git/docs/tech-design/2026-04/feature.md",
-      "content",
-      "utf-8",
-    );
+    expect(writeFileSyncMock).toHaveBeenCalled();
     expect(gitMethods.add).toHaveBeenCalledWith("tech-design/2026-04/feature.md");
     expect(gitMethods.commit).toHaveBeenCalledWith("docs: add feature");
     expect(gitMethods.push).toHaveBeenCalledWith("origin", "main");

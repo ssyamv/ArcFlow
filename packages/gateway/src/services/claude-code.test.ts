@@ -1,8 +1,16 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
+import {
+  readFileSync as realReadFileSync,
+  existsSync as realExistsSync,
+  mkdirSync as realMkdirSync,
+} from "fs";
 
-// --- Mock fs ---
+// --- Mock fs (passthrough real calls, only intercept writeFileSync) ---
 const writeFileSyncMock = mock(() => undefined);
 mock.module("fs", () => ({
+  readFileSync: realReadFileSync,
+  existsSync: realExistsSync,
+  mkdirSync: realMkdirSync,
   writeFileSync: writeFileSyncMock,
 }));
 
