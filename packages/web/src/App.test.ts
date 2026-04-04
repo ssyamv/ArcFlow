@@ -18,6 +18,6 @@ describe("App", () => {
     });
 
     await router.isReady();
-    expect(wrapper.find(".app-layout").exists()).toBe(true);
+    expect(wrapper.find("nav").exists()).toBe(true);
   });
 });
