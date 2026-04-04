@@ -170,7 +170,7 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
 
     if (result.success) {
       const branchName = `fix/bug-${bugIssue.id}`;
-      await createBranchAndPush(targetRepo, branchName, `fix: auto-fix bug ${bugIssue.id}`, []);
+      await createBranchAndPush(targetRepo, branchName, `fix: auto-fix bug ${bugIssue.id}`);
       updateBugFixStatus(bugIssue.id, "fixed");
 
       if (params.chat_id) {
@@ -228,7 +228,6 @@ async function flowCodeGen(_executionId: number, params: TriggerParams): Promise
         repoName,
         branchName,
         `feat: AI 代码生成 - ${params.plane_issue_id}`,
-        [],
       );
 
       if (params.chat_id) {
