@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main, develop, test]
     types: [opened, synchronize]
+  pull_request_target:
+    branches: [main, develop, test]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -11,12 +14,23 @@ permissions:
 
 jobs:
   ai-review:
-    if: github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    # 触发条件：
+    # 1. 仓库内部 PR → 自动触发
+    # 2. 外部 fork PR → maintainer 打上 approved-for-ci 标签后触发
+    # 3. Dependabot → 跳过
+    if: >-
+      github.actor != 'dependabot[bot]' && (
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'approved-for-ci' && github.event.pull_request.head.repo.full_name != github.repository)
+      )
     runs-on: ubuntu-latest
     steps:
+      # fork PR 通过 pull_request_target 触发时，需要 checkout PR 的 HEAD
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
       - uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

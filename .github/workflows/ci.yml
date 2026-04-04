@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
     branches: [main, develop, test]
+  pull_request_target:
+    branches: [main, develop, test]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -10,6 +13,10 @@ permissions:
 
 jobs:
   changes:
+    # 仓库内部 PR 自动触发；外部 fork PR 需 approved-for-ci 标签
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'approved-for-ci')
     runs-on: ubuntu-latest
     outputs:
       gateway: ${{ steps.filter.outputs.gateway }}
