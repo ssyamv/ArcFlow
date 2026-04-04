@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "lint": "eslint src/ --max-warnings 0",
-    "test": "bun test --coverage --coverage-reporter lcov"
+    "test": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,wikijs}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
+    "test:all": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,wikijs}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
+    "test:coverage": "bun test --coverage src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,wikijs}.test.ts"
   },
   "dependencies": {
     "hono": "^4.0.0",
