@@ -3,6 +3,8 @@ import { getConfig } from "../config";
 import { createWebhookVerifier } from "../middleware/verify";
 import { createDedup } from "../middleware/dedup";
 import { triggerWorkflow } from "../services/workflow";
+import { isEventProcessed, recordWebhookEvent } from "../db/queries";
+import { extractIssueIdFromBranch } from "../services/ibuild";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -108,6 +110,59 @@ export function createWebhookRoutes(): Hono {
     }
 
     return c.json({ received: true, source: "feishu" });
+  });
+
+  // iBuild: 构建失败 → Bug 分析
+  webhookRoutes.post("/ibuild", async (c) => {
+    // 1. Secret 校验（query param）
+    const secret = c.req.query("secret");
+    if (secret !== config.ibuildWebhookSecret) {
+      return c.json({ error: "Invalid secret" }, 401);
+    }
+
+    // 2. 解析 URL-encoded body
+    const formData = await c.req.parseBody();
+    const status = String(formData.status ?? "");
+    const buildId = String(formData.buildId ?? "");
+    const projectId = String(formData.projectId ?? "");
+    const appId = String(formData.appId ?? "");
+    const gitBranch = String(formData.gitBranch ?? "");
+    const appKey = String(formData.appKey ?? "");
+
+    // 3. 去重（手动，因为 buildId 在 body 而非 header）
+    if (buildId && isEventProcessed(buildId)) {
+      return c.json({ message: "Event already processed" }, 200);
+    }
+    if (buildId) {
+      recordWebhookEvent(buildId, "ibuild");
+    }
+
+    // 4. 状态过滤
+    if (status !== "FAIL" && status !== "ABORT") {
+      return c.json({ received: true, triggered: false, source: "ibuild" });
+    }
+
+    // 5. planeDefaultProjectId 校验
+    if (!config.planeDefaultProjectId) {
+      console.error("PLANE_DEFAULT_PROJECT_ID is not configured, skipping iBuild bug analysis");
+      return c.json({ received: true, triggered: false, error: "missing config" }, 200);
+    }
+
+    // 6. 提取 Plane Issue ID + 映射仓库
+    const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? undefined;
+    const targetRepo = config.ibuildAppRepoMap[appKey] ?? "backend";
+
+    // 7. 同步触发
+    triggerWorkflow({
+      workflow_type: "bug_analysis",
+      trigger_source: "ibuild_webhook",
+      plane_issue_id: planeIssueId,
+      input_path: JSON.stringify({ projectId, appId, buildId }),
+      project_id: config.planeDefaultProjectId,
+      target_repos: [targetRepo],
+    });
+
+    return c.json({ received: true, triggered: true, source: "ibuild" });
   });
 
   return webhookRoutes;
