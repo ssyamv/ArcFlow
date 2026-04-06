@@ -5,6 +5,7 @@ import { createDedup } from "../middleware/dedup";
 import { triggerWorkflow } from "../services/workflow";
 import { isEventProcessed, recordWebhookEvent } from "../db/queries";
 import { extractIssueIdFromBranch } from "../services/ibuild";
+import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -152,15 +153,29 @@ export function createWebhookRoutes(): Hono {
     const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? undefined;
     const targetRepo = config.ibuildAppRepoMap[appKey] ?? "backend";
 
-    // 7. 同步触发
-    triggerWorkflow({
-      workflow_type: "bug_analysis",
-      trigger_source: "ibuild_webhook",
-      plane_issue_id: planeIssueId,
-      input_path: JSON.stringify({ projectId, appId, buildId }),
-      project_id: config.planeDefaultProjectId,
-      target_repos: [targetRepo],
-    });
+    // 7. 异步拉取日志并触发工作流（fire-and-forget）
+    fetchBuildLogWithContext(projectId, appId, buildId)
+      .then((logContent) => {
+        triggerWorkflow({
+          workflow_type: "bug_analysis",
+          trigger_source: "ibuild_webhook",
+          plane_issue_id: planeIssueId,
+          input_path: logContent,
+          project_id: config.planeDefaultProjectId,
+          target_repos: [targetRepo],
+        });
+      })
+      .catch((error) => {
+        console.error(`iBuild log fetch failed for build ${buildId}:`, error);
+        triggerWorkflow({
+          workflow_type: "bug_analysis",
+          trigger_source: "ibuild_webhook",
+          plane_issue_id: planeIssueId,
+          input_path: `iBuild 构建失败 (buildId: ${buildId}, branch: ${gitBranch})，日志拉取失败`,
+          project_id: config.planeDefaultProjectId,
+          target_repos: [targetRepo],
+        });
+      });
 
     return c.json({ received: true, triggered: true, source: "ibuild" });
   });

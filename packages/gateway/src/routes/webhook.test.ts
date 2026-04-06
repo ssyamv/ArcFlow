@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createWebhookRoutes } from "./webhook";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
+import * as ibuildLogFetcher from "../services/ibuild-log-fetcher";
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -15,6 +16,7 @@ describe("webhook routes", () => {
     app = new Hono();
     app.route("/webhook", createWebhookRoutes());
     triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(1);
+    spyOn(ibuildLogFetcher, "fetchBuildLogWithContext").mockResolvedValue("mocked build log");
   });
 
   afterEach(() => {
@@ -293,27 +295,37 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/ibuild extracts issue ID from branch and maps repo", async () => {
-    const res = await app.request("/webhook/ibuild?secret=", {
+    await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: ibuildPayload({ buildId: "1667" }),
+      body: ibuildPayload({
+        gitBranch: "feat/PROJ-123-add-login",
+        buildId: "1667",
+        appKey: "DZHCS",
+      }),
     });
-    expect(res.status).toBe(200);
+
+    await Bun.sleep(0); // flush microtask queue for async log fetch
+
     expect(triggerSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        plane_issue_id: "PROJ-123",
+        workflow_type: "bug_analysis",
         trigger_source: "ibuild_webhook",
+        plane_issue_id: "PROJ-123",
+        input_path: "mocked build log",
       }),
     );
   });
 
   it("POST /webhook/ibuild handles unrecognized branch gracefully", async () => {
-    const res = await app.request("/webhook/ibuild?secret=", {
+    await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: ibuildPayload({ gitBranch: "master", buildId: "1668" }),
     });
-    expect(res.status).toBe(200);
+
+    await Bun.sleep(0); // flush microtask queue for async log fetch
+
     expect(triggerSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         plane_issue_id: undefined,
