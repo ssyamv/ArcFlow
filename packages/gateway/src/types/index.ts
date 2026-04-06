@@ -1,11 +1,11 @@
 // Webhook 来源
-export type WebhookSource = "plane" | "git" | "cicd" | "feishu";
+export type WebhookSource = "plane" | "git" | "cicd" | "feishu" | "ibuild";
 
 // 工作流类型
 export type WorkflowType = "prd_to_tech" | "tech_to_openapi" | "bug_analysis" | "code_gen";
 
 // 工作流触发来源
-export type TriggerSource = "plane_webhook" | "cicd_webhook" | "manual";
+export type TriggerSource = "plane_webhook" | "cicd_webhook" | "ibuild_webhook" | "manual";
 
 // 工作流执行状态
 export type WorkflowStatus = "pending" | "running" | "success" | "failed";
@@ -66,4 +66,41 @@ export interface TriggerWorkflowResponse {
 export interface ExecutionListResponse {
   data: WorkflowExecution[];
   total: number;
+}
+
+export interface IBuildWebhookPayload {
+  status: string;
+  buildId: string;
+  projectId: string;
+  appId: string;
+  gitBranch: string;
+  commitId: string;
+  projectKey: string;
+  appKey: string;
+  builder: string;
+  startTime: string;
+  appVersion?: string;
+  longCommitId?: string;
+  artifactoryRepo?: string;
+  projectVersion?: string;
+}
+
+export interface IBuildModule {
+  moduleId: string;
+  modulekey: string;
+  status: string;
+}
+
+export interface IBuildDetail {
+  uuid: string;
+  buildSid: string;
+  branch: string;
+  commitNum: string;
+  executor: string;
+  executorName: string;
+  executeTime: string;
+  duration: string;
+  status: string;
+  modules: IBuildModule[] | null;
+  logUrl?: string;
 }

@@ -12,6 +12,7 @@ export interface Config {
   planeBaseUrl: string;
   planeApiToken: string;
   planeWorkspaceSlug: string;
+  planeDefaultProjectId: string;
 
   // Git
   docsGitRepo: string;
@@ -38,6 +39,13 @@ export interface Config {
 
   // Claude Code
   claudeCodeTimeout: number;
+
+  // iBuild
+  ibuildBaseUrl: string;
+  ibuildClientKey: string;
+  ibuildUser: string;
+  ibuildWebhookSecret: string;
+  ibuildAppRepoMap: Record<string, string>;
 }
 
 export function getConfig(): Config {
@@ -53,6 +61,7 @@ export function getConfig(): Config {
     planeBaseUrl: process.env.PLANE_BASE_URL ?? "",
     planeApiToken: process.env.PLANE_API_TOKEN ?? "",
     planeWorkspaceSlug: process.env.PLANE_WORKSPACE_SLUG ?? "",
+    planeDefaultProjectId: process.env.PLANE_DEFAULT_PROJECT_ID ?? "",
 
     docsGitRepo: process.env.DOCS_GIT_REPO ?? "",
     backendGitRepo: process.env.BACKEND_GIT_REPO ?? "",
@@ -74,5 +83,11 @@ export function getConfig(): Config {
     wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",
 
     claudeCodeTimeout: Number(process.env.CLAUDE_CODE_TIMEOUT) || 600000,
+
+    ibuildBaseUrl: process.env.IBUILD_BASE_URL ?? "",
+    ibuildClientKey: process.env.IBUILD_CLIENT_KEY ?? "",
+    ibuildUser: process.env.IBUILD_USER ?? "",
+    ibuildWebhookSecret: process.env.IBUILD_WEBHOOK_SECRET ?? "",
+    ibuildAppRepoMap: JSON.parse(process.env.IBUILD_APP_REPO_MAP || '{"default":"backend"}'),
   };
 }

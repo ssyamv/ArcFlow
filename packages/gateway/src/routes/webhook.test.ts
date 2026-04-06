@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createWebhookRoutes } from "./webhook";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
+import * as ibuildLogFetcher from "../services/ibuild-log-fetcher";
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -10,15 +11,18 @@ describe("webhook routes", () => {
 
   beforeEach(() => {
     process.env.NODE_ENV = "test";
+    process.env.PLANE_DEFAULT_PROJECT_ID = "test-plane-proj";
     getDb();
     app = new Hono();
     app.route("/webhook", createWebhookRoutes());
     triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(1);
+    spyOn(ibuildLogFetcher, "fetchBuildLogWithContext").mockResolvedValue("mocked build log");
   });
 
   afterEach(() => {
     closeDb();
     mock.restore();
+    delete process.env.PLANE_DEFAULT_PROJECT_ID;
   });
 
   it("POST /webhook/plane returns received", async () => {
@@ -188,5 +192,145 @@ describe("webhook routes", () => {
     });
     expect(res.status).toBe(200);
     expect(triggerSpy).not.toHaveBeenCalled();
+  });
+
+  // iBuild tests
+  function ibuildPayload(overrides: Record<string, string> = {}): string {
+    const defaults: Record<string, string> = {
+      status: "FAIL",
+      buildId: "1661",
+      projectId: "proj-ibuild-1",
+      appId: "app-ibuild-1",
+      gitBranch: "feat/PROJ-123-add-login",
+      commitId: "b2140960",
+      projectKey: "TESTPROJ",
+      appKey: "DZHCS",
+      builder: "testuser",
+      startTime: "2026-04-06 10:00:00",
+    };
+    const params = { ...defaults, ...overrides };
+    return new URLSearchParams(params).toString();
+  }
+
+  it("POST /webhook/ibuild returns received with triggered=true on FAIL", async () => {
+    const res = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload(),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggered).toBe(true);
+  });
+
+  it("POST /webhook/ibuild does not trigger on SUCCEED status", async () => {
+    const res = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({ status: "SUCCEED", buildId: "1662" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggered).toBe(false);
+    expect(triggerSpy).not.toHaveBeenCalled();
+  });
+
+  it("POST /webhook/ibuild does not trigger on PROCESSING status", async () => {
+    const res = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({ status: "PROCESSING", buildId: "1663" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggered).toBe(false);
+  });
+
+  it("POST /webhook/ibuild does not trigger on CANCEL status", async () => {
+    const res = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({ status: "CANCEL", buildId: "1664" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggered).toBe(false);
+  });
+
+  it("POST /webhook/ibuild triggers on ABORT status", async () => {
+    const res = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({ status: "ABORT", buildId: "1665" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.triggered).toBe(true);
+  });
+
+  it("POST /webhook/ibuild rejects invalid secret", async () => {
+    const res = await app.request("/webhook/ibuild?secret=wrong", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload(),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /webhook/ibuild deduplicates by buildId", async () => {
+    const payload = ibuildPayload({ buildId: "1666" });
+    await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: payload,
+    });
+    const res2 = await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: payload,
+    });
+    expect(res2.status).toBe(200);
+    const body = await res2.json();
+    expect(body.message).toBe("Event already processed");
+  });
+
+  it("POST /webhook/ibuild extracts issue ID from branch and maps repo", async () => {
+    await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({
+        gitBranch: "feat/PROJ-123-add-login",
+        buildId: "1667",
+        appKey: "DZHCS",
+      }),
+    });
+
+    await Bun.sleep(0); // flush microtask queue for async log fetch
+
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflow_type: "bug_analysis",
+        trigger_source: "ibuild_webhook",
+        plane_issue_id: "PROJ-123",
+        input_path: "mocked build log",
+      }),
+    );
+  });
+
+  it("POST /webhook/ibuild handles unrecognized branch gracefully", async () => {
+    await app.request("/webhook/ibuild?secret=", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: ibuildPayload({ gitBranch: "master", buildId: "1668" }),
+    });
+
+    await Bun.sleep(0); // flush microtask queue for async log fetch
+
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plane_issue_id: undefined,
+        trigger_source: "ibuild_webhook",
+      }),
+    );
   });
 });
