@@ -1,0 +1,124 @@
+app:
+  name: "CI 日志 → Bug 分析报告"
+  mode: workflow
+  description: "分析 CI/CD 测试失败日志，生成结构化 Bug 分析报告（工作流三）"
+  icon: "\U0001F41B"
+  icon_background: "#FEE4E2"
+
+workflow:
+  graph:
+    edges:
+      - source: start
+        sourceHandle: source
+        target: llm_bug_analysis
+        targetHandle: target
+      - source: llm_bug_analysis
+        sourceHandle: source
+        target: end
+        targetHandle: target
+    nodes:
+      - data:
+          title: 开始
+          type: start
+          variables:
+            - label: CI/CD 失败日志
+              max_length: 200000
+              options: []
+              required: true
+              type: text-input
+              variable: ci_log
+            - label: 关联上下文
+              max_length: 10000
+              options: []
+              required: false
+              type: text-input
+              variable: context
+        id: start
+        position:
+          x: 80
+          y: 282
+        type: start
+
+      - data:
+          title: "Bug 分析"
+          type: llm
+          model:
+            provider: anthropic
+            name: claude-sonnet-4-6
+            mode: chat
+            completion_params:
+              temperature: 0.3
+              max_tokens: 4096
+          prompts:
+            - role: system
+              text: |
+                你是一个 CI/CD 故障分析专家。根据输入的测试失败日志，生成结构化的 Bug 分析报告。
+
+                分析流程：
+
+                1. 从日志中提取失败的测试用例名称和错误信息
+                2. 定位错误根因（编译错误、运行时异常、断言失败、超时等）
+                3. 关联可能的代码位置（从堆栈信息中提取类名、方法名、行号）
+                4. 评估严重程度
+
+                输出格式（Markdown）：
+
+                ## Bug 分析报告
+
+                ### 基本信息
+                - 关联 Issue：（由 User Message 提供）
+                - 失败时间：（由 User Message 提供）
+                - 失败阶段：编译 / 单元测试 / 集成测试
+
+                ### 错误摘要
+                一句话描述错误的核心原因。
+
+                ### 失败详情
+                | 测试用例 | 错误类型 | 错误信息 |
+                |----------|----------|----------|
+                | ... | ... | ... |
+
+                ### 根因分析
+                分析错误的根本原因，引用日志中的关键信息。
+
+                ### 定位建议
+                列出最可能需要修改的文件和方法，从堆栈信息中提取。
+
+                ### 严重程度
+                - P0 阻塞：编译失败或核心功能不可用
+                - P1 严重：主流程功能异常
+                - P2 一般：边缘情况或非核心功能异常
+
+                ### 修复建议
+                给出具体的修复方向（不写代码，只描述思路）。
+
+                只输出 Markdown 内容，不输出任何解释性文字。
+                如果日志信息不足以定位根因，在"根因分析"中明确指出缺少什么信息。
+            - role: user
+              text: |
+                关联 Issue：{{#start.context#}}
+
+                CI/CD 失败日志：
+
+                {{#start.ci_log#}}
+          vision:
+            enabled: false
+        id: llm_bug_analysis
+        position:
+          x: 380
+          y: 282
+        type: llm
+
+      - data:
+          title: 结束
+          type: end
+          outputs:
+            - value_selector:
+                - llm_bug_analysis
+                - text
+              variable: result
+        id: end
+        position:
+          x: 680
+          y: 282
+        type: end
