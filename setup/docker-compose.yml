@@ -1,5 +1,7 @@
 # ArcFlow 统一部署 — Gateway + Plane + Dify + Weaviate
 # 用法: cp .env.example .env && 编辑 .env && docker compose up -d
+# 注意: Plane CE 建议使用 setup/plane/docker-compose.yml 独立部署（服务较多）
+# 本文件保留 Gateway + Dify 部分，Plane 通过 API 地址连接
 
 services:
   # ========================
@@ -20,7 +22,7 @@ services:
       DIFY_TECH_DOC_API_KEY: ${DIFY_TECH_DOC_API_KEY:-}
       DIFY_OPENAPI_API_KEY: ${DIFY_OPENAPI_API_KEY:-}
       DIFY_BUG_ANALYSIS_API_KEY: ${DIFY_BUG_ANALYSIS_API_KEY:-}
-      PLANE_BASE_URL: http://plane-api:8000
+      PLANE_BASE_URL: ${PLANE_BASE_URL:-http://172.29.230.21:8082}
       PLANE_API_TOKEN: ${PLANE_API_TOKEN:-}
       PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:-arcflow}
       DOCS_GIT_REPO: ${DOCS_GIT_REPO:-}
@@ -46,8 +48,6 @@ services:
     depends_on:
       dify-api:
         condition: service_healthy
-      plane-api:
-        condition: service_started
     healthcheck:
       test:
         [
@@ -59,86 +59,6 @@ services:
       interval: 30s
       timeout: 3s
       start_period: 10s
-
-  # ========================
-  # Plane CE（任务管理）
-  # ========================
-  plane-web:
-    image: makeplane/plane-frontend:stable
-    container_name: arcflow-plane-web
-    restart: unless-stopped
-    ports:
-      - "${PLANE_PORT:-8082}:3000"
-    depends_on:
-      - plane-api
-    environment:
-      NEXT_PUBLIC_API_BASE_URL: http://plane-api:8000
-
-  plane-api:
-    image: makeplane/plane-backend:stable
-    container_name: arcflow-plane-api
-    restart: unless-stopped
-    depends_on:
-      plane-db:
-        condition: service_healthy
-      plane-redis:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
-      REDIS_URL: redis://plane-redis:6379
-      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
-    ports:
-      - "8000:8000"
-
-  plane-worker:
-    image: makeplane/plane-backend:stable
-    container_name: arcflow-plane-worker
-    restart: unless-stopped
-    command: ["celery", "-A", "plane", "worker", "-l", "info"]
-    depends_on:
-      - plane-api
-    environment:
-      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
-      REDIS_URL: redis://plane-redis:6379
-      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
-
-  plane-beat:
-    image: makeplane/plane-backend:stable
-    container_name: arcflow-plane-beat
-    restart: unless-stopped
-    command: ["celery", "-A", "plane", "beat", "-l", "info"]
-    depends_on:
-      - plane-api
-    environment:
-      DATABASE_URL: postgresql://${PLANE_DB_USER:-plane}:${PLANE_DB_PASSWORD:-plane}@plane-db:5432/${PLANE_DB_NAME:-plane}
-      REDIS_URL: redis://plane-redis:6379
-      SECRET_KEY: ${PLANE_SECRET_KEY:-change-me-to-a-random-secret}
-
-  plane-db:
-    image: postgres:15-alpine
-    container_name: arcflow-plane-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${PLANE_DB_USER:-plane}
-      POSTGRES_PASSWORD: ${PLANE_DB_PASSWORD:-plane}
-      POSTGRES_DB: ${PLANE_DB_NAME:-plane}
-    volumes:
-      - plane-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PLANE_DB_USER:-plane}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  plane-redis:
-    image: redis:7-alpine
-    container_name: arcflow-plane-redis
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # ========================
   # Dify（AI 编排）
@@ -253,7 +173,6 @@ services:
 volumes:
   gateway-data:
   gateway-git:
-  plane-db-data:
   dify-storage:
   dify-db-data:
   weaviate-data:
