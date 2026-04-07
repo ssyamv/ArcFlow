@@ -54,7 +54,7 @@ PM 写 PRD (Wiki.js) → docs Git → Plane Issue Approved
 - `docs/` — 技术架构方案文档和设计规格文档
 - `docs/superpowers/specs/` — 详细设计规格文档（见下方索引）
 - `docs/superpowers/plans/` — 实施计划文档
-- `setup/` — 第三方服务部署配置（Wiki.js / Plane / Dify）
+- `setup/` — 第三方服务部署配置（Wiki.js / Plane / Dify / NanoClaw）
 
 docs 仓库（规划中）的目录规范：
 
@@ -100,3 +100,4 @@ docs 仓库（规划中）的目录规范：
 | `2026-04-02-feishu-approval-design.md` | 飞书消息卡片 + 审批回调协议 |
 | `2026-04-02-multi-platform-codegen-design.md` | 多端代码生成策略（两轮生成） |
 | `2026-04-02-nanoclaw-routing-design.md` | NanoClaw 意图路由 + 工具接入 |
+| `2026-04-07-nanoclaw-setup-design.md` | NanoClaw ArcFlow 接入设计（Fork 策略 / 工具配置 / 部署） |
