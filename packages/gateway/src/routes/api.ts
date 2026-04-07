@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { getWorkflowExecution, listWorkflowExecutions } from "../db/queries";
+import { getWorkflowExecution, listWorkflowExecutions, listWebhookLogs } from "../db/queries";
 import { triggerWorkflow } from "../services/workflow";
-import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus } from "../types";
+import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
 
@@ -41,4 +41,18 @@ apiRoutes.get("/workflow/executions", (c) => {
 
   const result = listWorkflowExecutions({ workflow_type: workflowType, status, limit });
   return c.json(result);
+});
+
+// Webhook 日志查询（联调排错用）
+apiRoutes.get("/webhook/logs", (c) => {
+  const source = c.req.query("source") as WebhookSource | undefined;
+  const limit = Number(c.req.query("limit")) || 50;
+  const logs = listWebhookLogs(source, limit);
+  return c.json({
+    data: logs.map((log) => ({
+      ...log,
+      payload: JSON.parse(log.payload),
+    })),
+    total: logs.length,
+  });
 });

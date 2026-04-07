@@ -1,11 +1,18 @@
+version: "0.6.0"
+kind: app
 app:
   name: "技术文档 → OpenAPI"
   mode: workflow
   description: "将技术设计文档转化为 OpenAPI 3.0.3 yaml 规范（工作流二）"
   icon: "\U0001F4CB"
+  icon_type: emoji
   icon_background: "#D5F5F6"
+  use_icon_as_answer_icon: false
 
 workflow:
+  features: {}
+  environment_variables: []
+  conversation_variables: []
   graph:
     edges:
       - source: start
@@ -17,7 +24,11 @@ workflow:
         target: end
         targetHandle: target
     nodes:
-      - data:
+      - id: start
+        position:
+          x: 80
+          y: 282
+        data:
           title: 开始
           type: start
           variables:
@@ -27,13 +38,12 @@ workflow:
               required: true
               type: text-input
               variable: tech_doc_content
-        id: start
-        position:
-          x: 80
-          y: 282
-        type: start
 
-      - data:
+      - id: llm_tech_to_openapi
+        position:
+          x: 380
+          y: 282
+        data:
           title: "技术文档 → OpenAPI"
           type: llm
           model:
@@ -73,13 +83,12 @@ workflow:
               text: "{{#start.tech_doc_content#}}"
           vision:
             enabled: false
-        id: llm_tech_to_openapi
-        position:
-          x: 380
-          y: 282
-        type: llm
 
-      - data:
+      - id: end
+        position:
+          x: 680
+          y: 282
+        data:
           title: 结束
           type: end
           outputs:
@@ -87,8 +96,3 @@ workflow:
                 - llm_tech_to_openapi
                 - text
               variable: result
-        id: end
-        position:
-          x: 680
-          y: 282
-        type: end

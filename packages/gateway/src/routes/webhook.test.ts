@@ -12,6 +12,8 @@ describe("webhook routes", () => {
   beforeEach(() => {
     process.env.NODE_ENV = "test";
     process.env.PLANE_DEFAULT_PROJECT_ID = "test-plane-proj";
+    process.env.PLANE_APPROVED_STATE_ID = "state-approved";
+    process.env.FEISHU_DEFAULT_CHAT_ID = "oc_test_chat";
     getDb();
     app = new Hono();
     app.route("/webhook", createWebhookRoutes());
@@ -23,30 +25,41 @@ describe("webhook routes", () => {
     closeDb();
     mock.restore();
     delete process.env.PLANE_DEFAULT_PROJECT_ID;
+    delete process.env.PLANE_APPROVED_STATE_ID;
+    delete process.env.FEISHU_DEFAULT_CHAT_ID;
   });
 
   it("POST /webhook/plane returns received", async () => {
     const res = await app.request("/webhook/plane", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: "issue_update" }),
+      body: JSON.stringify({
+        event: "project",
+        action: "update",
+        webhook_id: "wh-1",
+        workspace_id: "ws-1",
+        data: { id: "proj-1" },
+      }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.source).toBe("plane");
   });
 
-  it("POST /webhook/plane triggers prd_to_tech when issue is Approved", async () => {
+  it("POST /webhook/plane triggers prd_to_tech when issue state matches approved", async () => {
     const res = await app.request("/webhook/plane", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event: "issue",
+        action: "update",
+        webhook_id: "wh-1",
+        workspace_id: "ws-1",
         data: {
           id: "issue-42",
-          state: { name: "Approved" },
-          project: "proj-1",
-          description_html: "prd/2026-04/login.md",
+          state_id: "state-approved",
+          project_id: "proj-1",
+          description_text: "需求文档 prd/2026-04/login.md 请审阅",
         },
       }),
     });
@@ -57,19 +70,23 @@ describe("webhook routes", () => {
       plane_issue_id: "issue-42",
       input_path: "prd/2026-04/login.md",
       project_id: "proj-1",
+      chat_id: "oc_test_chat",
     });
   });
 
-  it("POST /webhook/plane does not trigger workflow for non-Approved status", async () => {
+  it("POST /webhook/plane does not trigger workflow for non-Approved state", async () => {
     await app.request("/webhook/plane", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event: "issue",
+        action: "update",
+        webhook_id: "wh-1",
+        workspace_id: "ws-1",
         data: {
           id: "issue-43",
-          state: { name: "In Progress" },
-          project: "proj-1",
+          state_id: "state-in-progress",
+          project_id: "proj-1",
         },
       }),
     });
