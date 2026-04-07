@@ -28,15 +28,18 @@ x-shared-env: &shared-env
   # Vector DB
   VECTOR_STORE: weaviate
   WEAVIATE_ENDPOINT: http://dify-weaviate:8080
-  WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
+  WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-change-me-weaviate-key}
   # Sandbox
   CODE_EXECUTION_ENDPOINT: http://dify-sandbox:8194
   CODE_EXECUTION_API_KEY: ${SANDBOX_API_KEY:-dify-sandbox}
+  # CORS
+  WEB_API_CORS_ALLOW_ORIGINS: ${WEB_API_CORS_ALLOW_ORIGINS:-*}
+  CONSOLE_CORS_ALLOW_ORIGINS: ${CONSOLE_CORS_ALLOW_ORIGINS:-*}
   # SSRF proxy
   SSRF_PROXY_HTTP_URL: http://dify-ssrf:3128
   SSRF_PROXY_HTTPS_URL: http://dify-ssrf:3128
   # Plugin daemon
-  PLUGIN_DAEMON_BASE_URL: http://dify-plugin:5002
+  PLUGIN_DAEMON_URL: http://dify-plugin:5002
   PLUGIN_DAEMON_KEY: ${PLUGIN_DAEMON_KEY:-change-me-plugin-key}
   PLUGIN_DIFY_INNER_API_KEY: ${PLUGIN_INNER_API_KEY:-change-me-inner-key}
 
@@ -99,6 +102,8 @@ services:
     environment:
       CONSOLE_API_URL: ${DIFY_CONSOLE_API_URL:-}
       APP_API_URL: ${DIFY_APP_API_URL:-}
+      NEXT_PUBLIC_API_PREFIX: ${DIFY_CONSOLE_API_URL:-}/console/api
+      NEXT_PUBLIC_PUBLIC_API_PREFIX: ${DIFY_APP_API_URL:-}/api
 
   # ─── Sandbox (代码执行沙箱) ───────────────────────────────
   dify-sandbox:
@@ -137,8 +142,10 @@ services:
       PLUGIN_REMOTE_INSTALLING_HOST: 0.0.0.0
       PLUGIN_REMOTE_INSTALLING_PORT: 5003
       PLUGIN_WORKING_PATH: /app/storage/cwd
-      FORCE_VERIFYING_SIGNATURE: "true"
-      PYTHON_ENV_INIT_TIMEOUT: 120
+      FORCE_VERIFYING_SIGNATURE: "false"
+      PYTHON_ENV_INIT_TIMEOUT: 600
+      HTTP_PROXY: http://172.29.230.21:7897
+      HTTPS_PROXY: http://172.29.230.21:7897
       PLUGIN_MAX_EXECUTION_TIMEOUT: 600
     volumes:
       - dify-plugin-storage:/app/storage
@@ -201,8 +208,8 @@ services:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       AUTHENTICATION_APIKEY_ENABLED: "true"
-      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
-      AUTHENTICATION_APIKEY_USERS: ${WEAVIATE_API_KEY:-WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih}
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-change-me-weaviate-key}
+      AUTHENTICATION_APIKEY_USERS: ${WEAVIATE_API_KEY:-change-me-weaviate-key}
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
       DEFAULT_VECTORIZER_MODULE: none
       CLUSTER_HOSTNAME: node1
