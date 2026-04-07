@@ -1,2 +1,5 @@
 # 文档中的示例 token / key（非真实凭据）
 # 格式：每行一个 commit hash:file:line 或 fingerprint
+
+# .env.example 中的占位符 API Key（已在 2ad96d3 中替换为 change-me 占位符）
+9dbf013a3025f0f6f4a1a45b9c6676c14dd5c331:setup/dify/.env.example:generic-api-key:25
