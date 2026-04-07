@@ -53,13 +53,13 @@ workflow:
           title: "Bug 分析"
           type: llm
           model:
-            provider: anthropic
+            provider: langgenius/anthropic/anthropic
             name: claude-sonnet-4-6
             mode: chat
             completion_params:
               temperature: 0.3
               max_tokens: 4096
-          prompts:
+          prompt_template:
             - role: system
               text: |
                 你是一个 CI/CD 故障分析专家。根据输入的测试失败日志，生成结构化的 Bug 分析报告。
@@ -111,6 +111,9 @@ workflow:
                 CI/CD 失败日志：
 
                 {{#start.ci_log#}}
+          context:
+            enabled: false
+            variable_selector: []
           vision:
             enabled: false
 
