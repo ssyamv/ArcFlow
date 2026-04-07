@@ -1,6 +1,6 @@
-import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { describe, expect, it, mock, beforeEach, afterAll, spyOn } from "bun:test";
 
-// --- Mock db/queries ---
+// --- Mock db/queries (safe: queries.test.ts runs before this file) ---
 const createWorkflowExecution = mock(() => 42);
 const updateWorkflowStatus = mock(() => {});
 const createBugFixRetry = mock(() => {});
@@ -15,9 +15,17 @@ mock.module("../db/queries", () => ({
   getBugFixRetry,
   incrementBugFixRetry,
   updateBugFixStatus,
+  // Include all exports to avoid missing export errors for other importers
+  recordWebhookEvent: mock(() => {}),
+  isEventProcessed: mock(() => false),
+  recordWebhookLog: mock(() => {}),
+  listWebhookLogs: mock(() => []),
+  cleanExpiredEvents: mock(() => 0),
+  getWorkflowExecution: mock(() => null),
+  listWorkflowExecutions: mock(() => ({ data: [], total: 0 })),
 }));
 
-// --- Mock git ---
+// --- Mock git (safe: git.test.ts has its own mock.module) ---
 const ensureRepo = mock(() => Promise.resolve());
 const readFileMock = mock(() => Promise.resolve("file content"));
 const writeAndPush = mock(() => Promise.resolve());
@@ -30,7 +38,7 @@ mock.module("./git", () => ({
   createBranchAndPush,
 }));
 
-// --- Mock dify ---
+// --- Mock dify (safe: dify.test.ts runs before this file) ---
 const generateTechDoc = mock(() => Promise.resolve("tech doc content"));
 const generateOpenApi = mock(() => Promise.resolve("openapi content"));
 const analyzeBug = mock(() => Promise.resolve("bug report"));
@@ -41,38 +49,6 @@ mock.module("./dify", () => ({
   analyzeBug,
 }));
 
-// --- Mock plane ---
-const createBugIssue = mock(() => Promise.resolve({ id: "bug-issue-1" }));
-
-mock.module("./plane", () => ({
-  createBugIssue,
-}));
-
-// --- Mock feishu ---
-const sendTechReviewCard = mock(() => Promise.resolve());
-const sendNotification = mock(() => Promise.resolve());
-const sendBugNotification = mock(() => Promise.resolve());
-
-mock.module("./feishu", () => ({
-  sendTechReviewCard,
-  sendNotification,
-  sendBugNotification,
-}));
-
-// --- Mock wikijs ---
-const triggerSync = mock(() => Promise.resolve());
-
-mock.module("./wikijs", () => ({
-  triggerSync,
-}));
-
-// --- Mock claude-code ---
-const runClaudeCode = mock(() => Promise.resolve({ success: true, output: "done" }));
-
-mock.module("./claude-code", () => ({
-  runClaudeCode,
-}));
-
 // --- Mock config ---
 mock.module("../config", () => ({
   getConfig: () => ({
@@ -80,7 +56,34 @@ mock.module("../config", () => ({
   }),
 }));
 
+// --- Use spyOn for modules that have their own test files downstream ---
+// This avoids mock.module pollution that would break claude-code.test.ts, plane.test.ts, wikijs.test.ts
+const claudeCodeMod = await import("./claude-code");
+const planeMod = await import("./plane");
+const feishuMod = await import("./feishu");
+const wikijsMod = await import("./wikijs");
+
+const runClaudeCode = spyOn(claudeCodeMod, "runClaudeCode").mockResolvedValue({
+  success: true,
+  output: "done",
+});
+const createBugIssue = spyOn(planeMod, "createBugIssue").mockResolvedValue({ id: "bug-issue-1" });
+const sendTechReviewCard = spyOn(feishuMod, "sendTechReviewCard").mockResolvedValue(undefined);
+const sendNotification = spyOn(feishuMod, "sendNotification").mockResolvedValue(undefined);
+const sendBugNotification = spyOn(feishuMod, "sendBugNotification").mockResolvedValue(undefined);
+const triggerSync = spyOn(wikijsMod, "triggerSync").mockResolvedValue(undefined);
+
 const { triggerWorkflow } = await import("./workflow");
+
+// Restore spied modules after all tests so downstream test files get the real implementations
+afterAll(() => {
+  runClaudeCode.mockRestore();
+  createBugIssue.mockRestore();
+  sendTechReviewCard.mockRestore();
+  sendNotification.mockRestore();
+  sendBugNotification.mockRestore();
+  triggerSync.mockRestore();
+});
 
 function clearAllMocks() {
   createWorkflowExecution.mockClear();

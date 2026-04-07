@@ -1,31 +1,25 @@
-import { describe, it, mock, afterEach } from "bun:test";
+import { describe, it, afterEach, beforeEach, spyOn } from "bun:test";
+import * as queries from "./db/queries";
+import { getDb, closeDb } from "./db";
 
-const cleanExpiredEvents = mock(() => 0);
+let cleanSpy: ReturnType<typeof spyOn>;
 
-mock.module("./db/queries", () => ({
-  cleanExpiredEvents,
-  // Provide stubs for all exports to avoid contaminating other tests
-  createWorkflowExecution: mock(() => 0),
-  getWorkflowExecution: mock(() => null),
-  listWorkflowExecutions: mock(() => []),
-  updateWorkflowStatus: mock(() => {}),
-  recordWebhookEvent: mock(() => {}),
-  isEventProcessed: mock(() => false),
-  createBugFixRetry: mock(() => {}),
-  getBugFixRetry: mock(() => null),
-  incrementBugFixRetry: mock(() => {}),
-  updateBugFixStatus: mock(() => {}),
-}));
+beforeEach(() => {
+  process.env.NODE_ENV = "test";
+  getDb();
+  cleanSpy = spyOn(queries, "cleanExpiredEvents").mockReturnValue(0);
+});
+
+afterEach(() => {
+  stopScheduler();
+  cleanSpy.mockRestore();
+  closeDb();
+});
 
 const { startScheduler, stopScheduler } = await import("./scheduler");
 
 describe("scheduler", () => {
-  afterEach(() => {
-    stopScheduler();
-  });
-
   it("startScheduler sets up an interval that calls cleanExpiredEvents", () => {
-    cleanExpiredEvents.mockReturnValue(0);
     startScheduler();
     stopScheduler();
   });
