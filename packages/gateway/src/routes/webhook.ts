@@ -3,9 +3,11 @@ import { getConfig } from "../config";
 import { createWebhookVerifier } from "../middleware/verify";
 import { createDedup } from "../middleware/dedup";
 import { triggerWorkflow } from "../services/workflow";
-import { isEventProcessed, recordWebhookEvent } from "../db/queries";
+import { isEventProcessed, recordWebhookEvent, recordWebhookLog } from "../db/queries";
 import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
+import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
+import type { PlaneWebhookPayload } from "../services/plane-webhook";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -17,22 +19,22 @@ export function createWebhookRoutes(): Hono {
     createWebhookVerifier("X-Plane-Signature", config.planeWebhookSecret),
     createDedup("X-Plane-Delivery", "plane"),
     async (c) => {
-      const body = await c.req.json();
+      const body = (await c.req.json()) as PlaneWebhookPayload;
 
-      // Parse Plane webhook payload
-      const event = body.event;
-      const issueId = body.data?.id;
-      const status = body.data?.state?.name;
-      const projectId = body.data?.project;
-      const prdPath = body.data?.description_html; // extract PRD path from description
+      // 记录原始 payload 用于联调排错
+      recordWebhookLog("plane", body);
 
-      if (event === "issue" && status === "Approved" && issueId) {
+      if (shouldTriggerWorkflow(body, config.planeApprovedStateId)) {
+        const prdPath = extractPrdPath(body.data);
+        const projectId = body.data.project_id ?? body.data.project;
+
         triggerWorkflow({
           workflow_type: "prd_to_tech",
           trigger_source: "plane_webhook",
-          plane_issue_id: issueId,
+          plane_issue_id: body.data.id,
           input_path: prdPath,
-          project_id: projectId,
+          project_id: projectId as string | undefined,
+          chat_id: config.feishuDefaultChatId || undefined,
         });
       }
 
