@@ -14,8 +14,8 @@ export function createWebhookRoutes(): Hono {
   // Plane: Issue Approved → trigger doc generation
   webhookRoutes.post(
     "/plane",
-    createWebhookVerifier("X-Plane-Secret", config.planeWebhookSecret),
-    createDedup("X-Plane-Event-Id", "plane"),
+    createWebhookVerifier("X-Plane-Signature", config.planeWebhookSecret),
+    createDedup("X-Plane-Delivery", "plane"),
     async (c) => {
       const body = await c.req.json();
 
