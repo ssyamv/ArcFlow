@@ -182,6 +182,18 @@ describe("bug_fix_retry", () => {
     expect(retry!.retry_count).toBe(0);
   });
 
+  it("stores bug_issue_id when provided", () => {
+    createBugFixRetry("ISSUE-BUG-5", "BUG-100");
+    const retry = getBugFixRetry("ISSUE-BUG-5");
+    expect(retry!.bug_issue_id).toBe("BUG-100");
+  });
+
+  it("bug_issue_id defaults to null", () => {
+    createBugFixRetry("ISSUE-BUG-6");
+    const retry = getBugFixRetry("ISSUE-BUG-6");
+    expect(retry!.bug_issue_id).toBeNull();
+  });
+
   it("get non-existent bug fix retry returns null", () => {
     const retry = getBugFixRetry("ISSUE-NONEXIST");
     expect(retry).toBeNull();

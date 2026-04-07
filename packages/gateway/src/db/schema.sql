@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS workflow_execution (
 CREATE TABLE IF NOT EXISTS bug_fix_retry (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plane_issue_id TEXT NOT NULL UNIQUE,
+  bug_issue_id TEXT,
   retry_count INTEGER NOT NULL DEFAULT 0,
   last_attempt_at TEXT,
   status TEXT NOT NULL DEFAULT 'pending',

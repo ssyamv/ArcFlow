@@ -142,60 +142,94 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
   if (!params.input_path) throw new Error("CI log content is required");
   if (!params.project_id) throw new Error("project_id is required");
 
-  // 1. Call Dify workflow 3: CI Log → Bug Report
-  const bugReport = await analyzeBug(params.input_path, params.plane_issue_id ?? "");
+  const sourceIssueId = params.plane_issue_id ?? "unknown";
 
-  // 2. Create Bug Issue in Plane
-  const bugIssue = await createBugIssue(params.project_id, {
-    name: `[Bug] CI 失败 - ${params.plane_issue_id ?? "unknown"}`,
-    description_html: bugReport,
-    priority: "high",
-    parent_issue_id: params.plane_issue_id,
-  });
+  // 1. Check if this is a retry for an existing bug
+  const existingRetry = getBugFixRetry(sourceIssueId);
 
-  // 3. Track retry count
-  createBugFixRetry(bugIssue.id);
-  const retry = getBugFixRetry(bugIssue.id);
+  if (existingRetry && existingRetry.retry_count >= 2) {
+    // Already exhausted retries → escalate
+    updateBugFixStatus(sourceIssueId, "escalated");
+    if (params.chat_id) {
+      sendBugNotification(
+        params.chat_id,
+        existingRetry.bug_issue_id ?? sourceIssueId,
+        `Issue ${sourceIssueId} 自动修复已达上限（2 次），请人工介入`,
+        "P0",
+      ).catch(() => {});
+    }
+    return;
+  }
 
-  if (retry && retry.retry_count < 2) {
-    incrementBugFixRetry(bugIssue.id);
+  // 2. Call Dify workflow 3: CI Log → Bug Report
+  const bugReport = await analyzeBug(params.input_path, sourceIssueId);
+  const severity = parseSeverity(bugReport);
 
-    // 4. Auto-fix with Claude Code
-    const targetRepo = params.target_repos?.[0] ?? "backend";
-    await ensureRepo(targetRepo);
-    const config = getConfig();
-    const repoDir = join(config.gitWorkDir, targetRepo);
+  // 3. Create Bug Issue in Plane (only on first failure)
+  let bugIssueId = existingRetry?.bug_issue_id;
+  if (!existingRetry) {
+    const bugIssue = await createBugIssue(params.project_id, {
+      name: `[Bug] CI 失败 - ${sourceIssueId}`,
+      description_html: bugReport,
+      priority: severity === "P0" ? "urgent" : "high",
+      parent_issue_id: params.plane_issue_id,
+    });
+    bugIssueId = bugIssue.id;
+    createBugFixRetry(sourceIssueId, bugIssue.id);
+  }
 
-    const result = await runClaudeCode(repoDir, `根据以下 Bug 分析报告修复代码：\n\n${bugReport}`);
+  // 4. Send bug notification
+  if (params.chat_id) {
+    const retryLabel = existingRetry ? `（第 ${existingRetry.retry_count + 1} 次重试）` : "";
+    sendBugNotification(
+      params.chat_id,
+      bugIssueId ?? sourceIssueId,
+      `${bugReport}\n\n---\n🔧 正在尝试自动修复${retryLabel}`,
+      severity,
+    ).catch(() => {});
+  }
 
-    if (result.success) {
-      const branchName = `fix/bug-${bugIssue.id}`;
-      await createBranchAndPush(targetRepo, branchName, `fix: auto-fix bug ${bugIssue.id}`);
-      updateBugFixStatus(bugIssue.id, "fixed");
+  // 5. Increment retry count
+  incrementBugFixRetry(sourceIssueId);
 
-      if (params.chat_id) {
-        sendNotification(
-          params.chat_id,
-          "🔧 Bug 自动修复",
-          `Bug ${bugIssue.id} 已自动修复，MR 已创建`,
-        ).catch(() => {});
-      }
-    } else {
-      if (params.chat_id) {
-        sendNotification(
-          params.chat_id,
-          "⚠️ Bug 自动修复失败",
-          `Bug ${bugIssue.id} 修复失败：${result.error}`,
-        ).catch(() => {});
-      }
+  // 6. Auto-fix with Claude Code
+  const targetRepo = params.target_repos?.[0] ?? "backend";
+  await ensureRepo(targetRepo);
+  const config = getConfig();
+  const repoDir = join(config.gitWorkDir, targetRepo);
+
+  const result = await runClaudeCode(repoDir, `根据以下 Bug 分析报告修复代码：\n\n${bugReport}`);
+
+  if (result.success) {
+    const branchName = `fix/bug-${bugIssueId ?? sourceIssueId}`;
+    await createBranchAndPush(targetRepo, branchName, `fix: auto-fix bug ${sourceIssueId}`);
+    updateBugFixStatus(sourceIssueId, "fixed");
+
+    if (params.chat_id) {
+      sendNotification(
+        params.chat_id,
+        "✅ Bug 自动修复完成",
+        `Bug ${bugIssueId ?? sourceIssueId} 已自动修复，MR 已创建，分支 ${branchName}`,
+      ).catch(() => {});
     }
   } else {
-    // Escalate
-    updateBugFixStatus(bugIssue.id, "escalated");
+    updateBugFixStatus(sourceIssueId, "pending");
     if (params.chat_id) {
-      sendBugNotification(params.chat_id, bugIssue.id, bugReport, "P0").catch(() => {});
+      sendNotification(
+        params.chat_id,
+        "⚠️ Bug 自动修复失败",
+        `Bug ${bugIssueId ?? sourceIssueId} 修复失败：${result.error}`,
+      ).catch(() => {});
     }
   }
+}
+
+/** 从 Dify Bug 报告中解析严重级别 */
+function parseSeverity(bugReport: string): string {
+  const match =
+    bugReport.match(/\*{0,2}严重级别[：:]\*{0,2}\s*(P[0-2])/i) ??
+    bugReport.match(/\*{0,2}Severity[：:]\*{0,2}\s*(P[0-2])/i);
+  return match?.[1]?.toUpperCase() ?? "P1";
 }
 
 // Flow C: Code Generation

@@ -160,9 +160,12 @@ export function listWebhookLogs(source?: WebhookSource, limit = 50): WebhookLogE
 
 // ─── bug_fix_retry ─────────────────────────────────────────────────────────────
 
-export function createBugFixRetry(planeIssueId: string): void {
+export function createBugFixRetry(planeIssueId: string, bugIssueId?: string): void {
   const db = getDb();
-  db.query(`INSERT OR IGNORE INTO bug_fix_retry (plane_issue_id) VALUES (?)`).run(planeIssueId);
+  db.query(`INSERT OR IGNORE INTO bug_fix_retry (plane_issue_id, bug_issue_id) VALUES (?, ?)`).run(
+    planeIssueId,
+    bugIssueId ?? null,
+  );
 }
 
 export function getBugFixRetry(planeIssueId: string): BugFixRetry | null {
