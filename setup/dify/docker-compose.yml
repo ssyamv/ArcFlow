@@ -8,6 +8,10 @@ x-shared-env: &shared-env
   MIGRATION_ENABLED: "true"
   DIFY_BIND_ADDRESS: 0.0.0.0
   DIFY_PORT: 5001
+  # 外部访问 URL（必须配置，否则图标等资源链接会指向 127.0.0.1）
+  FILES_URL: ${FILES_URL:-}
+  CONSOLE_API_URL: ${DIFY_CONSOLE_API_URL:-}
+  SERVICE_API_URL: ${DIFY_APP_API_URL:-}
   # DB
   DB_TYPE: postgresql
   DB_USERNAME: ${DIFY_DB_USER:-dify}
