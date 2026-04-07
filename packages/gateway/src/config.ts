@@ -27,11 +27,15 @@ export interface Config {
   gitWebhookSecret: string;
   cicdWebhookSecret: string;
 
+  // Plane workflow
+  planeApprovedStateId: string;
+
   // 飞书
   feishuAppId: string;
   feishuAppSecret: string;
   feishuVerificationToken: string;
   feishuEncryptKey: string;
+  feishuDefaultChatId: string;
 
   // Wiki.js
   wikijsBaseUrl: string;
@@ -71,6 +75,7 @@ export function getConfig(): Config {
     gitWorkDir: process.env.GIT_WORK_DIR ?? "/tmp/gateway-git",
 
     planeWebhookSecret: process.env.PLANE_WEBHOOK_SECRET ?? "",
+    planeApprovedStateId: process.env.PLANE_APPROVED_STATE_ID ?? "",
     gitWebhookSecret: process.env.GIT_WEBHOOK_SECRET ?? "",
     cicdWebhookSecret: process.env.CICD_WEBHOOK_SECRET ?? "",
 
@@ -78,6 +83,7 @@ export function getConfig(): Config {
     feishuAppSecret: process.env.FEISHU_APP_SECRET ?? "",
     feishuVerificationToken: process.env.FEISHU_VERIFICATION_TOKEN ?? "",
     feishuEncryptKey: process.env.FEISHU_ENCRYPT_KEY ?? "",
+    feishuDefaultChatId: process.env.FEISHU_DEFAULT_CHAT_ID ?? "",
 
     wikijsBaseUrl: process.env.WIKIJS_BASE_URL ?? "",
     wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",

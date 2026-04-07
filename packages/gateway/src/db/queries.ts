@@ -129,6 +129,35 @@ export function cleanExpiredEvents(): number {
   return row.n;
 }
 
+// ─── webhook_log ──────────────────────────────────────────────────────────────
+
+export function recordWebhookLog(source: WebhookSource, payload: unknown): void {
+  const db = getDb();
+  db.query(`INSERT INTO webhook_log (source, payload) VALUES (?, ?)`).run(
+    source,
+    JSON.stringify(payload),
+  );
+}
+
+export interface WebhookLogEntry {
+  id: number;
+  source: string;
+  payload: string;
+  created_at: string;
+}
+
+export function listWebhookLogs(source?: WebhookSource, limit = 50): WebhookLogEntry[] {
+  const db = getDb();
+  if (source) {
+    return db
+      .query("SELECT * FROM webhook_log WHERE source = ? ORDER BY id DESC LIMIT ?")
+      .all(source, limit) as WebhookLogEntry[];
+  }
+  return db
+    .query("SELECT * FROM webhook_log ORDER BY id DESC LIMIT ?")
+    .all(limit) as WebhookLogEntry[];
+}
+
 // ─── bug_fix_retry ─────────────────────────────────────────────────────────────
 
 export function createBugFixRetry(planeIssueId: string): void {

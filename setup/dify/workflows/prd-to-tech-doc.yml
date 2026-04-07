@@ -1,11 +1,18 @@
+version: "0.6.0"
+kind: app
 app:
   name: "PRD → 技术设计文档"
   mode: workflow
   description: "将 PRD 产品需求文档转化为技术设计文档（工作流一）"
   icon: "\U0001F4D0"
+  icon_type: emoji
   icon_background: "#E4FBCC"
+  use_icon_as_answer_icon: false
 
 workflow:
+  features: {}
+  environment_variables: []
+  conversation_variables: []
   graph:
     edges:
       - source: start
@@ -17,7 +24,11 @@ workflow:
         target: end
         targetHandle: target
     nodes:
-      - data:
+      - id: start
+        position:
+          x: 80
+          y: 282
+        data:
           title: 开始
           type: start
           variables:
@@ -27,13 +38,12 @@ workflow:
               required: true
               type: text-input
               variable: prd_content
-        id: start
-        position:
-          x: 80
-          y: 282
-        type: start
 
-      - data:
+      - id: llm_prd_to_tech
+        position:
+          x: 380
+          y: 282
+        data:
           title: "PRD → 技术设计文档"
           type: llm
           model:
@@ -71,13 +81,12 @@ workflow:
               text: "{{#start.prd_content#}}"
           vision:
             enabled: false
-        id: llm_prd_to_tech
-        position:
-          x: 380
-          y: 282
-        type: llm
 
-      - data:
+      - id: end
+        position:
+          x: 680
+          y: 282
+        data:
           title: 结束
           type: end
           outputs:
@@ -85,8 +94,3 @@ workflow:
                 - llm_prd_to_tech
                 - text
               variable: result
-        id: end
-        position:
-          x: 680
-          y: 282
-        type: end

@@ -1,11 +1,18 @@
+version: "0.6.0"
+kind: app
 app:
   name: "CI 日志 → Bug 分析报告"
   mode: workflow
   description: "分析 CI/CD 测试失败日志，生成结构化 Bug 分析报告（工作流三）"
   icon: "\U0001F41B"
+  icon_type: emoji
   icon_background: "#FEE4E2"
+  use_icon_as_answer_icon: false
 
 workflow:
+  features: {}
+  environment_variables: []
+  conversation_variables: []
   graph:
     edges:
       - source: start
@@ -17,7 +24,11 @@ workflow:
         target: end
         targetHandle: target
     nodes:
-      - data:
+      - id: start
+        position:
+          x: 80
+          y: 282
+        data:
           title: 开始
           type: start
           variables:
@@ -33,13 +44,12 @@ workflow:
               required: false
               type: text-input
               variable: context
-        id: start
-        position:
-          x: 80
-          y: 282
-        type: start
 
-      - data:
+      - id: llm_bug_analysis
+        position:
+          x: 380
+          y: 282
+        data:
           title: "Bug 分析"
           type: llm
           model:
@@ -103,13 +113,12 @@ workflow:
                 {{#start.ci_log#}}
           vision:
             enabled: false
-        id: llm_bug_analysis
-        position:
-          x: 380
-          y: 282
-        type: llm
 
-      - data:
+      - id: end
+        position:
+          x: 680
+          y: 282
+        data:
           title: 结束
           type: end
           outputs:
@@ -117,8 +126,3 @@ workflow:
                 - llm_bug_analysis
                 - text
               variable: result
-        id: end
-        position:
-          x: 680
-          y: 282
-        type: end
