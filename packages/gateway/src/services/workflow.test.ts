@@ -283,14 +283,16 @@ describe("flowBugAnalysis", () => {
   beforeEach(() => {
     clearAllMocks();
     createWorkflowExecution.mockReturnValue(3);
-    getBugFixRetry.mockReturnValue({ issue_id: "bug-issue-1", retry_count: 0, status: "open" });
+    // Default: first failure (no existing retry)
+    getBugFixRetry.mockReturnValue(null);
+    analyzeBug.mockReturnValue(Promise.resolve("bug report\n\n**严重级别:** P1"));
     runClaudeCode.mockReturnValue(Promise.resolve({ success: true, output: "fixed" }));
   });
 
-  it("analyzes bug, creates Plane issue, and attempts auto-fix", async () => {
+  it("first failure: analyzes bug, creates Plane issue, and attempts auto-fix", async () => {
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       input_path: "CI log content here",
       project_id: "proj-1",
       plane_issue_id: "ISS-5",
@@ -299,66 +301,149 @@ describe("flowBugAnalysis", () => {
 
     expect(analyzeBug).toHaveBeenCalledWith("CI log content here", "ISS-5");
     expect(createBugIssue).toHaveBeenCalledTimes(1);
-    expect(createBugFixRetry).toHaveBeenCalledWith("bug-issue-1");
-    expect(incrementBugFixRetry).toHaveBeenCalledWith("bug-issue-1");
+    expect(createBugFixRetry).toHaveBeenCalledWith("ISS-5", "bug-issue-1");
+    expect(incrementBugFixRetry).toHaveBeenCalledWith("ISS-5");
     expect(runClaudeCode).toHaveBeenCalledTimes(1);
     expect(createBranchAndPush).toHaveBeenCalledTimes(1);
-    expect(updateBugFixStatus).toHaveBeenCalledWith("bug-issue-1", "fixed");
+    expect(updateBugFixStatus).toHaveBeenCalledWith("ISS-5", "fixed");
   });
 
-  it("sends success notification when chat_id provided and fix succeeds", async () => {
+  it("first failure: sends bug notification + success notification", async () => {
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       input_path: "CI log",
       project_id: "proj-1",
+      plane_issue_id: "ISS-5",
       chat_id: "chat-1",
     });
     await tick();
 
+    // Bug notification (initial detection)
+    expect(sendBugNotification).toHaveBeenCalledTimes(1);
+    // Success notification (auto-fix done)
     expect(sendNotification).toHaveBeenCalledTimes(1);
-    const args = sendNotification.mock.calls[0];
-    expect(args[0]).toBe("chat-1");
+    const msg = sendNotification.mock.calls[0][1] as string;
+    expect(msg).toContain("自动修复完成");
   });
 
-  it("sends failure notification when auto-fix fails", async () => {
-    runClaudeCode.mockReturnValue(Promise.resolve({ success: false, error: "compile error" }));
+  it("retry: reuses existing bug issue, does not create new Plane issue", async () => {
+    getBugFixRetry.mockReturnValue({
+      plane_issue_id: "ISS-5",
+      bug_issue_id: "BUG-1",
+      retry_count: 1,
+      status: "pending",
+    });
 
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       input_path: "CI log",
       project_id: "proj-1",
+      plane_issue_id: "ISS-5",
+    });
+    await tick();
+
+    expect(createBugIssue).not.toHaveBeenCalled();
+    expect(createBugFixRetry).not.toHaveBeenCalled();
+    expect(incrementBugFixRetry).toHaveBeenCalledWith("ISS-5");
+    expect(runClaudeCode).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends failure notification when auto-fix fails, sets status back to pending", async () => {
+    runClaudeCode.mockReturnValue(
+      Promise.resolve({ success: false, output: "", error: "compile error" }),
+    );
+
+    await triggerWorkflow({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      input_path: "CI log",
+      project_id: "proj-1",
+      plane_issue_id: "ISS-5",
       chat_id: "chat-1",
     });
     await tick();
 
+    expect(updateBugFixStatus).toHaveBeenCalledWith("ISS-5", "pending");
     expect(sendNotification).toHaveBeenCalledTimes(1);
     const msg = sendNotification.mock.calls[0][2] as string;
     expect(msg).toContain("修复失败");
   });
 
-  it("escalates when retry count >= 2", async () => {
-    getBugFixRetry.mockReturnValue({ issue_id: "bug-issue-1", retry_count: 2, status: "open" });
+  it("escalates when retry count >= 2 without calling Dify or Claude Code", async () => {
+    getBugFixRetry.mockReturnValue({
+      plane_issue_id: "ISS-5",
+      bug_issue_id: "BUG-1",
+      retry_count: 2,
+      status: "pending",
+    });
 
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       input_path: "CI log",
       project_id: "proj-1",
+      plane_issue_id: "ISS-5",
       chat_id: "chat-1",
     });
     await tick();
 
-    expect(updateBugFixStatus).toHaveBeenCalledWith("bug-issue-1", "escalated");
+    expect(updateBugFixStatus).toHaveBeenCalledWith("ISS-5", "escalated");
     expect(sendBugNotification).toHaveBeenCalledTimes(1);
+    expect(analyzeBug).not.toHaveBeenCalled();
     expect(runClaudeCode).not.toHaveBeenCalled();
+  });
+
+  it("parses severity from bug report", async () => {
+    const p0Report = "error\n\n**严重级别:** P0\ndetails";
+    analyzeBug.mockReset();
+    analyzeBug.mockReturnValue(Promise.resolve(p0Report));
+
+    await triggerWorkflow({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      input_path: "CI log",
+      project_id: "proj-1",
+      plane_issue_id: "ISS-6",
+      chat_id: "chat-1",
+    });
+    await tick();
+
+    // Verify analyzeBug was called and returned P0 report
+    expect(analyzeBug).toHaveBeenCalledTimes(1);
+    const bugReportUsed = await analyzeBug.mock.results[0].value;
+    expect(bugReportUsed).toContain("P0");
+
+    // Bug notification should use parsed severity
+    const severity = sendBugNotification.mock.calls[0][3] as string;
+    expect(severity).toBe("P0");
+    // Plane issue priority should be urgent for P0
+    const issueParams = createBugIssue.mock.calls[0][1] as Record<string, string>;
+    expect(issueParams.priority).toBe("urgent");
+  });
+
+  it("defaults severity to P1 when not parseable", async () => {
+    analyzeBug.mockReturnValue(Promise.resolve("some bug report without severity"));
+
+    await triggerWorkflow({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      input_path: "CI log",
+      project_id: "proj-1",
+      plane_issue_id: "ISS-5",
+      chat_id: "chat-1",
+    });
+    await tick();
+
+    const severity = sendBugNotification.mock.calls[0][3] as string;
+    expect(severity).toBe("P1");
   });
 
   it("fails when input_path missing", async () => {
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       project_id: "proj-1",
     });
     await tick();
@@ -369,7 +454,7 @@ describe("flowBugAnalysis", () => {
   it("fails when project_id missing", async () => {
     await triggerWorkflow({
       workflow_type: "bug_analysis",
-      trigger_source: "webhook",
+      trigger_source: "cicd_webhook",
       input_path: "CI log",
     });
     await tick();

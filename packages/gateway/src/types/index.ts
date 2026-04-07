@@ -33,6 +33,7 @@ export interface WorkflowExecution {
 export interface BugFixRetry {
   id: number;
   plane_issue_id: string;
+  bug_issue_id: string | null;
   retry_count: number;
   last_attempt_at: string | null;
   status: BugFixStatus;
