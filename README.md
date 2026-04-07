@@ -152,11 +152,14 @@ ArcFlow/
 | Phase 1.5 | 胶水服务核心框架 + Web 管理界面 + CI/CD | Week 2-3 | **已完成** |
 | Phase 1.6 | Gateway Bug 修复与加固 + 服务层测试补全 | Week 3 | **已完成** |
 | Phase 1.7 | Web 前端 Tailwind 重构 + 错误处理 | Week 3 | **已完成** |
-| Phase 2 | Plane CE + MCP 接入 | Week 4-5 | 待启动 |
-| Phase 3 | Dify + 工作流 + 胶水服务联调 | Week 6-8 | 待启动 |
-| Phase 4 | Dify RAG 知识库 | Week 9-10 | 待启动 |
-| Phase 5 | NanoClaw + 飞书接入 | Week 11-13 | 待启动 |
-| Phase 6 | CI/CD Bug 回流 | Week 14-15 | 待启动 |
+| Phase 2.0 | 统一部署配置 + Plane CE 部署 | Week 4 | **已完成** |
+| Phase 2.1 | Dify + Weaviate 部署 | Week 4 | **已完成** |
+| Phase 2.2 | iBuild CI/CD Bug 回流（Gateway 端点） | Week 4 | **已完成** |
+| Phase 2.3 | Gateway Plane Webhook 联调 | Week 5 | 待启动 |
+| Phase 3 | Dify 工作流搭建 + 胶水服务联调 | Week 5-7 | 待启动 |
+| Phase 4 | Dify RAG 知识库 | Week 8-9 | 待启动 |
+| Phase 5 | NanoClaw + 飞书接入 | Week 10-12 | 待启动 |
+| Phase 6 | 全链路端到端联调 | Week 13-14 | 待启动 |
 
 ### 已完成的里程碑
 
@@ -199,6 +202,28 @@ ArcFlow/
 - 抽取 `typeLabel` / `statusColors` 公共工具函数
 - 新增 404 页面 + catch-all 路由
 - 触发工作流页面新增错误提示 + 成功后表单重置
+
+### Phase 2.0 — 统一部署配置 + Plane CE 部署
+
+- 统一部署配置架构（`setup/` 目录规范化）
+- Gateway Dockerfile 加固（非 root 用户、healthcheck、分层构建）
+- Plane CE v0.25 部署到服务器（172.29.230.21:3340）
+- 数据迁移脚本与升级流程文档化
+
+### Phase 2.1 — Dify + Weaviate 部署
+
+- Dify v1.13.3 部署（10 个服务：API、Worker、Beat、Web、Sandbox、Plugin、SSRF Proxy、DB、Redis、Weaviate）
+- Weaviate 1.27.0 向量数据库部署
+- 安全加固：移除硬编码 API Key，使用环境变量注入
+- 服务地址：Dify Web :3001 / Dify API :5001 / Weaviate :8080
+
+### Phase 2.2 — iBuild CI/CD Bug 回流
+
+- 新增 `/webhook/ibuild` 端点，对接内网 iBuild 构建系统
+- `ibuild.ts` 服务层（accessToken 缓存、构建详情查询、日志拉取 + 100KB 截断）
+- 构建失败自动触发 `bug_analysis` 工作流（Dify 分析 → Plane Issue → Claude Code 修复 → 飞书通知）
+- Git 分支命名约定（`feat/PROJ-123-xxx`）自动关联 Plane Issue
+- 新增 41 个测试（iBuild Service 17 + Log Fetcher 4 + Webhook 20）
 
 ### CI/CD 安全策略
 
