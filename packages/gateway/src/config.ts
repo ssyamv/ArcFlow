@@ -31,6 +31,7 @@ export interface Config {
   planeApprovedStateId: string;
 
   // 飞书
+  feishuBaseUrl: string;
   feishuAppId: string;
   feishuAppSecret: string;
   feishuVerificationToken: string;
@@ -79,6 +80,7 @@ export function getConfig(): Config {
     gitWebhookSecret: process.env.GIT_WEBHOOK_SECRET ?? "",
     cicdWebhookSecret: process.env.CICD_WEBHOOK_SECRET ?? "",
 
+    feishuBaseUrl: process.env.FEISHU_BASE_URL ?? "https://open.feishu.cn",
     feishuAppId: process.env.FEISHU_APP_ID ?? "",
     feishuAppSecret: process.env.FEISHU_APP_SECRET ?? "",
     feishuVerificationToken: process.env.FEISHU_VERIFICATION_TOKEN ?? "",
