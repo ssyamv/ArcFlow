@@ -15,6 +15,7 @@ const gitMethods = {
   commit: mock(() => Promise.resolve()),
   push: mock(() => Promise.resolve()),
   checkoutLocalBranch: mock(() => Promise.resolve()),
+  remote: mock(() => Promise.resolve("  HEAD branch: main\n")),
 };
 
 mock.module("simple-git", () => ({
