@@ -22,6 +22,12 @@ function getRepoUrl(repoName: string): string {
   return url;
 }
 
+async function getDefaultBranch(git: SimpleGit): Promise<string> {
+  const remoteInfo = await git.remote(["show", "origin"]);
+  const match = remoteInfo?.match(/HEAD branch:\s*(\S+)/);
+  return match?.[1] ?? "main";
+}
+
 export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   const repoDir = getRepoDir(repoName);
   const repoUrl = getRepoUrl(repoName);
@@ -29,7 +35,8 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
     await git.fetch();
-    await git.pull("origin", "main", { "--rebase": null });
+    const branch = await getDefaultBranch(git);
+    await git.pull("origin", branch, { "--rebase": null });
     return git;
   }
 
@@ -58,13 +65,14 @@ export async function writeAndPush(
   writeFileSync(fullPath, content, "utf-8");
 
   const git = simpleGit(repoDir);
+  const branch = await getDefaultBranch(git);
   await git.add(filePath);
   await git.commit(commitMessage);
   try {
-    await git.push("origin", "main");
+    await git.push("origin", branch);
   } catch {
-    await git.pull("origin", "main", { "--rebase": null });
-    await git.push("origin", "main");
+    await git.pull("origin", branch, { "--rebase": null });
+    await git.push("origin", branch);
   }
 }
 

@@ -8,13 +8,21 @@ services:
     volumes:
       - gateway-data:/app/data
       - git-workdir:/tmp/gateway-git
+      - ./.ssh:/root/.ssh:ro
+      - ./.gitconfig:/root/.gitconfig:ro
     env_file:
       - .env
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 30s
-      timeout: 3s
-      start-period: 5s
+      timeout: 5s
+      start_period: 10s
       retries: 3
 
 volumes:
