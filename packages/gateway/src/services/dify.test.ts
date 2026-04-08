@@ -8,10 +8,11 @@ mock.module("../config", () => ({
     difyTechDocApiKey: "dify-techdoc-val",
     difyOpenApiApiKey: "dify-openapi-val",
     difyBugAnalysisApiKey: "dify-bugfix-val",
+    difyRagApiKey: "dify-rag-val",
   }),
 }));
 
-const { generateTechDoc, generateOpenApi, analyzeBug } = await import("./dify");
+const { generateTechDoc, generateOpenApi, analyzeBug, queryKnowledgeBase } = await import("./dify");
 
 function makeDifyResponse(output: string) {
   return new Response(
@@ -111,5 +112,49 @@ describe("dify service", () => {
 
     await expect(generateTechDoc("prd")).rejects.toThrow("network error");
     expect(callCount).toBe(3); // initial + 2 retries
+  });
+
+  it("queryKnowledgeBase uses difyRagApiKey and calls /v1/chat-messages", async () => {
+    let capturedUrl = "";
+    let capturedBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      capturedUrl = url;
+      const headers = init.headers as Record<string, string>;
+      Object.assign(capturedHeaders, headers);
+      capturedBody = JSON.parse(init.body as string);
+      return new Response(
+        JSON.stringify({ answer: "knowledge answer", conversation_id: "conv-123" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const result = await queryKnowledgeBase("what is ArcFlow?");
+    expect(capturedUrl).toBe("http://dify-test:3001/v1/chat-messages");
+    expect(capturedHeaders["Authorization"]).toBe("Bearer dify-rag-val");
+    expect(capturedBody.response_mode).toBe("blocking");
+    expect(capturedBody.user).toBe("gateway-rag");
+    expect(result.answer).toBe("knowledge answer");
+    expect(result.conversation_id).toBe("conv-123");
+  });
+
+  it("queryKnowledgeBase passes conversation_id for multi-turn", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string);
+      return new Response(
+        JSON.stringify({ answer: "follow-up answer", conversation_id: "conv-123" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await queryKnowledgeBase("tell me more", "conv-123");
+    expect(capturedBody.conversation_id).toBe("conv-123");
+  });
+
+  it("queryKnowledgeBase throws on HTTP error", async () => {
+    globalThis.fetch = (async () =>
+      new Response("Bad Request", { status: 400 })) as unknown as typeof fetch;
+
+    await expect(queryKnowledgeBase("bad query")).rejects.toThrow("Dify RAG API error: 400");
   });
 });
