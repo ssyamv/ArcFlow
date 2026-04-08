@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from "vue";
-import { usePrdChatStore } from "../stores/prdChat";
+import { ref, nextTick, watch, onUnmounted } from "vue";
+import { marked } from "marked";
+import { useChatStore } from "../stores/chat";
 
-const store = usePrdChatStore();
+marked.setOptions({ breaks: true });
+
+function renderMd(text: string): string {
+  return marked.parse(text) as string;
+}
+
+const store = useChatStore();
 const input = ref("");
 const chatContainer = ref<HTMLElement | null>(null);
 
@@ -35,6 +42,10 @@ function handleNewChat() {
   store.reset();
   input.value = "";
 }
+
+onUnmounted(() => {
+  store.cleanup();
+});
 </script>
 
 <template>
@@ -42,8 +53,8 @@ function handleNewChat() {
     <!-- Header -->
     <div class="flex items-center justify-between pb-4 border-b border-gray-200">
       <div>
-        <h1 class="text-xl font-semibold text-gray-900 m-0">PRD 智能生成</h1>
-        <p class="text-sm text-gray-500 mt-1 m-0">描述你的需求，AI 帮你生成标准 PRD 文档</p>
+        <h1 class="text-xl font-semibold text-gray-900 m-0">AI 助手</h1>
+        <p class="text-sm text-gray-500 mt-1 m-0">知识问答、PRD 生成、任务管理、工作流触发</p>
       </div>
       <button
         class="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
@@ -63,7 +74,13 @@ function handleNewChat() {
           AI
         </div>
         <div class="bg-white rounded-lg px-4 py-3 shadow-sm border border-gray-100 max-w-[80%]">
-          <p class="m-0 text-gray-700">你好！请描述一下你想做的功能或需求，简单几句话就行。</p>
+          <p class="m-0 text-gray-700">你好！我是 ArcFlow AI 助手，可以帮你：</p>
+          <ul class="mt-2 mb-0 text-gray-600 text-sm space-y-1">
+            <li>查询项目知识库</li>
+            <li>生成 PRD 文档</li>
+            <li>管理 Plane 任务</li>
+            <li>触发工作流</li>
+          </ul>
         </div>
       </div>
 
@@ -79,7 +96,7 @@ function handleNewChat() {
           class="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0"
           :class="msg.role === 'user' ? 'bg-slate-700' : 'bg-indigo-600'"
         >
-          {{ msg.role === "user" ? "PM" : "AI" }}
+          {{ msg.role === "user" ? "You" : "AI" }}
         </div>
         <!-- Bubble -->
         <div
@@ -90,14 +107,14 @@ function handleNewChat() {
               : 'bg-white shadow-sm border border-gray-100 text-gray-700'
           "
         >
-          <p class="m-0 whitespace-pre-wrap">{{ msg.content }}</p>
+          <div
+            v-if="msg.role === 'assistant' && msg.content"
+            class="prose prose-sm max-w-none"
+            v-html="renderMd(msg.content)"
+          />
+          <p v-else-if="msg.role === 'user'" class="m-0 whitespace-pre-wrap">{{ msg.content }}</p>
           <p
-            v-if="
-              msg.role === 'assistant' &&
-              store.loading &&
-              msg === store.messages.at(-1) &&
-              !msg.content
-            "
+            v-if="msg.role === 'assistant' && !msg.content && store.loading"
             class="m-0 text-gray-400"
           >
             思考中...
@@ -105,23 +122,15 @@ function handleNewChat() {
         </div>
       </div>
 
-      <!-- PRD Complete Card -->
-      <div v-if="store.prdResult" class="flex items-start gap-3">
+      <!-- Typing indicator -->
+      <div v-if="store.typing" class="flex items-start gap-3">
         <div
-          class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-sm shrink-0"
+          class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-medium shrink-0"
         >
-          ✓
+          AI
         </div>
-        <div class="bg-green-50 border border-green-200 rounded-lg px-4 py-3 max-w-[80%]">
-          <p class="m-0 font-medium text-green-800">PRD 已生成：{{ store.prdResult.title }}</p>
-          <p class="m-0 mt-1 text-sm text-green-700">文件路径：{{ store.prdResult.prdPath }}</p>
-          <a
-            :href="store.prdResult.wikiUrl"
-            target="_blank"
-            class="inline-block mt-2 px-3 py-1.5 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 no-underline transition-colors"
-          >
-            在 Wiki.js 中查看
-          </a>
+        <div class="bg-white rounded-lg px-4 py-3 shadow-sm border border-gray-100">
+          <p class="m-0 text-gray-400">正在输入...</p>
         </div>
       </div>
 
@@ -144,7 +153,7 @@ function handleNewChat() {
         <textarea
           v-model="input"
           :disabled="store.loading"
-          placeholder="描述你的需求..."
+          placeholder="输入你的问题..."
           rows="2"
           class="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100"
           @keydown="handleKeydown"
@@ -154,7 +163,7 @@ function handleNewChat() {
           class="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors self-end"
           @click="handleSend"
         >
-          {{ store.loading ? "生成中..." : "发送" }}
+          {{ store.loading ? "等待中..." : "发送" }}
         </button>
       </div>
     </div>
