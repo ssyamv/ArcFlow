@@ -1,0 +1,143 @@
+version: "0.6.0"
+kind: app
+app:
+  name: "RAG 知识问答"
+  mode: advanced-chat
+  description: "基于 ArcFlow 项目文档知识库的 RAG 问答助手（工作流四）"
+  icon: "\U0001F4DA"
+  icon_type: emoji
+  icon_background: "#D1E0FF"
+  use_icon_as_answer_icon: false
+
+workflow:
+  features:
+    opening_statement: "你好！我是 ArcFlow 知识助手，可以回答关于项目架构、技术方案、API 设计等文档相关问题。请问有什么可以帮你的？"
+    suggested_questions:
+      - "ArcFlow 的整体架构是什么？"
+      - "胶水服务有哪些 API 端点？"
+      - "代码生成的两轮流程是什么？"
+  environment_variables: []
+  conversation_variables: []
+  graph:
+    edges:
+      - source: start
+        sourceHandle: source
+        target: knowledge_retrieval
+        targetHandle: target
+      - source: knowledge_retrieval
+        sourceHandle: source
+        target: llm_qa
+        targetHandle: target
+      - source: llm_qa
+        sourceHandle: source
+        target: answer
+        targetHandle: target
+    nodes:
+      - id: start
+        position:
+          x: 80
+          y: 282
+        data:
+          title: 开始
+          type: start
+          variables: []
+
+      - id: knowledge_retrieval
+        position:
+          x: 380
+          y: 282
+        data:
+          title: "知识检索"
+          type: knowledge-retrieval
+          query_variable_selector:
+            - sys.query
+          dataset_ids:
+            - ada734f7-87c5-44b8-a375-4b607e2c423c
+          retrieval_mode: multiple
+          multiple_retrieval_config:
+            top_k: 5
+            score_threshold: 0.4
+            reranking_enable: true
+            reranking_mode: reranking_model
+            reranking_model:
+              provider: ""
+              model: ""
+            weights:
+              vector_setting:
+                vector_weight: 0.7
+                embedding_provider_name: ""
+                embedding_model_name: ""
+              keyword_setting:
+                keyword_weight: 0.3
+
+      - id: llm_qa
+        position:
+          x: 680
+          y: 282
+        data:
+          title: "知识问答"
+          type: llm
+          model:
+            provider: langgenius/anthropic/anthropic
+            name: claude-sonnet-4-6
+            mode: chat
+            completion_params:
+              temperature: 0.3
+              max_tokens: 4096
+          prompt_template:
+            - role: system
+              text: |
+                你是 ArcFlow 项目的知识助手。基于检索到的文档内容回答团队成员的问题。
+
+                回答规则：
+
+                1. 只基于检索到的文档内容回答，不使用外部知识
+                2. 如果检索到的文档无法回答问题，或文档片段与问题明显不相关（内容无法支撑回答），明确告知"未找到相关文档"，不要编造或强行作答
+                3. 回答简洁直接，先给结论，再补充细节
+                4. 在回答末尾附上来源文档的标题和路径
+
+                回答格式：
+
+                {直接回答问题}
+
+                {补充细节或相关信息（如需要）}
+
+                ---
+                来源文档：
+
+                - [{文档标题}]({文档路径})
+                - [{文档标题}]({文档路径})
+
+                注意事项：
+
+                - 如果文档 frontmatter 中 status 为 deprecated，提醒用户该文档已废弃
+                - 如果问题涉及多个文档，综合回答并列出所有来源
+                - 技术问题尽量引用文档中的代码示例或配置片段
+            - role: user
+              text: |
+                检索到的文档内容：
+
+                {{#knowledge_retrieval.result#}}
+
+                用户问题：{{#sys.query#}}
+          context:
+            enabled: false
+            variable_selector: []
+          vision:
+            enabled: false
+          memory:
+            role_prefix:
+              user: "用户"
+              assistant: "助手"
+            window:
+              enabled: true
+              size: 10
+
+      - id: answer
+        position:
+          x: 980
+          y: 282
+        data:
+          title: 回答
+          type: answer
+          answer: "{{#llm_qa.text#}}"
