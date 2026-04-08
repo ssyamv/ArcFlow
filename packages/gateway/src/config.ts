@@ -43,6 +43,9 @@ export interface Config {
   wikijsBaseUrl: string;
   wikijsApiKey: string;
 
+  // PRD 生成
+  difyPrdGenApiKey: string;
+
   // Claude Code
   claudeCodeTimeout: number;
 
@@ -91,6 +94,8 @@ export function getConfig(): Config {
 
     wikijsBaseUrl: process.env.WIKIJS_BASE_URL ?? "",
     wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",
+
+    difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     claudeCodeTimeout: Number(process.env.CLAUDE_CODE_TIMEOUT) || 600000,
 
