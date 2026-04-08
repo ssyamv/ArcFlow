@@ -1,6 +1,14 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { getWorkflowExecution, listWorkflowExecutions, listWebhookLogs } from "../db/queries";
 import { triggerWorkflow } from "../services/workflow";
+import {
+  streamDifyChatflow,
+  extractPrdResult,
+  containsPrdMarker,
+  textBeforeMarker,
+  savePrdToGit,
+} from "../services/prd";
 import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
@@ -56,5 +64,89 @@ apiRoutes.get("/webhook/logs", (c) => {
       payload: JSON.parse(log.payload),
     })),
     total: logs.length,
+  });
+});
+
+apiRoutes.post("/prd/chat", async (c) => {
+  const { message, conversation_id } = await c.req.json<{
+    message: string;
+    conversation_id?: string;
+  }>();
+
+  if (!message?.trim()) {
+    return c.json({ error: "message is required" }, 400);
+  }
+
+  return streamSSE(c, async (stream) => {
+    let fullAnswer = "";
+    let convId = conversation_id ?? "";
+    let markerDetected = false;
+
+    try {
+      for await (const chunk of streamDifyChatflow(message, conversation_id)) {
+        if (chunk.event === "message" && chunk.answer) {
+          convId = convId || chunk.conversation_id || "";
+          fullAnswer += chunk.answer;
+
+          if (markerDetected) continue;
+
+          if (containsPrdMarker(fullAnswer)) {
+            const before = textBeforeMarker(chunk.answer);
+            if (before) {
+              await stream.writeSSE({
+                event: "message",
+                data: JSON.stringify({
+                  type: "text",
+                  content: before,
+                  conversation_id: convId,
+                }),
+              });
+            }
+            markerDetected = true;
+            continue;
+          }
+
+          await stream.writeSSE({
+            event: "message",
+            data: JSON.stringify({
+              type: "text",
+              content: chunk.answer,
+              conversation_id: convId,
+            }),
+          });
+        }
+
+        if (chunk.event === "message_end") {
+          const prdResult = extractPrdResult(fullAnswer);
+          if (prdResult) {
+            try {
+              const { path, wikiUrl } = await savePrdToGit(prdResult);
+              await stream.writeSSE({
+                event: "prd_complete",
+                data: JSON.stringify({
+                  prd_path: path,
+                  wiki_url: wikiUrl,
+                  title: prdResult.title,
+                }),
+              });
+            } catch (err) {
+              await stream.writeSSE({
+                event: "error",
+                data: JSON.stringify({
+                  message: `PRD 写入失败: ${err instanceof Error ? err.message : "未知错误"}`,
+                }),
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          message: `对话失败: ${err instanceof Error ? err.message : "未知错误"}`,
+        }),
+      });
+    }
   });
 });
