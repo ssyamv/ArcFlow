@@ -146,6 +146,37 @@ export async function sendNotification(
   await sendMessage(chatId, "interactive", JSON.stringify(card));
 }
 
+/**
+ * 将标准 Markdown 转为飞书 lark_md 兼容格式
+ *
+ * lark_md 不支持：### 标题、Markdown 表格、``` 代码块
+ * lark_md 支持：**粗体**、*斜体*、~~删除线~~、[链接](url)、`行内代码`、- 列表
+ */
+function toLarkMd(md: string): string {
+  return (
+    md
+      // ### 标题 → **粗体**
+      .replace(/^#{1,6}\s+(.+)$/gm, "**$1**")
+      // Markdown 表格：移除分隔行，数据行转为列表
+      .replace(/^\|[-:|\s]+\|$/gm, "")
+      .replace(/^\|(.+)\|$/gm, (_match, row: string) => {
+        const cells = row
+          .split("|")
+          .map((c: string) => c.trim())
+          .filter(Boolean);
+        return `- ${cells.join(" | ")}`;
+      })
+      // ``` 代码块 → 缩进（lark_md 不支持围栏代码块）
+      .replace(/```\w*\n([\s\S]*?)```/g, (_match, code: string) => {
+        return code
+          .split("\n")
+          .map((line: string) => `  ${line}`)
+          .join("\n");
+      })
+      .trim()
+  );
+}
+
 export async function sendBugNotification(
   chatId: string,
   issueId: string,
@@ -153,13 +184,14 @@ export async function sendBugNotification(
   severity: string,
 ): Promise<void> {
   const template = severity === "P0" || severity === "P1" ? "red" : "orange";
+  const larkContent = toLarkMd(bugReport);
   const card = {
     config: { wide_screen_mode: true },
     header: {
       title: { tag: "plain_text", content: `🐛 Bug [${severity}]: ${issueId}` },
       template,
     },
-    elements: [{ tag: "div", text: { tag: "lark_md", content: bugReport } }],
+    elements: [{ tag: "div", text: { tag: "lark_md", content: larkContent } }],
   };
 
   await sendMessage(chatId, "interactive", JSON.stringify(card));
