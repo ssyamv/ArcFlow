@@ -9,6 +9,7 @@ import {
   textBeforeMarker,
   savePrdToGit,
 } from "../services/prd";
+import { queryKnowledgeBase } from "../services/dify";
 import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
@@ -149,4 +150,23 @@ apiRoutes.post("/prd/chat", async (c) => {
       });
     }
   });
+});
+
+apiRoutes.post("/rag/query", async (c) => {
+  const { question, conversation_id } = await c.req.json<{
+    question: string;
+    conversation_id?: string;
+  }>();
+  if (!question?.trim()) {
+    return c.json({ error: "question is required" }, 400);
+  }
+  try {
+    const result = await queryKnowledgeBase(question, conversation_id);
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: `RAG query failed: ${err instanceof Error ? err.message : "unknown error"}` },
+      500,
+    );
+  }
 });

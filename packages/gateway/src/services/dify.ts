@@ -74,3 +74,38 @@ export async function analyzeBug(ciLog: string, context: string): Promise<string
   const config = getConfig();
   return callDifyWorkflow(config.difyBugAnalysisApiKey, { ci_log: ciLog, context });
 }
+
+export interface RagQueryResult {
+  answer: string;
+  conversation_id: string;
+}
+
+export async function queryKnowledgeBase(
+  question: string,
+  conversationId?: string,
+): Promise<RagQueryResult> {
+  const config = getConfig();
+  const url = `${config.difyBaseUrl}/v1/chat-messages`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.difyRagApiKey}`,
+    },
+    body: JSON.stringify({
+      query: question,
+      conversation_id: conversationId ?? "",
+      response_mode: "blocking",
+      user: "gateway-rag",
+      inputs: {},
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Dify RAG API error: ${res.status} ${await res.text()}`);
+  }
+
+  const json = (await res.json()) as { answer: string; conversation_id: string };
+  return { answer: json.answer, conversation_id: json.conversation_id };
+}

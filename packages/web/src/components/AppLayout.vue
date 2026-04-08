@@ -16,11 +16,11 @@
         </li>
         <li>
           <router-link
-            to="/prd/chat"
+            to="/chat"
             active-class="!bg-slate-800 !text-white"
             class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"
           >
-            PRD 生成
+            AI 助手
           </router-link>
         </li>
         <li>

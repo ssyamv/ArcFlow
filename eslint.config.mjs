@@ -17,4 +17,10 @@ export default [
     },
   },
   eslintConfigPrettier,
+  {
+    files: ["**/pages/AiChat.vue"],
+    rules: {
+      "vue/no-v-html": "off",
+    },
+  },
 ];

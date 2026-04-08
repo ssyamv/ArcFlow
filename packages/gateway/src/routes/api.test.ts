@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
+import * as difyService from "../services/dify";
 
 describe("api routes", () => {
   let app: Hono;
@@ -127,5 +128,79 @@ describe("api routes", () => {
     expect(
       body.data.every((e: { workflow_type: string }) => e.workflow_type === "bug_analysis"),
     ).toBe(true);
+  });
+});
+
+describe("rag routes", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+    app = new Hono();
+    app.route("/api", apiRoutes);
+  });
+
+  afterEach(() => {
+    closeDb();
+    mock.restore();
+  });
+
+  it("POST /api/rag/query returns answer", async () => {
+    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
+      answer: "ArcFlow is an AI DevOps platform",
+      conversation_id: "conv-001",
+    });
+
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "What is ArcFlow?" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.answer).toBe("ArcFlow is an AI DevOps platform");
+    expect(body.conversation_id).toBe("conv-001");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined);
+  });
+
+  it("POST /api/rag/query passes conversation_id", async () => {
+    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
+      answer: "It uses Bun + Hono",
+      conversation_id: "conv-002",
+    });
+
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "What stack?", conversation_id: "conv-002" }),
+    });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002");
+  });
+
+  it("POST /api/rag/query returns 400 if question is empty", async () => {
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "" }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("question is required");
+  });
+
+  it("POST /api/rag/query returns 500 on service error", async () => {
+    spyOn(difyService, "queryKnowledgeBase").mockRejectedValue(new Error("Dify timeout"));
+
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "Will this fail?" }),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("RAG query failed: Dify timeout");
   });
 });

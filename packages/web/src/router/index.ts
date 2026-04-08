@@ -23,9 +23,13 @@ const router = createRouter({
       component: () => import("../pages/WorkflowDetail.vue"),
     },
     {
+      path: "/chat",
+      name: "chat",
+      component: () => import("../pages/AiChat.vue"),
+    },
+    {
       path: "/prd/chat",
-      name: "prd-chat",
-      component: () => import("../pages/PrdChat.vue"),
+      redirect: "/chat",
     },
     {
       path: "/trigger",
