@@ -76,7 +76,7 @@ export interface TechReviewCardParams {
 
 export async function sendTechReviewCard(params: TechReviewCardParams): Promise<void> {
   const config = getConfig();
-  const planeBase = params.planeBaseUrl || config.planeBaseUrl;
+  const planeBase = params.planeBaseUrl || config.planeExternalUrl;
   const workspace = params.planeWorkspaceSlug || config.planeWorkspaceSlug;
   const projectId = params.planeProjectId || config.planeDefaultProjectId;
   const planeIssueUrl = `${planeBase}/${workspace}/projects/${projectId}/issues/${params.issueId}`;
