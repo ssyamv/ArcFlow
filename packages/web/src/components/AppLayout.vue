@@ -16,6 +16,15 @@
         </li>
         <li>
           <router-link
+            to="/prd/chat"
+            active-class="!bg-slate-800 !text-white"
+            class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            PRD 生成
+          </router-link>
+        </li>
+        <li>
+          <router-link
             to="/workflows"
             active-class="!bg-slate-800 !text-white"
             class="block px-5 py-2.5 text-gray-400 no-underline hover:bg-slate-800 hover:text-white transition-colors"

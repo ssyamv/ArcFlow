@@ -23,6 +23,11 @@ const router = createRouter({
       component: () => import("../pages/WorkflowDetail.vue"),
     },
     {
+      path: "/prd/chat",
+      name: "prd-chat",
+      component: () => import("../pages/PrdChat.vue"),
+    },
+    {
       path: "/trigger",
       name: "trigger",
       component: () => import("../pages/WorkflowTrigger.vue"),
