@@ -10,6 +10,7 @@ export interface Config {
 
   // Plane
   planeBaseUrl: string;
+  planeExternalUrl: string;
   planeApiToken: string;
   planeWorkspaceSlug: string;
   planeDefaultProjectId: string;
@@ -64,6 +65,7 @@ export function getConfig(): Config {
     difyBugAnalysisApiKey: process.env.DIFY_BUG_ANALYSIS_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     planeBaseUrl: process.env.PLANE_BASE_URL ?? "",
+    planeExternalUrl: process.env.PLANE_EXTERNAL_URL || process.env.PLANE_BASE_URL || "",
     planeApiToken: process.env.PLANE_API_TOKEN ?? "",
     planeWorkspaceSlug: process.env.PLANE_WORKSPACE_SLUG ?? "",
     planeDefaultProjectId: process.env.PLANE_DEFAULT_PROJECT_ID ?? "",
