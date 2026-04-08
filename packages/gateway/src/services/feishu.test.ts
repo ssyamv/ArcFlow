@@ -135,29 +135,18 @@ describe("feishu service", () => {
       expect(card.header.title.content).toContain("用户登录");
       expect(card.header.template).toBe("blue");
 
-      // Find action element with buttons
+      // Find action element with Plane link button
       const actionElement = card.elements.find(
         (el: Record<string, unknown>) => el.tag === "action",
       );
       expect(actionElement).toBeDefined();
-      expect(actionElement.actions.length).toBe(2);
+      expect(actionElement.actions.length).toBe(1);
 
-      // Approve button
-      const approveBtn = actionElement.actions[0];
-      expect(approveBtn.text.content).toContain("通过");
-      expect(approveBtn.type).toBe("primary");
-      const approveValue = JSON.parse(approveBtn.value);
-      expect(approveValue.action).toBe("approve");
-      expect(approveValue.issue_id).toBe("ISSUE-300");
-      expect(approveValue.doc_path).toBe("tech-design/login.md");
-
-      // Reject button
-      const rejectBtn = actionElement.actions[1];
-      expect(rejectBtn.text.content).toContain("打回");
-      expect(rejectBtn.type).toBe("danger");
-      const rejectValue = JSON.parse(rejectBtn.value);
-      expect(rejectValue.action).toBe("reject");
-      expect(rejectValue.issue_id).toBe("ISSUE-300");
+      // Plane link button
+      const planeBtn = actionElement.actions[0];
+      expect(planeBtn.text.content).toContain("Plane");
+      expect(planeBtn.type).toBe("primary");
+      expect(planeBtn.url).toContain("ISSUE-300");
     });
 
     it("should include PRD, tech doc, and OpenAPI links", async () => {

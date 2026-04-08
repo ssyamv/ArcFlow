@@ -69,9 +69,18 @@ export interface TechReviewCardParams {
   openApiLink: string;
   issueId: string;
   docPath: string;
+  planeBaseUrl?: string;
+  planeWorkspaceSlug?: string;
+  planeProjectId?: string;
 }
 
 export async function sendTechReviewCard(params: TechReviewCardParams): Promise<void> {
+  const config = getConfig();
+  const planeBase = params.planeBaseUrl || config.planeBaseUrl;
+  const workspace = params.planeWorkspaceSlug || config.planeWorkspaceSlug;
+  const projectId = params.planeProjectId || config.planeDefaultProjectId;
+  const planeIssueUrl = `${planeBase}/${workspace}/projects/${projectId}/issues/${params.issueId}`;
+
   const card = {
     config: { wide_screen_mode: true },
     header: {
@@ -97,27 +106,20 @@ export async function sendTechReviewCard(params: TechReviewCardParams): Promise<
         ],
       },
       {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `请在 Plane 中审批此 Issue，状态改为 **Done** 表示通过，改为 **Cancelled** 表示打回。`,
+        },
+      },
+      {
         tag: "action",
         actions: [
           {
             tag: "button",
-            text: { tag: "plain_text", content: "✅ 通过" },
+            text: { tag: "plain_text", content: "📝 前往 Plane 审批" },
             type: "primary",
-            value: JSON.stringify({
-              action: "approve",
-              issue_id: params.issueId,
-              doc_path: params.docPath,
-            }),
-          },
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: "❌ 打回" },
-            type: "danger",
-            value: JSON.stringify({
-              action: "reject",
-              issue_id: params.issueId,
-              doc_path: params.docPath,
-            }),
+            url: planeIssueUrl,
           },
         ],
       },
