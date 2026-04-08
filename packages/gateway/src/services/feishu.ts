@@ -9,14 +9,17 @@ async function getAccessToken(): Promise<string> {
   }
 
   const config = getConfig();
-  const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      app_id: config.feishuAppId,
-      app_secret: config.feishuAppSecret,
-    }),
-  });
+  const res = await fetch(
+    `${config.feishuBaseUrl}/open-apis/auth/v3/tenant_access_token/internal`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_id: config.feishuAppId,
+        app_secret: config.feishuAppSecret,
+      }),
+    },
+  );
 
   const json = (await res.json()) as {
     code: number;
@@ -38,7 +41,7 @@ async function sendMessage(chatId: string, msgType: string, content: string): Pr
   const token = await getAccessToken();
 
   const res = await fetch(
-    "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+    `${getConfig().feishuBaseUrl}/open-apis/im/v1/messages?receive_id_type=chat_id`,
     {
       method: "POST",
       headers: {
@@ -166,7 +169,7 @@ export async function updateCard(
 ): Promise<void> {
   const token = await getAccessToken();
 
-  const res = await fetch(`https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`, {
+  const res = await fetch(`${getConfig().feishuBaseUrl}/open-apis/im/v1/messages/${messageId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",

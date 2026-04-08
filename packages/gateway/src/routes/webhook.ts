@@ -88,6 +88,11 @@ export function createWebhookRoutes(): Hono {
   webhookRoutes.post("/feishu", async (c) => {
     const body = await c.req.json();
 
+    // Feishu URL verification challenge
+    if (body.type === "url_verification") {
+      return c.json({ challenge: body.challenge });
+    }
+
     // Parse Feishu card action callback
     const action = body.action;
     if (action?.value) {
