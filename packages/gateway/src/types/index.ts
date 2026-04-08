@@ -55,6 +55,8 @@ export interface TriggerWorkflowRequest {
     input_path?: string;
     target_repos?: string[];
     figma_url?: string;
+    project_id?: string;
+    chat_id?: string;
   };
 }
 

@@ -15,6 +15,8 @@ apiRoutes.post("/workflow/trigger", async (c) => {
     input_path: body.params?.input_path,
     target_repos: body.params?.target_repos,
     figma_url: body.params?.figma_url,
+    project_id: body.params?.project_id,
+    chat_id: body.params?.chat_id,
   });
 
   return c.json({
