@@ -26,7 +26,7 @@
 | 数据库 | bun:sqlite（内置） | 零配置，轻量存储运行时状态 |
 | Git 操作 | simple-git | Node.js 生态成熟的 Git 封装库 |
 | Claude Code 调度 | Bun.spawn | 异步非阻塞，进程隔离 |
-| 飞书 SDK | @larksuiteoapi/node-sdk | 官方 SDK |
+| 飞书通知 | fetch（直接调用飞书 Open API） | 轻量，仅需发消息，无需完整 SDK |
 | HTTP 客户端 | fetch（Bun 内置） | 无需额外依赖 |
 | 部署 | Docker 容器（oven/bun 镜像） | 单进程，先单体后续按需拆分 |
 
@@ -41,7 +41,7 @@
 | Plane 事件 | POST | /webhook/plane | Plane | Approved → 触发文档生成；Code Review → 飞书通知 |
 | Git 事件 | POST | /webhook/git | Gitea/GitLab | MR Created → 飞书通知；docs push → 通知 Dify 知识库同步 |
 | CI/CD 事件 | POST | /webhook/cicd | CI/CD 系统 | Test Failed → Bug 分析工作流；Build Success → 更新 Plane + 飞书通知 |
-| 飞书回调 | POST | /webhook/feishu | 飞书 | 审批按钮点击（通过/打回）→ 更新 Plane Issue 状态 |
+| 飞书回调 | POST | /webhook/feishu | 飞书 | URL verification challenge 响应（备用，当前审批通过 Plane 状态驱动） |
 
 ### 3.2 内部 API（主动调用）
 
@@ -60,7 +60,7 @@
 | Plane | Webhook Secret Token（请求头校验） |
 | Gitea/GitLab | Webhook Secret Token（请求头校验） |
 | CI/CD | Webhook Secret Token（请求头校验） |
-| 飞书 | HMAC-SHA256 签名验证（`X-Lark-Signature` + timestamp 防重放） |
+| 飞书 | URL verification challenge 响应（当前仅用于平台验证，审批通过 Plane 驱动） |
 
 验签失败直接返回 401，不处理请求。
 
@@ -186,21 +186,17 @@ Plane Webhook (Issue status → Approved)
 
 ```
 
-### 5.2 流程 B：研发审批（通过/打回）
+### 5.2 流程 B：研发审批（通过 Plane 状态驱动）
 
 ```text
-飞书审批按钮点击
-  → POST /webhook/feishu
-  → 解析回调，提取 action（approve/reject）+ Issue ID
-  → 通过:
-    → Plane API: 更新 Issue 状态
-    → 读取 PRD 中"设计稿"字段（Figma 链接 + 状态），判断设计稿是否已交付
-    → 如果设计稿已交付 → 触发 UI 代码生成（流程 C，传入 Figma 链接）
-    → 触发后端代码生成（流程 C，不依赖设计稿）
-    → 如果设计稿未交付 → 仅触发后端代码生成，UI 代码生成待设计稿交付后手动触发
-  → 打回:
-    → Plane API: 更新 Issue 状态为 Rejected
-    → 飞书通知 PM 修改
+飞书通知卡片 → 研发点击"前往 Plane 审批"跳转链接
+  → 研发在 Plane 中操作 Issue 状态
+  → 通过（状态改为 Done）:
+    → Plane Webhook → POST /webhook/plane
+    → 触发代码生成流程（流程 C）
+  → 打回（状态改为 Cancelled）:
+    → Plane Webhook → POST /webhook/plane
+    → 飞书通知 PM 修改 PRD
 
 ```
 
@@ -348,11 +344,13 @@ PLANE_WEBHOOK_SECRET=
 GIT_WEBHOOK_SECRET=
 CICD_WEBHOOK_SECRET=
 
-# 飞书
+# 飞书（私有化部署改为内部域名）
+FEISHU_BASE_URL=https://open.feishu.cn
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
 FEISHU_VERIFICATION_TOKEN=
 FEISHU_ENCRYPT_KEY=
+FEISHU_DEFAULT_CHAT_ID=
 
 # Wiki.js
 WIKIJS_BASE_URL=http://内网IP:3000
