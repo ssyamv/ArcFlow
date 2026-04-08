@@ -38,7 +38,7 @@ healthRoutes.get("/health/dependencies", async (c) => {
   const names = ["dify", "plane", "wikijs"] as const;
   const urls = [
     `${config.difyBaseUrl}/health`,
-    `${config.planeBaseUrl}/api/v1/`,
+    config.planeBaseUrl,
     `${config.wikijsBaseUrl}/healthz`,
   ];
 
