@@ -49,7 +49,7 @@ PM 写 PRD (Wiki.js) → docs Git → Plane Issue Approved
 
 当前仓库为 monorepo，包含：
 
-- `packages/gateway/` — 胶水服务（Bun + Hono + SQLite），62 个测试
+- `packages/gateway/` — 胶水服务（Bun + Hono + SQLite），171 个测试
 - `packages/web/` — Web 管理界面（Vue 3 + Tailwind CSS）
 - `docs/` — 技术架构方案文档和设计规格文档
 - `docs/superpowers/specs/` — 详细设计规格文档（见下方索引）
@@ -81,7 +81,8 @@ docs 仓库（规划中）的目录规范：
 - 选 Markdown + Git 而非飞书文档：AI 零转换损耗，版本追踪清晰
 - 选 Plane 而非 Jira：原生 MCP Server，Claude Code 可直接读写 Issue
 - 选 Bun 而非 Node.js 做胶水服务：内置 SQLite、原生 TypeScript、启动快内存小
-- 飞书消息卡片含交互按钮（通过/打回），研发可直接在飞书中操作
+- 飞书消息卡片含 Plane 跳转链接，研发在 Plane 中操作 Issue 状态完成审批，Plane Webhook 自动触发后续流程
+- 飞书 API 域名可配置（FEISHU_BASE_URL），支持讯飞内部飞书（xfchat.iflytek.com）等私有化部署
 - 两轮代码生成：后端先行（确认接口），前端跟进（基于 Figma 设计稿 + 已确认的接口）
 - Claude Code 通过 Figma MCP Server 读取设计稿生成 UI 代码
 - 人工 Review 门禁：AI 生成内容必须人工审批后才能进入下一环节
