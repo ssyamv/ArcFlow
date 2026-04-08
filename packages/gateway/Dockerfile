@@ -1,9 +1,12 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Git + SSH for git service (clone/push via SSH)
+# Git + SSH + Node.js (for Claude Code CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git openssh-client ca-certificates \
+    git openssh-client ca-certificates curl \
+  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && apt-get install -y --no-install-recommends nodejs \
+  && npm install -g @anthropic-ai/claude-code \
   && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
