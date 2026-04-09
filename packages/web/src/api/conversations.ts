@@ -4,6 +4,8 @@ function authHeaders(): Record<string, string> {
   const token = localStorage.getItem("arcflow_token");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  const wsId = localStorage.getItem("arcflow_workspace_id");
+  if (wsId) headers["X-Workspace-Id"] = wsId;
   return headers;
 }
 

@@ -18,6 +18,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+  const wsId = localStorage.getItem("arcflow_workspace_id");
+  if (wsId) headers["X-Workspace-Id"] = wsId;
   const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
   if (res.status === 401) {
     localStorage.removeItem("arcflow_token");

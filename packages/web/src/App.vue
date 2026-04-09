@@ -14,10 +14,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "./stores/auth";
+import { useWorkspaceStore } from "./stores/workspace";
 import AppLayout from "./components/AppLayout.vue";
 
 const route = useRoute();
 const auth = useAuthStore();
+const wsStore = useWorkspaceStore();
 const authReady = ref(false);
 
 const isPublicRoute = computed(() => route.meta.public === true);
@@ -25,6 +27,7 @@ const isPublicRoute = computed(() => route.meta.public === true);
 onMounted(async () => {
   if (auth.token) {
     await auth.loadUser();
+    await wsStore.load();
   }
   authReady.value = true;
 });
