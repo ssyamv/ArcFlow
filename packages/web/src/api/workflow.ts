@@ -11,7 +11,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, options);
+  const token = localStorage.getItem("arcflow_token");
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  if (res.status === 401) {
+    localStorage.removeItem("arcflow_token");
+    window.location.href = "/login";
+    throw new ApiError(401, "Unauthorized");
+  }
   if (!res.ok) {
     throw new ApiError(res.status, `请求失败: ${res.status}`);
   }

@@ -4,6 +4,18 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: "/login",
+      name: "login",
+      component: () => import("../pages/Login.vue"),
+      meta: { public: true },
+    },
+    {
+      path: "/auth/callback",
+      name: "auth-callback",
+      component: () => import("../pages/AuthCallback.vue"),
+      meta: { public: true },
+    },
+    {
       path: "/",
       redirect: "/dashboard",
     },
@@ -37,11 +49,29 @@ const router = createRouter({
       component: () => import("../pages/WorkflowTrigger.vue"),
     },
     {
+      path: "/workspace/settings",
+      name: "workspace-settings",
+      component: () => import("../pages/WorkspaceSettings.vue"),
+    },
+    {
+      path: "/profile",
+      name: "profile",
+      component: () => import("../pages/Profile.vue"),
+    },
+    {
       path: "/:pathMatch(.*)*",
       name: "NotFound",
       component: () => import("../pages/NotFound.vue"),
+      meta: { public: true },
     },
   ],
+});
+
+router.beforeEach((to) => {
+  const token = localStorage.getItem("arcflow_token");
+  if (!to.meta.public && !token) {
+    return { name: "login" };
+  }
 });
 
 export default router;
