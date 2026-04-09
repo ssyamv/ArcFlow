@@ -10,37 +10,37 @@ mock.module("../config", () => ({
 const { sendNotification, sendBugNotification, sendTechReviewCard, updateCard } =
   await import("./feishu");
 
-const originalFetch = globalThis.fetch;
-let mockFetchFn: ReturnType<typeof mock>;
-let fetchCalls: Array<{ url: string; init: RequestInit }>;
-
-beforeEach(() => {
-  fetchCalls = [];
-  mockFetchFn = mock(async (url: string, init: RequestInit) => {
-    fetchCalls.push({ url, init });
-    if (typeof url === "string" && url.includes("tenant_access_token")) {
-      return new Response(
-        JSON.stringify({
-          code: 0,
-          tenant_access_token: "test-token-123",
-          expire: 7200,
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return new Response(JSON.stringify({ code: 0 }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
-  globalThis.fetch = mockFetchFn as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
 describe("feishu service", () => {
+  const originalFetch = globalThis.fetch;
+  let mockFetchFn: ReturnType<typeof mock>;
+  let fetchCalls: Array<{ url: string; init: RequestInit }>;
+
+  beforeEach(() => {
+    fetchCalls = [];
+    mockFetchFn = mock(async (url: string, init: RequestInit) => {
+      fetchCalls.push({ url, init });
+      if (typeof url === "string" && url.includes("tenant_access_token")) {
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            tenant_access_token: "test-token-123",
+            expire: 7200,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ code: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   describe("sendNotification", () => {
     it("should get token and send message with Bearer header", async () => {
       await sendNotification("chat-001", "部署通知", "服务已上线");
