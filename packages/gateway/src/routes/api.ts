@@ -10,6 +10,7 @@ import {
   savePrdToGit,
 } from "../services/prd";
 import { queryKnowledgeBase } from "../services/dify";
+import { syncWikiToDify } from "../services/rag-sync";
 import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
@@ -166,6 +167,18 @@ apiRoutes.post("/rag/query", async (c) => {
   } catch (err) {
     return c.json(
       { error: `RAG query failed: ${err instanceof Error ? err.message : "unknown error"}` },
+      500,
+    );
+  }
+});
+
+apiRoutes.post("/rag/sync", async (c) => {
+  try {
+    const result = await syncWikiToDify();
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: `Sync failed: ${err instanceof Error ? err.message : "unknown error"}` },
       500,
     );
   }

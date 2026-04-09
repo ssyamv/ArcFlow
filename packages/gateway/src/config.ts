@@ -49,6 +49,10 @@ export interface Config {
   // RAG 知识库问答
   difyRagApiKey: string;
 
+  // Dify Dataset API（知识库管理）
+  difyDatasetApiKey: string;
+  difyDatasetId: string;
+
   // Claude Code
   claudeCodeTimeout: number;
 
@@ -101,6 +105,9 @@ export function getConfig(): Config {
     difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     difyRagApiKey: process.env.DIFY_RAG_API_KEY ?? process.env.DIFY_API_KEY ?? "",
+
+    difyDatasetApiKey: process.env.DIFY_DATASET_API_KEY ?? "",
+    difyDatasetId: process.env.DIFY_DATASET_ID ?? "",
 
     claudeCodeTimeout: Number(process.env.CLAUDE_CODE_TIMEOUT) || 600000,
 
