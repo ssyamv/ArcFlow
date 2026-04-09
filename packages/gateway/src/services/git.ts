@@ -1,5 +1,5 @@
 import simpleGit, { type SimpleGit } from "simple-git";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from "fs";
 import { join, dirname } from "path";
 import { getConfig } from "../config";
 
@@ -95,4 +95,46 @@ export async function createBranchAndPush(
   await git.add("-A");
   await git.commit(commitMessage);
   await git.push("origin", branchName, { "--set-upstream": null });
+}
+
+export interface TreeNode {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: TreeNode[];
+}
+
+export async function listTree(repoName: string): Promise<TreeNode[]> {
+  await ensureRepo(repoName);
+  const repoDir = getRepoDir(repoName);
+
+  function walk(dir: string, relativePath: string): TreeNode[] {
+    const entries = readdirSync(dir);
+    const nodes: TreeNode[] = [];
+
+    for (const entry of entries) {
+      if (entry === ".git") continue;
+      const fullPath = join(dir, entry);
+      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+      const stat = statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        nodes.push({
+          name: entry,
+          path: relPath,
+          type: "directory",
+          children: walk(fullPath, relPath),
+        });
+      } else {
+        nodes.push({ name: entry, path: relPath, type: "file" });
+      }
+    }
+
+    return nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  return walk(repoDir, "");
 }

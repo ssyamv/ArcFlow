@@ -27,6 +27,8 @@ let existsSyncReturn = false;
 const mkdirSyncMock = mock(() => undefined);
 const readFileSyncMock = mock((() => "file content") as (...args: unknown[]) => string);
 const writeFileSyncMock = mock(() => undefined);
+const readdirSyncMock = mock(() => [] as unknown[]);
+const statSyncMock = mock(() => ({ isDirectory: () => false }));
 
 mock.module("fs", () => ({
   existsSync: (path: string) => {
@@ -40,6 +42,8 @@ mock.module("fs", () => ({
     return readFileSyncMock(path, ...args);
   },
   writeFileSync: writeFileSyncMock,
+  readdirSync: readdirSyncMock,
+  statSync: statSyncMock,
   join,
   dirname: (p: string) => p.split("/").slice(0, -1).join("/"),
 }));
@@ -57,13 +61,15 @@ mock.module("../config", () => ({
 }));
 
 // Import after mocks
-const { ensureRepo, readFile, writeAndPush, createBranchAndPush } = await import("./git");
+const { ensureRepo, readFile, writeAndPush, createBranchAndPush, listTree } = await import("./git");
 
 function clearAllMocks() {
   Object.values(gitMethods).forEach((m) => m.mockClear());
   mkdirSyncMock.mockClear();
   readFileSyncMock.mockClear();
   writeFileSyncMock.mockClear();
+  readdirSyncMock.mockClear();
+  statSyncMock.mockClear();
 }
 
 describe("ensureRepo", () => {
@@ -169,5 +175,16 @@ describe("createBranchAndPush", () => {
     await createBranchAndPush("backend", "feature/test", "feat: test");
 
     expect(callOrder).toEqual(["checkoutLocalBranch", "add", "commit", "push"]);
+  });
+});
+
+describe("listTree", () => {
+  beforeEach(clearAllMocks);
+
+  it("returns empty array for empty directory", async () => {
+    existsSyncReturn = true;
+    readdirSyncMock.mockReturnValue([]);
+    const tree = await listTree("docs");
+    expect(tree).toEqual([]);
   });
 });
