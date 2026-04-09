@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 ArcFlow Web 前端增加飞书 OAuth 登录、对话历史管理、个人信息页，并以 Linear 设计风格全站改造。
+**Goal:** 为 ArcFlow Web 前端增加飞书 OAuth 登录、多项目工作空间、对话历史管理、个人信息页，并以 Linear 设计风格全站改造。
 
-**Architecture:** Gateway（Bun + Hono + SQLite）新增 auth 和 conversation API。Web 前端（Vue 3 + Pinia）引入 shadcn-vue 组件库，用 Linear 设计 token 覆盖主题。采用渐进改造方式，先建基础设施（设计系统 + 鉴权），再改造各页面。
+**Architecture:** Gateway（Bun + Hono + SQLite）新增 auth、workspace 和 conversation API。Web 前端（Vue 3 + Pinia）引入 shadcn-vue 组件库，用 Linear 设计 token 覆盖主题。采用渐进改造方式：基础设施（设计系统 + 鉴权 + 工作空间）→ 页面改造 → 端到端验证。
 
 **Tech Stack:** Bun + Hono + bun:sqlite (Gateway), Vue 3 + Tailwind CSS 4 + shadcn-vue + Pinia (Web), jose (JWT), Inter Variable 字体
 
@@ -26,8 +26,11 @@
 | `packages/gateway/src/middleware/auth.ts` | 新增 | JWT 鉴权中间件 |
 | `packages/gateway/src/routes/auth.ts` | 新增 | /auth/feishu、/auth/callback、/api/auth/me |
 | `packages/gateway/src/routes/conversations.ts` | 新增 | 对话 CRUD + 消息历史 API |
-| `packages/gateway/src/routes/api.ts` | 修改 | /api/prd/chat 和 /api/rag/query 增加 conversation_id 持久化 |
-| `packages/gateway/src/index.ts` | 修改 | 注册新路由，API 路由加 auth 中间件 |
+| `packages/gateway/src/routes/workspaces.ts` | 新增 | 工作空间 CRUD + Plane 同步 + 设置 |
+| `packages/gateway/src/services/workspace-sync.ts` | 新增 | Plane 项目 → 工作空间自动同步 |
+| `packages/gateway/src/middleware/workspace.ts` | 新增 | 工作空间上下文中间件（X-Workspace-Id） |
+| `packages/gateway/src/routes/api.ts` | 修改 | /api/prd/chat 和 /api/rag/query 增加 conversation_id + workspace 持久化 |
+| `packages/gateway/src/index.ts` | 修改 | 注册新路由，API 路由加 auth + workspace 中间件 |
 
 ### Web 前端新增/修改
 
@@ -52,6 +55,9 @@
 | `packages/web/src/pages/WorkflowDetail.vue` | 重写 | Linear 风格 |
 | `packages/web/src/pages/WorkflowTrigger.vue` | 重写 | Linear 风格 |
 | `packages/web/src/pages/NotFound.vue` | 重写 | Linear 风格 |
+| `packages/web/src/api/workspaces.ts` | 新增 | 工作空间 API |
+| `packages/web/src/stores/workspace.ts` | 新增 | useWorkspaceStore（当前工作空间 + 切换） |
+| `packages/web/src/pages/WorkspaceSettings.vue` | 新增 | 工作空间设置页（admin） |
 
 ---
 
@@ -2880,7 +2886,1200 @@ git commit -m "feat(web): 个人信息页"
 
 ---
 
-## Task 13: 端到端验证 + 全量测试
+## Task 13: Gateway — 工作空间表 + CRUD API + Plane 同步
+
+**Files:**
+
+- Modify: `packages/gateway/src/types/index.ts`
+- Modify: `packages/gateway/src/db/schema.sql`
+- Modify: `packages/gateway/src/db/queries.ts`
+- Create: `packages/gateway/src/services/workspace-sync.ts`
+- Create: `packages/gateway/src/services/workspace-sync.test.ts`
+- Create: `packages/gateway/src/routes/workspaces.ts`
+- Create: `packages/gateway/src/routes/workspaces.test.ts`
+- Modify: `packages/gateway/src/index.ts`
+
+- [ ] **Step 1: 添加 Workspace 类型**
+
+在 `packages/gateway/src/types/index.ts` 末尾增加：
+
+```typescript
+// 工作空间
+export interface Workspace {
+  id: number;
+  name: string;
+  slug: string;
+  plane_project_id: string | null;
+  dify_dataset_id: string | null;
+  dify_rag_api_key: string | null;
+  wiki_path_prefix: string | null;
+  git_repos: string; // JSON string
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMember {
+  id: number;
+  workspace_id: number;
+  user_id: number;
+  role: "admin" | "member";
+  created_at: string;
+}
+```
+
+- [ ] **Step 2: 添加数据库表**
+
+在 `packages/gateway/src/db/schema.sql` 末尾（users 表之后、conversations 表之前）增加：
+
+```sql
+CREATE TABLE IF NOT EXISTS workspaces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  plane_project_id TEXT,
+  dify_dataset_id TEXT,
+  dify_rag_api_key TEXT,
+  wiki_path_prefix TEXT,
+  git_repos TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(workspace_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id);
+```
+
+同时修改 conversations 表，增加 `workspace_id` 列：
+
+在 conversations 表定义中 `user_id` 行之后增加：
+
+```sql
+  workspace_id INTEGER REFERENCES workspaces(id),
+```
+
+- [ ] **Step 3: 添加 workspace 查询函数**
+
+在 `packages/gateway/src/db/queries.ts` 中增加：
+
+```typescript
+import type { Workspace, WorkspaceMember } from "../types";
+
+// ---- Workspaces ----
+
+export function listUserWorkspaces(userId: number): Workspace[] {
+  const db = getDb();
+  return db.query(
+    `SELECT w.* FROM workspaces w
+     INNER JOIN workspace_members wm ON wm.workspace_id = w.id
+     WHERE wm.user_id = ?
+     ORDER BY w.name ASC`,
+  ).all(userId) as Workspace[];
+}
+
+export function getWorkspace(id: number): Workspace | null {
+  const db = getDb();
+  return db.query("SELECT * FROM workspaces WHERE id = ?").get(id) as Workspace | null;
+}
+
+export function getWorkspaceBySlug(slug: string): Workspace | null {
+  const db = getDb();
+  return db.query("SELECT * FROM workspaces WHERE slug = ?").get(slug) as Workspace | null;
+}
+
+export function getWorkspaceByPlaneProject(planeProjectId: string): Workspace | null {
+  const db = getDb();
+  return db.query("SELECT * FROM workspaces WHERE plane_project_id = ?").get(planeProjectId) as Workspace | null;
+}
+
+export function createWorkspace(params: {
+  name: string;
+  slug: string;
+  plane_project_id?: string;
+}): Workspace {
+  const db = getDb();
+  db.run(
+    "INSERT OR IGNORE INTO workspaces (name, slug, plane_project_id) VALUES (?, ?, ?)",
+    [params.name, params.slug, params.plane_project_id ?? null],
+  );
+  return getWorkspaceBySlug(params.slug)!;
+}
+
+export function updateWorkspaceSettings(id: number, patch: {
+  dify_dataset_id?: string;
+  dify_rag_api_key?: string;
+  wiki_path_prefix?: string;
+  git_repos?: string;
+}): boolean {
+  const db = getDb();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.dify_dataset_id !== undefined) { sets.push("dify_dataset_id = ?"); values.push(patch.dify_dataset_id); }
+  if (patch.dify_rag_api_key !== undefined) { sets.push("dify_rag_api_key = ?"); values.push(patch.dify_rag_api_key); }
+  if (patch.wiki_path_prefix !== undefined) { sets.push("wiki_path_prefix = ?"); values.push(patch.wiki_path_prefix); }
+  if (patch.git_repos !== undefined) { sets.push("git_repos = ?"); values.push(patch.git_repos); }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  values.push(id);
+  const result = db.run(`UPDATE workspaces SET ${sets.join(", ")} WHERE id = ?`, values);
+  return result.changes > 0;
+}
+
+// ---- Workspace Members ----
+
+export function addWorkspaceMember(workspaceId: number, userId: number, role: "admin" | "member" = "member"): void {
+  const db = getDb();
+  db.run(
+    "INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)",
+    [workspaceId, userId, role],
+  );
+}
+
+export function getWorkspaceMemberRole(workspaceId: number, userId: number): string | null {
+  const db = getDb();
+  const row = db.query(
+    "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?",
+  ).get(workspaceId, userId) as { role: string } | null;
+  return row?.role ?? null;
+}
+
+export function listWorkspaceMembers(workspaceId: number): Array<{ user_id: number; name: string; role: string }> {
+  const db = getDb();
+  return db.query(
+    `SELECT wm.user_id, u.name, wm.role FROM workspace_members wm
+     INNER JOIN users u ON u.id = wm.user_id
+     WHERE wm.workspace_id = ?
+     ORDER BY wm.role ASC, u.name ASC`,
+  ).all(workspaceId) as Array<{ user_id: number; name: string; role: string }>;
+}
+```
+
+- [ ] **Step 4: 写 workspace-sync 服务测试**
+
+创建 `packages/gateway/src/services/workspace-sync.test.ts`：
+
+```typescript
+import { describe, expect, it, afterEach, mock, beforeEach } from "bun:test";
+import { closeDb, getDb } from "../db";
+
+mock.module("../config", () => ({
+  getConfig: () => ({
+    planeBaseUrl: "http://plane:8000",
+    planeApiToken: "test-token",
+    planeWorkspaceSlug: "arcflow",
+  }),
+}));
+
+// Mock fetch for Plane API
+const mockFetch = mock(() =>
+  Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({
+      results: [
+        { id: "proj-1", name: "Project Alpha", identifier: "ALPHA" },
+        { id: "proj-2", name: "Project Beta", identifier: "BETA" },
+      ],
+    }),
+  }),
+);
+mock.module("global", () => ({ fetch: mockFetch }));
+
+import { syncPlaneProjects } from "./workspace-sync";
+import { getWorkspaceBySlug, upsertUser, addWorkspaceMember, listUserWorkspaces } from "../db/queries";
+
+describe("workspace-sync", () => {
+  beforeEach(() => {
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it("creates workspaces from Plane projects", async () => {
+    const result = await syncPlaneProjects(1);
+    expect(result.created).toBe(2);
+
+    const alpha = getWorkspaceBySlug("alpha");
+    expect(alpha).not.toBeNull();
+    expect(alpha!.name).toBe("Project Alpha");
+    expect(alpha!.plane_project_id).toBe("proj-1");
+  });
+
+  it("makes sync requester an admin of created workspaces", async () => {
+    const user = upsertUser({ feishu_user_id: "ou_admin", name: "Admin" });
+    await syncPlaneProjects(user.id);
+    const workspaces = listUserWorkspaces(user.id);
+    expect(workspaces.length).toBe(2);
+  });
+});
+```
+
+- [ ] **Step 5: 运行测试确认失败**
+
+```bash
+cd packages/gateway && bun test src/services/workspace-sync.test.ts
+```
+
+Expected: FAIL
+
+- [ ] **Step 6: 实现 workspace-sync 服务**
+
+创建 `packages/gateway/src/services/workspace-sync.ts`：
+
+```typescript
+import { getConfig } from "../config";
+import { createWorkspace, getWorkspaceByPlaneProject, addWorkspaceMember } from "../db/queries";
+
+interface PlaneProject {
+  id: string;
+  name: string;
+  identifier: string;
+}
+
+export async function syncPlaneProjects(requestUserId: number): Promise<{ created: number; skipped: number }> {
+  const config = getConfig();
+  const res = await fetch(`${config.planeBaseUrl}/api/v1/workspaces/${config.planeWorkspaceSlug}/projects/`, {
+    headers: { "X-API-Key": config.planeApiToken },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Plane API error: ${res.status}`);
+  }
+
+  const data = (await res.json()) as { results: PlaneProject[] };
+  let created = 0;
+  let skipped = 0;
+
+  for (const project of data.results) {
+    const existing = getWorkspaceByPlaneProject(project.id);
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const slug = project.identifier.toLowerCase();
+    const workspace = createWorkspace({
+      name: project.name,
+      slug,
+      plane_project_id: project.id,
+    });
+
+    // 请求者自动成为 admin
+    addWorkspaceMember(workspace.id, requestUserId, "admin");
+    created++;
+  }
+
+  return { created, skipped };
+}
+```
+
+- [ ] **Step 7: 运行测试确认通过**
+
+```bash
+cd packages/gateway && bun test src/services/workspace-sync.test.ts
+```
+
+Expected: PASS
+
+- [ ] **Step 8: 写 workspaces 路由测试**
+
+创建 `packages/gateway/src/routes/workspaces.test.ts`：
+
+```typescript
+import { describe, expect, it, afterEach, beforeEach, mock } from "bun:test";
+import { closeDb, getDb } from "../db";
+
+mock.module("../config", () => ({
+  getConfig: () => ({
+    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
+    jwtExpiresIn: "7d",
+    planeBaseUrl: "http://plane:8000",
+    planeApiToken: "test-token",
+    planeWorkspaceSlug: "arcflow",
+  }),
+}));
+
+import { workspaceRoutes } from "./workspaces";
+import { signJwt } from "../services/auth";
+import { upsertUser, createWorkspace, addWorkspaceMember } from "../db/queries";
+
+describe("workspace routes", () => {
+  let token: string;
+  let userId: number;
+
+  beforeEach(async () => {
+    getDb();
+    const user = upsertUser({ feishu_user_id: "ou_test", name: "Test" });
+    userId = user.id;
+    token = await signJwt({ sub: user.id, role: "member" });
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  const headers = () => ({ Authorization: `Bearer ${token}` });
+
+  it("GET / returns only user's workspaces", async () => {
+    const ws = createWorkspace({ name: "Alpha", slug: "alpha", plane_project_id: "p1" });
+    addWorkspaceMember(ws.id, userId, "admin");
+    // Create another workspace NOT belonging to user
+    createWorkspace({ name: "Beta", slug: "beta", plane_project_id: "p2" });
+
+    const res = await workspaceRoutes.request("/", { headers: headers() });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBe(1);
+    expect(body.data[0].name).toBe("Alpha");
+  });
+
+  it("PATCH /:id/settings updates workspace config (admin)", async () => {
+    const ws = createWorkspace({ name: "Alpha", slug: "alpha" });
+    addWorkspaceMember(ws.id, userId, "admin");
+
+    const res = await workspaceRoutes.request(`/${ws.id}/settings`, {
+      method: "PATCH",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ dify_dataset_id: "ds-123", wiki_path_prefix: "/alpha/" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("PATCH /:id/settings rejects non-admin", async () => {
+    const ws = createWorkspace({ name: "Alpha", slug: "alpha" });
+    addWorkspaceMember(ws.id, userId, "member");
+
+    const res = await workspaceRoutes.request(`/${ws.id}/settings`, {
+      method: "PATCH",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ dify_dataset_id: "ds-123" }),
+    });
+    expect(res.status).toBe(403);
+  });
+});
+```
+
+- [ ] **Step 9: 实现 workspaces 路由**
+
+创建 `packages/gateway/src/routes/workspaces.ts`：
+
+```typescript
+import { Hono } from "hono";
+import { authMiddleware } from "../middleware/auth";
+import {
+  listUserWorkspaces,
+  getWorkspace,
+  updateWorkspaceSettings,
+  getWorkspaceMemberRole,
+  listWorkspaceMembers,
+} from "../db/queries";
+import { syncPlaneProjects } from "../services/workspace-sync";
+
+export const workspaceRoutes = new Hono();
+
+workspaceRoutes.use("/*", authMiddleware);
+
+workspaceRoutes.get("/", (c) => {
+  const userId = c.get("userId") as number;
+  const data = listUserWorkspaces(userId);
+  return c.json({ data });
+});
+
+workspaceRoutes.get("/:id", (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  const role = getWorkspaceMemberRole(id, userId);
+  if (!role) return c.json({ error: "Not found" }, 404);
+  const workspace = getWorkspace(id);
+  const members = listWorkspaceMembers(id);
+  return c.json({ ...workspace, members, user_role: role });
+});
+
+workspaceRoutes.patch("/:id/settings", async (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  const role = getWorkspaceMemberRole(id, userId);
+  if (role !== "admin") return c.json({ error: "Forbidden" }, 403);
+
+  const body = await c.req.json<{
+    dify_dataset_id?: string;
+    dify_rag_api_key?: string;
+    wiki_path_prefix?: string;
+    git_repos?: string;
+  }>();
+
+  updateWorkspaceSettings(id, body);
+  return c.json({ ok: true });
+});
+
+workspaceRoutes.post("/sync-plane", async (c) => {
+  const userId = c.get("userId") as number;
+  try {
+    const result = await syncPlaneProjects(userId);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Sync failed" }, 500);
+  }
+});
+```
+
+- [ ] **Step 10: 注册路由**
+
+修改 `packages/gateway/src/index.ts`，增加：
+
+```typescript
+import { workspaceRoutes } from "./routes/workspaces";
+```
+
+在 conversations 路由注册之后增加：
+
+```typescript
+app.route("/api/workspaces", workspaceRoutes);
+```
+
+- [ ] **Step 11: 运行测试确认通过**
+
+```bash
+cd packages/gateway && bun test src/routes/workspaces.test.ts && bun test src/services/workspace-sync.test.ts
+```
+
+Expected: PASS
+
+- [ ] **Step 12: 运行全量测试**
+
+```bash
+cd packages/gateway && bun test src/
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add packages/gateway/src/types/index.ts packages/gateway/src/db/schema.sql packages/gateway/src/db/queries.ts packages/gateway/src/services/workspace-sync.ts packages/gateway/src/services/workspace-sync.test.ts packages/gateway/src/routes/workspaces.ts packages/gateway/src/routes/workspaces.test.ts packages/gateway/src/index.ts
+git commit -m "feat(gateway): 工作空间表 + CRUD API + Plane 同步"
+```
+
+---
+
+## Task 14: Gateway — 工作空间上下文中间件 + API 改造
+
+**Files:**
+
+- Create: `packages/gateway/src/middleware/workspace.ts`
+- Create: `packages/gateway/src/middleware/workspace.test.ts`
+- Modify: `packages/gateway/src/routes/api.ts`
+- Modify: `packages/gateway/src/routes/conversations.ts`
+
+- [ ] **Step 1: 写 workspace 中间件测试**
+
+创建 `packages/gateway/src/middleware/workspace.test.ts`：
+
+```typescript
+import { describe, expect, it, afterEach, beforeEach, mock } from "bun:test";
+import { Hono } from "hono";
+import { closeDb, getDb } from "../db";
+
+mock.module("../config", () => ({
+  getConfig: () => ({
+    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
+    jwtExpiresIn: "7d",
+  }),
+}));
+
+import { workspaceMiddleware } from "./workspace";
+import { authMiddleware } from "./auth";
+import { signJwt } from "../services/auth";
+import { upsertUser, createWorkspace, addWorkspaceMember } from "../db/queries";
+
+describe("workspace middleware", () => {
+  beforeEach(() => { getDb(); });
+  afterEach(() => { closeDb(); });
+
+  function createTestApp() {
+    const app = new Hono();
+    app.use("/*", authMiddleware);
+    app.use("/*", workspaceMiddleware);
+    app.get("/test", (c) => c.json({ workspaceId: c.get("workspaceId") }));
+    return app;
+  }
+
+  it("extracts workspace from X-Workspace-Id header", async () => {
+    const user = upsertUser({ feishu_user_id: "ou_t", name: "T" });
+    const ws = createWorkspace({ name: "A", slug: "a" });
+    addWorkspaceMember(ws.id, user.id, "member");
+    const token = await signJwt({ sub: user.id, role: "member" });
+
+    const app = createTestApp();
+    const res = await app.request("/test", {
+      headers: { Authorization: `Bearer ${token}`, "X-Workspace-Id": String(ws.id) },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.workspaceId).toBe(ws.id);
+  });
+
+  it("returns 403 if user is not a workspace member", async () => {
+    const user = upsertUser({ feishu_user_id: "ou_t2", name: "T2" });
+    const ws = createWorkspace({ name: "B", slug: "b" });
+    // NOT adding user as member
+    const token = await signJwt({ sub: user.id, role: "member" });
+
+    const app = createTestApp();
+    const res = await app.request("/test", {
+      headers: { Authorization: `Bearer ${token}`, "X-Workspace-Id": String(ws.id) },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("passes without workspace header (optional)", async () => {
+    const user = upsertUser({ feishu_user_id: "ou_t3", name: "T3" });
+    const token = await signJwt({ sub: user.id, role: "member" });
+
+    const app = createTestApp();
+    const res = await app.request("/test", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.workspaceId).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: 实现 workspace 中间件**
+
+创建 `packages/gateway/src/middleware/workspace.ts`：
+
+```typescript
+import type { MiddlewareHandler } from "hono";
+import { getWorkspaceMemberRole } from "../db/queries";
+
+export const workspaceMiddleware: MiddlewareHandler = async (c, next) => {
+  const wsId = c.req.header("X-Workspace-Id") || c.req.query("workspace_id");
+
+  if (!wsId) {
+    c.set("workspaceId", null);
+    await next();
+    return;
+  }
+
+  const workspaceId = Number(wsId);
+  if (isNaN(workspaceId)) {
+    return c.json({ error: "Invalid workspace ID" }, 400);
+  }
+
+  const userId = c.get("userId") as number;
+  const role = getWorkspaceMemberRole(workspaceId, userId);
+  if (!role) {
+    return c.json({ error: "Not a member of this workspace" }, 403);
+  }
+
+  c.set("workspaceId", workspaceId);
+  c.set("workspaceRole", role);
+  await next();
+};
+```
+
+- [ ] **Step 3: 运行测试确认通过**
+
+```bash
+cd packages/gateway && bun test src/middleware/workspace.test.ts
+```
+
+Expected: PASS
+
+- [ ] **Step 4: 改造 conversations 路由增加 workspace 过滤**
+
+修改 `packages/gateway/src/routes/conversations.ts`：
+
+在 `authMiddleware` 之后增加 workspace 中间件：
+
+```typescript
+import { workspaceMiddleware } from "../middleware/workspace";
+
+conversationRoutes.use("/*", authMiddleware);
+conversationRoutes.use("/*", workspaceMiddleware);
+```
+
+修改 `GET /` 路由，增加 workspace_id 过滤：
+
+```typescript
+conversationRoutes.get("/", (c) => {
+  const userId = c.get("userId") as number;
+  const workspaceId = c.get("workspaceId") as number | null;
+  const data = listConversations(userId, workspaceId);
+  return c.json({ data });
+});
+```
+
+修改 `POST /` 路由，创建时关联 workspace_id：
+
+```typescript
+conversationRoutes.post("/", async (c) => {
+  const userId = c.get("userId") as number;
+  const workspaceId = c.get("workspaceId") as number | null;
+  const body = await c.req.json<{ title?: string }>().catch(() => ({}));
+  const conv = createConversation(userId, body.title, workspaceId);
+  return c.json(conv, 201);
+});
+```
+
+相应更新 `db/queries.ts` 中的 `listConversations` 和 `createConversation` 函数以支持 workspace_id 参数：
+
+```typescript
+export function listConversations(userId: number, workspaceId?: number | null): Conversation[] {
+  const db = getDb();
+  if (workspaceId) {
+    return db.query(
+      "SELECT * FROM conversations WHERE user_id = ? AND workspace_id = ? ORDER BY pinned DESC, updated_at DESC",
+    ).all(userId, workspaceId) as Conversation[];
+  }
+  return db.query(
+    "SELECT * FROM conversations WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC",
+  ).all(userId) as Conversation[];
+}
+
+export function createConversation(userId: number, title?: string, workspaceId?: number | null): Conversation {
+  const db = getDb();
+  const result = db.run(
+    "INSERT INTO conversations (user_id, workspace_id, title) VALUES (?, ?, ?)",
+    [userId, workspaceId ?? null, title ?? "新对话"],
+  );
+  return db.query("SELECT * FROM conversations WHERE id = ?").get(result.lastInsertRowid) as Conversation;
+}
+```
+
+- [ ] **Step 5: 运行全量测试**
+
+```bash
+cd packages/gateway && bun test src/
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/gateway/src/middleware/workspace.ts packages/gateway/src/middleware/workspace.test.ts packages/gateway/src/routes/conversations.ts packages/gateway/src/routes/api.ts packages/gateway/src/db/queries.ts
+git commit -m "feat(gateway): workspace 上下文中间件 + API workspace 化"
+```
+
+---
+
+## Task 15: Web — 工作空间 Store + 切换器 + 设置页
+
+**Files:**
+
+- Create: `packages/web/src/api/workspaces.ts`
+- Create: `packages/web/src/stores/workspace.ts`
+- Modify: `packages/web/src/components/AppLayout.vue`
+- Create: `packages/web/src/pages/WorkspaceSettings.vue`
+- Modify: `packages/web/src/router/index.ts`
+- Modify: `packages/web/src/api/workflow.ts`
+
+- [ ] **Step 1: 创建 workspaces API**
+
+创建 `packages/web/src/api/workspaces.ts`：
+
+```typescript
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem("arcflow_token");
+  return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+}
+
+export interface Workspace {
+  id: number;
+  name: string;
+  slug: string;
+  plane_project_id: string | null;
+  dify_dataset_id: string | null;
+  dify_rag_api_key: string | null;
+  wiki_path_prefix: string | null;
+  git_repos: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceDetail extends Workspace {
+  members: Array<{ user_id: number; name: string; role: string }>;
+  user_role: string;
+}
+
+export async function fetchWorkspaces(): Promise<{ data: Workspace[] }> {
+  const res = await fetch(`${API_BASE}/api/workspaces`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load workspaces");
+  return res.json();
+}
+
+export async function fetchWorkspaceDetail(id: number): Promise<WorkspaceDetail> {
+  const res = await fetch(`${API_BASE}/api/workspaces/${id}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load workspace");
+  return res.json();
+}
+
+export async function updateWorkspaceSettings(id: number, patch: {
+  dify_dataset_id?: string;
+  dify_rag_api_key?: string;
+  wiki_path_prefix?: string;
+  git_repos?: string;
+}): Promise<void> {
+  await fetch(`${API_BASE}/api/workspaces/${id}/settings`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function syncPlaneProjects(): Promise<{ created: number; skipped: number }> {
+  const res = await fetch(`${API_BASE}/api/workspaces/sync-plane`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Sync failed");
+  return res.json();
+}
+```
+
+- [ ] **Step 2: 创建 workspace store**
+
+创建 `packages/web/src/stores/workspace.ts`：
+
+```typescript
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import {
+  fetchWorkspaces,
+  fetchWorkspaceDetail,
+  syncPlaneProjects,
+  type Workspace,
+  type WorkspaceDetail,
+} from "../api/workspaces";
+
+const WS_KEY = "arcflow_workspace_id";
+
+export const useWorkspaceStore = defineStore("workspace", () => {
+  const workspaces = ref<Workspace[]>([]);
+  const currentId = ref<number | null>(Number(localStorage.getItem(WS_KEY)) || null);
+  const currentDetail = ref<WorkspaceDetail | null>(null);
+  const loading = ref(false);
+
+  const current = computed(() =>
+    workspaces.value.find((w) => w.id === currentId.value) ?? null,
+  );
+
+  const isAdmin = computed(() => currentDetail.value?.user_role === "admin");
+
+  async function load() {
+    loading.value = true;
+    try {
+      const res = await fetchWorkspaces();
+      workspaces.value = res.data;
+      // 自动选中第一个（如果当前没有选中或选中的不存在）
+      if (workspaces.value.length > 0) {
+        if (!currentId.value || !workspaces.value.find((w) => w.id === currentId.value)) {
+          select(workspaces.value[0].id);
+        }
+      }
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function select(id: number) {
+    currentId.value = id;
+    localStorage.setItem(WS_KEY, String(id));
+    try {
+      currentDetail.value = await fetchWorkspaceDetail(id);
+    } catch {
+      currentDetail.value = null;
+    }
+  }
+
+  async function sync() {
+    const result = await syncPlaneProjects();
+    await load();
+    return result;
+  }
+
+  return { workspaces, currentId, current, currentDetail, isAdmin, loading, load, select, sync };
+});
+```
+
+- [ ] **Step 3: 改造 AppLayout.vue 增加工作空间切换器**
+
+修改 `packages/web/src/components/AppLayout.vue` 的侧边栏顶部区域。
+
+将 Logo 区域替换为工作空间切换器：
+
+```vue
+<!-- Workspace Switcher (替换原有 Logo 区域) -->
+<div class="px-3 py-3 relative" style="border-bottom: 1px solid var(--color-border-subtle)">
+  <button
+    class="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-left cursor-pointer transition-linear"
+    style="background: none; border: none; color: var(--color-text-primary)"
+    @click="wsDropdownOpen = !wsDropdownOpen"
+  >
+    <span class="text-sm truncate" style="font-weight: 510">
+      {{ wsStore.current?.name ?? 'ArcFlow' }}
+    </span>
+    <svg
+      width="12" height="12" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2"
+      style="opacity: 0.5"
+      :style="{ transform: wsDropdownOpen ? 'rotate(180deg)' : '' }"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  </button>
+
+  <!-- Dropdown -->
+  <div
+    v-if="wsDropdownOpen"
+    class="absolute left-2 right-2 top-full mt-1 rounded-xl py-1 z-50"
+    style="
+      background-color: var(--color-bg-surface);
+      border: 1px solid var(--color-border-default);
+      box-shadow: rgba(0,0,0,0.4) 0px 2px 4px;
+    "
+  >
+    <div
+      v-for="ws in wsStore.workspaces"
+      :key="ws.id"
+      class="flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-linear text-xs"
+      :style="{
+        color: ws.id === wsStore.currentId ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+        backgroundColor: ws.id === wsStore.currentId ? 'var(--color-surface-05)' : 'transparent',
+      }"
+      @click="switchWorkspace(ws.id)"
+    >
+      <span style="width: 14px">{{ ws.id === wsStore.currentId ? '✓' : '' }}</span>
+      <div class="min-w-0">
+        <div class="truncate" style="font-weight: 510">{{ ws.name }}</div>
+        <div style="color: var(--color-text-quaternary); font-size: 10px">{{ ws.slug }}</div>
+      </div>
+    </div>
+    <div style="border-top: 1px solid var(--color-border-subtle); margin-top: 4px; padding-top: 4px">
+      <button
+        class="w-full text-left px-3 py-1.5 text-xs cursor-pointer transition-linear"
+        style="background: none; border: none; color: var(--color-accent-violet)"
+        @click="handleSyncPlane"
+      >
+        同步 Plane 项目
+      </button>
+    </div>
+  </div>
+</div>
+```
+
+在 script setup 中增加：
+
+```typescript
+import { useWorkspaceStore } from "../stores/workspace";
+
+const wsStore = useWorkspaceStore();
+const wsDropdownOpen = ref(false);
+
+function switchWorkspace(id: number) {
+  wsStore.select(id);
+  wsDropdownOpen.value = false;
+  // 重新加载当前页面数据
+  window.location.reload();
+}
+
+async function handleSyncPlane() {
+  await wsStore.sync();
+  wsDropdownOpen.value = false;
+}
+```
+
+在导航项中增加工作空间设置（仅 admin）：
+
+```typescript
+const navItems = computed(() => {
+  const items = [
+    { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
+    { path: "/chat", label: "AI 对话", icon: MessageSquare },
+    { path: "/workflows", label: "工作流", icon: List },
+    { path: "/trigger", label: "触发工作流", icon: Zap },
+  ];
+  if (wsStore.isAdmin) {
+    items.push({ path: "/workspace/settings", label: "工作空间设置", icon: Settings });
+  }
+  return items;
+});
+```
+
+在 onMounted（App.vue）中加载工作空间：
+
+```typescript
+onMounted(async () => {
+  if (auth.token) {
+    await auth.loadUser();
+    await wsStore.load();
+  }
+  authReady.value = true;
+});
+```
+
+- [ ] **Step 4: 改造 API request 函数增加 X-Workspace-Id header**
+
+修改 `packages/web/src/api/workflow.ts` 的 `request` 函数：
+
+```typescript
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("arcflow_token");
+  const wsId = localStorage.getItem("arcflow_workspace_id");
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (wsId) headers["X-Workspace-Id"] = wsId;
+
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  if (res.status === 401) {
+    localStorage.removeItem("arcflow_token");
+    window.location.href = "/login";
+    throw new ApiError(401, "Unauthorized");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, `请求失败: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+```
+
+同样更新 `packages/web/src/api/conversations.ts` 的 `authHeaders()` 函数：
+
+```typescript
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem("arcflow_token");
+  const wsId = localStorage.getItem("arcflow_workspace_id");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (wsId) headers["X-Workspace-Id"] = wsId;
+  return headers;
+}
+```
+
+- [ ] **Step 5: 创建工作空间设置页**
+
+创建 `packages/web/src/pages/WorkspaceSettings.vue`：
+
+```vue
+<template>
+  <div>
+    <h1
+      class="text-2xl mb-6"
+      style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.288px"
+    >
+      工作空间设置
+    </h1>
+
+    <div v-if="wsStore.currentDetail" class="max-w-2xl space-y-6">
+      <!-- Basic Info (readonly) -->
+      <SettingsSection title="基本信息">
+        <FieldRow label="名称" :value="wsStore.currentDetail.name" />
+        <FieldRow label="Slug" :value="wsStore.currentDetail.slug" />
+        <FieldRow label="Plane 项目" :value="wsStore.currentDetail.plane_project_id ?? '未关联'" />
+      </SettingsSection>
+
+      <!-- Knowledge Base Config -->
+      <SettingsSection title="知识库配置">
+        <FieldInput v-model="form.dify_dataset_id" label="Dify Dataset ID" placeholder="dataset-xxxxx" />
+        <FieldInput v-model="form.dify_rag_api_key" label="Dify RAG API Key" placeholder="app-xxxxx" />
+        <FieldInput v-model="form.wiki_path_prefix" label="Wiki.js 路径前缀" placeholder="/project-name/" />
+      </SettingsSection>
+
+      <!-- Git Repos Config -->
+      <SettingsSection title="代码仓库">
+        <FieldInput v-model="gitRepos.backend" label="后端仓库 URL" placeholder="https://git.example.com/org/backend.git" />
+        <FieldInput v-model="gitRepos.vue3" label="Vue3 仓库 URL" placeholder="https://git.example.com/org/web.git" />
+        <FieldInput v-model="gitRepos.flutter" label="Flutter 仓库 URL" placeholder="" />
+        <FieldInput v-model="gitRepos.android" label="Android 仓库 URL" placeholder="" />
+      </SettingsSection>
+
+      <!-- Members (readonly) -->
+      <SettingsSection title="成员">
+        <div v-for="m in wsStore.currentDetail.members" :key="m.user_id" class="flex items-center gap-3 py-1.5">
+          <div
+            class="w-6 h-6 rounded-full flex items-center justify-center text-xs"
+            style="background-color: var(--color-surface-05); color: var(--color-text-secondary); font-weight: 510"
+          >
+            {{ m.name[0] }}
+          </div>
+          <span class="text-sm" style="color: var(--color-text-secondary)">{{ m.name }}</span>
+          <span
+            class="text-xs px-1.5 py-0.5 rounded-full"
+            style="border: 1px solid var(--color-border-solid); color: var(--color-text-tertiary); font-weight: 510"
+          >
+            {{ m.role }}
+          </span>
+        </div>
+      </SettingsSection>
+
+      <!-- Save Button -->
+      <button
+        class="px-4 py-2 rounded-md text-sm text-white cursor-pointer transition-linear"
+        style="background-color: var(--color-accent); font-weight: 510; border: none"
+        @click="handleSave"
+      >
+        保存配置
+      </button>
+      <span v-if="saved" class="text-xs ml-3" style="color: var(--color-success)">已保存</span>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, reactive, defineComponent, h } from "vue";
+import { useWorkspaceStore } from "../stores/workspace";
+import { updateWorkspaceSettings } from "../api/workspaces";
+
+const wsStore = useWorkspaceStore();
+const saved = ref(false);
+
+const form = reactive({
+  dify_dataset_id: "",
+  dify_rag_api_key: "",
+  wiki_path_prefix: "",
+});
+
+const gitRepos = reactive({
+  backend: "",
+  vue3: "",
+  flutter: "",
+  android: "",
+});
+
+const SettingsSection = defineComponent({
+  props: { title: { type: String, required: true } },
+  setup(props, { slots }) {
+    return () =>
+      h(
+        "div",
+        {
+          class: "rounded-lg p-5",
+          style: "background-color: var(--color-surface-02); border: 1px solid var(--color-border-default)",
+        },
+        [
+          h(
+            "div",
+            {
+              class: "text-xs uppercase mb-4",
+              style: "font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em",
+            },
+            props.title,
+          ),
+          h("div", { class: "space-y-3" }, slots.default?.()),
+        ],
+      );
+  },
+});
+
+const FieldRow = defineComponent({
+  props: { label: String, value: String },
+  setup(props) {
+    return () =>
+      h("div", { class: "flex items-center gap-3" }, [
+        h("span", { class: "text-xs shrink-0", style: "font-weight: 510; color: var(--color-text-quaternary); width: 120px" }, props.label),
+        h("span", { class: "text-sm", style: "color: var(--color-text-secondary)" }, props.value),
+      ]);
+  },
+});
+
+const FieldInput = defineComponent({
+  props: { modelValue: String, label: String, placeholder: String },
+  emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    return () =>
+      h("div", { class: "flex items-center gap-3" }, [
+        h("label", { class: "text-xs shrink-0", style: "font-weight: 510; color: var(--color-text-quaternary); width: 120px" }, props.label),
+        h("input", {
+          value: props.modelValue,
+          placeholder: props.placeholder,
+          class: "flex-1 px-3 py-1.5 rounded-md text-sm outline-none",
+          style: "background-color: var(--color-surface-02); border: 1px solid var(--color-border-default); color: var(--color-text-secondary)",
+          onInput: (e: Event) => emit("update:modelValue", (e.target as HTMLInputElement).value),
+        }),
+      ]);
+  },
+});
+
+async function handleSave() {
+  if (!wsStore.currentId) return;
+  await updateWorkspaceSettings(wsStore.currentId, {
+    ...form,
+    git_repos: JSON.stringify(gitRepos),
+  });
+  saved.value = true;
+  setTimeout(() => { saved.value = false; }, 2000);
+}
+
+onMounted(() => {
+  if (wsStore.currentDetail) {
+    form.dify_dataset_id = wsStore.currentDetail.dify_dataset_id ?? "";
+    form.dify_rag_api_key = wsStore.currentDetail.dify_rag_api_key ?? "";
+    form.wiki_path_prefix = wsStore.currentDetail.wiki_path_prefix ?? "";
+    try {
+      const repos = JSON.parse(wsStore.currentDetail.git_repos || "{}");
+      gitRepos.backend = repos.backend ?? "";
+      gitRepos.vue3 = repos.vue3 ?? "";
+      gitRepos.flutter = repos.flutter ?? "";
+      gitRepos.android = repos.android ?? "";
+    } catch {
+      // ignore
+    }
+  }
+});
+</script>
+```
+
+- [ ] **Step 6: 更新路由**
+
+修改 `packages/web/src/router/index.ts`，在 `/profile` 路由之前增加：
+
+```typescript
+{
+  path: "/workspace/settings",
+  name: "workspace-settings",
+  component: () => import("../pages/WorkspaceSettings.vue"),
+},
+```
+
+- [ ] **Step 7: 本地验证**
+
+```bash
+cd packages/web && bun run dev
+```
+
+验证：
+
+1. 侧边栏顶部显示工作空间切换器
+2. 可切换工作空间
+3. "同步 Plane 项目" 按钮可用
+4. 工作空间设置页可配置保存
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add packages/web/src/api/workspaces.ts packages/web/src/stores/workspace.ts packages/web/src/components/AppLayout.vue packages/web/src/pages/WorkspaceSettings.vue packages/web/src/router/index.ts packages/web/src/api/workflow.ts packages/web/src/api/conversations.ts packages/web/src/App.vue
+git commit -m "feat(web): 工作空间切换器 + 设置页 + API workspace 化"
+```
+
+---
+
+## Task 16: 端到端验证 + 全量测试
 
 - [ ] **Step 1: 运行 Gateway 全量测试**
 
@@ -2911,11 +4110,16 @@ cd packages/web && bun run dev
 
 1. 访问 / 自动跳转 /login
 2. 登录页显示 Linear 暗色风格
-3. Dashboard 显示 KPI 卡片和执行列表
-4. 工作流页面展示正确
-5. AI 对话可创建/选择对话
-6. 个人信息页展示用户信息
-7. 退出登录回到 /login
+3. 登录后自动加载工作空间列表
+4. 侧边栏顶部显示当前工作空间名，可切换
+5. "同步 Plane 项目" 创建工作空间
+6. 工作空间设置页可配置 Dify/Wiki/Git 关联（仅 admin）
+7. Dashboard 显示 KPI 卡片和执行列表（当前工作空间范围）
+8. 工作流页面展示正确
+9. AI 对话可创建/选择对话（对话关联当前工作空间）
+10. 切换工作空间后对话列表更新
+11. 个人信息页展示用户信息
+12. 退出登录回到 /login
 
 - [ ] **Step 4: Commit 任何修复**
 

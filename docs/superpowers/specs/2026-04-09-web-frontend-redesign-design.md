@@ -16,7 +16,8 @@
 | Dashboard | 改造 | Linear 风格视觉统一 |
 | 工作流列表/详情 | 改造 | Linear 风格视觉统一 |
 | 工作流触发 | 改造 | Linear 风格视觉统一 |
-| 通用布局 | 改造 | 侧边栏 + 顶部栏重构 |
+| 通用布局 | 改造 | 侧边栏 + 顶部栏 + 工作空间切换器 |
+| 工作空间设置 | 新增 | Dify/Wiki/Git 关联配置（admin） |
 
 ### 1.3 技术选型
 
@@ -451,6 +452,7 @@ router.beforeEach → 检查 localStorage 中的 JWT
 CREATE TABLE conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
+  workspace_id INTEGER REFERENCES workspaces(id),
   title TEXT DEFAULT '新对话',
   pinned INTEGER DEFAULT 0,
   dify_conversation_id TEXT,         -- Dify 侧的 conversation_id
@@ -640,21 +642,169 @@ CREATE INDEX idx_messages_conv ON messages(conversation_id, created_at);
 ```text
 /login                → Login.vue（公开）
 /auth/callback        → AuthCallback.vue（公开，处理 OAuth 回调）
-/dashboard            → Dashboard.vue（需登录）
-/chat                 → AiChat.vue（需登录）
-/workflows            → WorkflowList.vue（需登录）
-/workflows/:id        → WorkflowDetail.vue（需登录）
-/trigger              → WorkflowTrigger.vue（需登录）
+/dashboard            → Dashboard.vue（需登录 + 工作空间）
+/chat                 → AiChat.vue（需登录 + 工作空间）
+/workflows            → WorkflowList.vue（需登录 + 工作空间）
+/workflows/:id        → WorkflowDetail.vue（需登录 + 工作空间）
+/trigger              → WorkflowTrigger.vue（需登录 + 工作空间）
+/workspace/settings   → WorkspaceSettings.vue（需登录 + workspace admin）
 /profile              → Profile.vue（需登录）
 ```text
 
 ---
 
-## 9. 不在范围内
+## 9. 多项目工作空间
+
+### 9.1 概述
+
+ArcFlow 通过工作空间（Workspace）支持多项目管理。每个工作空间对应一个独立项目，关联各自的 Wiki.js 空间、Dify 知识库、Plane 项目和代码仓库。用户从前端入口切换工作空间，后续所有操作（对话、工作流、RAG 查询）自动限定在当前工作空间范围内。
+
+### 9.2 数据模型
+
+```sql
+CREATE TABLE IF NOT EXISTS workspaces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  plane_project_id TEXT,
+  dify_dataset_id TEXT,
+  dify_rag_api_key TEXT,
+  wiki_path_prefix TEXT,
+  git_repos TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(workspace_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON workspace_members(user_id);
+```
+
+`git_repos` 为 JSON 字段，结构：
+
+```json
+{
+  "backend": "https://git.example.com/org/alpha-backend.git",
+  "vue3": "https://git.example.com/org/alpha-web.git",
+  "flutter": "",
+  "android": ""
+}
+```
+
+### 9.3 自动与手动配置
+
+| 操作 | 方式 | 说明 |
+|------|------|------|
+| 创建工作空间 | 自动 | Gateway 提供 API，从 Plane 拉取所有项目自动创建对应工作空间 |
+| 同步成员 | 自动 | 从 Plane 项目成员同步到 workspace_members |
+| 工作空间名称/slug | 自动 | 取自 Plane 项目名称/identifier |
+| 关联 Dify 数据集 | 手动 | 管理员在工作空间设置页配置 dify_dataset_id 和 dify_rag_api_key |
+| 关联 Wiki.js 路径 | 手动 | 管理员配置 wiki_path_prefix（如 `/alpha/`） |
+| 关联代码仓库 | 手动 | 管理员配置各端 Git 仓库 URL |
+
+### 9.4 用户与工作空间关系
+
+- 用户只能看到自己所属的工作空间（通过 workspace_members 表过滤）
+- 工作空间内角色：admin（可配置设置）/ member（只读设置）
+- 首个同步创建工作空间的用户自动成为 admin
+
+### 9.5 前端交互 — 工作空间切换器
+
+侧边栏顶部，替代原有固定的 "ArcFlow" Logo 区域：
+
+```text
+┌────────────────────┐
+│ ▾ Project Alpha     │  ← 点击展开下拉菜单
+├────────────────────┤
+│   导航项...          │
+```
+
+下拉菜单（`#191a1b` 背景，12px 圆角，Elevated 阴影）：
+
+- 列出用户可见的所有工作空间
+- 当前工作空间左侧带 `✓` 标记
+- 每项：工作空间名（13px，510）+ slug（11px，`#62666d`）
+- 底部分割线后："同步 Plane 项目" 按钮（仅 admin 可见）
+
+切换工作空间时：前端更新 `currentWorkspaceId`（存入 localStorage），重新加载当前页面数据。
+
+### 9.6 Gateway 新增 API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/workspaces` | GET | 列出当前用户可见的工作空间 |
+| `/api/workspaces/:id` | GET | 工作空间详情 |
+| `/api/workspaces/:id/settings` | PATCH | 更新工作空间配置（admin） |
+| `/api/workspaces/sync-plane` | POST | 从 Plane 同步项目创建/更新工作空间（admin） |
+
+### 9.7 现有 API 工作空间化
+
+所有业务 API 增加工作空间上下文，通过请求头 `X-Workspace-Id` 或查询参数 `workspace_id` 传递：
+
+- `POST /api/workflow/trigger` — 自动关联 workspace 的 Plane 项目、Git 仓库
+- `POST /api/prd/chat` — 使用 workspace 的 Dify 数据集
+- `POST /api/rag/query` — 使用 workspace 的 RAG API Key
+- `GET /api/workflow/executions` — 按 workspace 过滤
+- `GET /api/conversations` — 按 workspace 过滤（conversations 表增加 workspace_id 列）
+
+### 9.8 工作空间设置页
+
+路由：`/workspace/settings`（仅 workspace admin 可见）
+
+```text
+┌────────────────────────────────────┐
+│  工作空间设置              (H2)     │
+├────────────────────────────────────┤
+│  基本信息                           │
+│  名称          Project Alpha       │  只读（来自 Plane）
+│  Plane 项目    proj-xxxxx          │  只读
+├────────────────────────────────────┤
+│  知识库配置                          │
+│  Dify Dataset ID   [输入框]        │  可编辑
+│  Dify RAG API Key  [输入框]        │  可编辑
+│  Wiki.js 路径前缀  [输入框]         │  可编辑
+├────────────────────────────────────┤
+│  代码仓库                           │
+│  后端仓库 URL      [输入框]         │  可编辑
+│  Vue3 仓库 URL     [输入框]         │  可编辑
+│  Flutter 仓库 URL  [输入框]         │  可编辑
+│  Android 仓库 URL  [输入框]         │  可编辑
+├────────────────────────────────────┤
+│  成员 (N 人)                        │
+│  👤 张三   admin                   │
+│  👤 李四   member                  │
+├────────────────────────────────────┤
+│              [保存配置]             │  Primary 按钮
+└────────────────────────────────────┘
+```
+
+输入框样式与其他页面一致（Linear 暗色风格）。
+
+### 9.9 数据流变化
+
+工作空间化后的核心数据流：
+
+```text
+PM 写 PRD (Wiki.js, workspace A 的路径前缀下)
+  → Plane Issue (workspace A 的 Plane 项目中) Approved
+  → Gateway 根据 plane_project_id 定位到 workspace A
+  → 使用 workspace A 的 Dify 数据集和 RAG API Key
+  → 写回 workspace A 的 docs Git 仓库
+  → 代码生成使用 workspace A 配置的代码仓库
+```
+
+---
+
+## 10. 不在范围内
 
 - 浅色模式实现（仅预留 token，不实现切换）
-- 团队管理 / 角色权限管理
-- 系统设置页面
 - 通知中心
 - 国际化（i18n）
 - 移动端适配（仅做基本响应式，不做专门移动优化）
