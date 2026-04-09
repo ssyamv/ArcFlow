@@ -27,6 +27,10 @@ let existsSyncReturn = false;
 const mkdirSyncMock = mock(() => undefined);
 const readFileSyncMock = mock((() => "file content") as (...args: unknown[]) => string);
 const writeFileSyncMock = mock(() => undefined);
+const readdirSyncMock = mock(() => [] as unknown[]);
+const statSyncMock = mock(() => ({ isDirectory: () => false }));
+const unlinkSyncMock = mock(() => undefined);
+const renameSyncMock = mock(() => undefined);
 
 mock.module("fs", () => ({
   existsSync: (path: string) => {
@@ -40,6 +44,10 @@ mock.module("fs", () => ({
     return readFileSyncMock(path, ...args);
   },
   writeFileSync: writeFileSyncMock,
+  readdirSync: readdirSyncMock,
+  statSync: statSyncMock,
+  unlinkSync: unlinkSyncMock,
+  renameSync: renameSyncMock,
   join,
   dirname: (p: string) => p.split("/").slice(0, -1).join("/"),
 }));
@@ -57,13 +65,26 @@ mock.module("../config", () => ({
 }));
 
 // Import after mocks
-const { ensureRepo, readFile, writeAndPush, createBranchAndPush } = await import("./git");
+const {
+  ensureRepo,
+  readFile,
+  writeAndPush,
+  createBranchAndPush,
+  listTree,
+  deleteFile,
+  renameFile,
+  searchFiles,
+} = await import("./git");
 
 function clearAllMocks() {
   Object.values(gitMethods).forEach((m) => m.mockClear());
   mkdirSyncMock.mockClear();
   readFileSyncMock.mockClear();
   writeFileSyncMock.mockClear();
+  readdirSyncMock.mockClear();
+  statSyncMock.mockClear();
+  unlinkSyncMock.mockClear();
+  renameSyncMock.mockClear();
 }
 
 describe("ensureRepo", () => {
@@ -169,5 +190,50 @@ describe("createBranchAndPush", () => {
     await createBranchAndPush("backend", "feature/test", "feat: test");
 
     expect(callOrder).toEqual(["checkoutLocalBranch", "add", "commit", "push"]);
+  });
+});
+
+describe("listTree", () => {
+  beforeEach(clearAllMocks);
+
+  it("returns empty array for empty directory", async () => {
+    existsSyncReturn = true;
+    readdirSyncMock.mockReturnValue([]);
+    const tree = await listTree("docs");
+    expect(tree).toEqual([]);
+  });
+});
+
+describe("deleteFile", () => {
+  beforeEach(clearAllMocks);
+  it("deletes file, commits and pushes", async () => {
+    await deleteFile("docs", "prd/old.md", "docs: remove old prd");
+    expect(gitMethods.add).toHaveBeenCalledWith("prd/old.md");
+    expect(gitMethods.commit).toHaveBeenCalledWith("docs: remove old prd");
+    expect(gitMethods.push).toHaveBeenCalledWith("origin", "main");
+  });
+});
+
+describe("renameFile", () => {
+  beforeEach(clearAllMocks);
+  it("renames file, commits and pushes", async () => {
+    await renameFile("docs", "prd/old.md", "prd/new.md", "docs: rename prd");
+    expect(gitMethods.add).toHaveBeenCalledWith("-A");
+    expect(gitMethods.commit).toHaveBeenCalledWith("docs: rename prd");
+    expect(gitMethods.push).toHaveBeenCalledWith("origin", "main");
+  });
+});
+
+describe("searchFiles", () => {
+  beforeEach(clearAllMocks);
+  it("returns matching results", async () => {
+    existsSyncReturn = true;
+    readdirSyncMock.mockReturnValue(["readme.md"]);
+    statSyncMock.mockReturnValue({ isDirectory: () => false });
+    readFileSyncMock.mockReturnValue("line1\nfoo bar keyword baz\nline3");
+    const results = await searchFiles("docs", "keyword");
+    expect(results.length).toBe(1);
+    expect(results[0].path).toBe("readme.md");
+    expect(results[0].matches[0]).toContain("keyword");
   });
 });

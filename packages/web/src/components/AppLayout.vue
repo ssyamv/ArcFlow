@@ -169,7 +169,7 @@ import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useWorkspaceStore } from "../stores/workspace";
-import { LayoutDashboard, MessageSquare, List, Zap, Settings } from "lucide-vue-next";
+import { LayoutDashboard, MessageSquare, List, Zap, Settings, FileText } from "lucide-vue-next";
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -180,6 +180,7 @@ const navItems = computed(() => {
   const items = [
     { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
     { path: "/chat", label: "AI 对话", icon: MessageSquare },
+    { path: "/docs", label: "文档", icon: FileText },
     { path: "/workflows", label: "工作流", icon: List },
     { path: "/trigger", label: "触发工作流", icon: Zap },
   ];
