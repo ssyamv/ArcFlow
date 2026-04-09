@@ -2,8 +2,8 @@
 
 **AI 研发运营一体化平台** — 以 Markdown + Git 为数据底座、AI 为执行引擎，串联从 PRD 到代码生成的全流程。
 
-[![CI](https://github.com/qichen22/ArcFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/qichen22/ArcFlow/actions/workflows/ci.yml)
-[![Security](https://github.com/qichen22/ArcFlow/actions/workflows/security.yml/badge.svg)](https://github.com/qichen22/ArcFlow/actions/workflows/security.yml)
+[![CI](https://github.com/ssyamv/ArcFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/ssyamv/ArcFlow/actions/workflows/ci.yml)
+[![Security](https://github.com/ssyamv/ArcFlow/actions/workflows/security.yml/badge.svg)](https://github.com/ssyamv/ArcFlow/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 项目目标
