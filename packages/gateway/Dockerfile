@@ -1,6 +1,10 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
+# 使用国内镜像源（服务器外网受限）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/* 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
 # Git + SSH + Node.js (for Claude Code CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git openssh-client ca-certificates curl \
