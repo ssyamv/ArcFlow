@@ -1,109 +1,112 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { sendChatMessage, connectSSE, type ChatSSEHandler } from "../api/chat";
+import { fetchMessages, type Message } from "../api/conversations";
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-}
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export const useChatStore = defineStore("chat", () => {
-  const messages = ref<ChatMessage[]>([]);
+  const messages = ref<Message[]>([]);
   const loading = ref(false);
   const typing = ref(false);
   const error = ref<string | null>(null);
-  const clientId = ref(`client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
-  let eventSource: EventSource | null = null;
-  let pendingAssistantMsg: ChatMessage | null = null;
-
-  function addMessage(role: "user" | "assistant", content: string): ChatMessage {
-    const msg: ChatMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      role,
-      content,
-      timestamp: Date.now(),
-    };
-    messages.value.push(msg);
-    return msg;
+  async function loadMessages(conversationId: number) {
+    loading.value = true;
+    error.value = null;
+    try {
+      const res = await fetchMessages(conversationId);
+      messages.value = res.data;
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : "加载失败";
+    } finally {
+      loading.value = false;
+    }
   }
 
-  function ensureSSE() {
-    if (eventSource) return;
-
-    const handlers: ChatSSEHandler = {
-      onMessage(data) {
-        typing.value = false;
-        loading.value = false;
-
-        if (pendingAssistantMsg) {
-          pendingAssistantMsg.content = data.content;
-          pendingAssistantMsg = null;
-        } else {
-          addMessage("assistant", data.content);
-        }
-      },
-      onTyping(data) {
-        typing.value = data.is_typing;
-      },
-      onError(data) {
-        error.value = data.message;
-        loading.value = false;
-        typing.value = false;
-      },
-    };
-
-    eventSource = connectSSE(clientId.value, handlers);
-  }
-
-  async function send(message: string) {
+  async function send(conversationId: number, message: string, difyConversationId?: string) {
     if (loading.value || !message.trim()) return;
-
     error.value = null;
     loading.value = true;
+    typing.value = true;
 
-    addMessage("user", message);
-    pendingAssistantMsg = addMessage("assistant", "");
+    // Optimistic user message
+    const userMsg: Message = {
+      id: Date.now(),
+      conversation_id: conversationId,
+      role: "user",
+      content: message,
+      created_at: new Date().toISOString(),
+    };
+    messages.value.push(userMsg);
 
-    ensureSSE();
+    // Placeholder AI message
+    const aiMsg: Message = {
+      id: Date.now() + 1,
+      conversation_id: conversationId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+    };
+    messages.value.push(aiMsg);
 
+    const token = localStorage.getItem("arcflow_token");
     try {
-      await sendChatMessage(clientId.value, message);
+      const res = await fetch(`${API_BASE}/api/prd/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+          dify_conversation_id: difyConversationId,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const json = JSON.parse(line.slice(5).trim());
+            if (json.type === "text" && json.content) {
+              aiMsg.content += json.content;
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : "发送失败";
-      loading.value = false;
-      // Remove empty assistant message
-      if (pendingAssistantMsg && !pendingAssistantMsg.content) {
-        const idx = messages.value.indexOf(pendingAssistantMsg);
+      if (!aiMsg.content) {
+        const idx = messages.value.indexOf(aiMsg);
         if (idx !== -1) messages.value.splice(idx, 1);
       }
-      pendingAssistantMsg = null;
+    } finally {
+      loading.value = false;
+      typing.value = false;
     }
   }
 
-  function reset() {
+  function clear() {
     messages.value = [];
-    loading.value = false;
-    typing.value = false;
     error.value = null;
-    pendingAssistantMsg = null;
-
-    // Close and reconnect SSE with new client ID
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-    clientId.value = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  function cleanup() {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-  }
-
-  return { messages, loading, typing, error, clientId, send, reset, cleanup };
+  return { messages, loading, typing, error, loadMessages, send, clear };
 });
