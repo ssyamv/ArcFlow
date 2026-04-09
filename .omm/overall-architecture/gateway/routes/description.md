@@ -1,0 +1,1 @@
+7 个路由模块：health（健康检查 + 依赖状态）、auth（飞书 OAuth + 用户信息）、webhook（Plane/Git/CI-CD/飞书/iBuild 事件接收）、api（工作流触发/执行列表/PRD 对话/RAG 查询）、conversations（对话 CRUD + 消息）、workspaces（工作空间列表/详情/设置/Plane 同步）、docs（文档树/文件 CRUD/文件夹/重命名/搜索）。

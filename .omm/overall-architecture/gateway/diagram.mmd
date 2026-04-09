@@ -1,0 +1,17 @@
+graph LR
+    routes["路由层 Routes\nsrc/routes/"]
+    middleware["中间件\nsrc/middleware/"]
+    services["服务层 Services\nsrc/services/"]
+    db["数据库层\nsrc/db/"]
+    scheduler["定时调度器\nsrc/scheduler.ts"]
+
+    middleware -->|"认证/去重/日志"| routes
+    routes -->|"调用业务逻辑"| services
+    routes -->|"数据持久化"| db
+    services -->|"读写执行记录"| db
+    scheduler -->|"定时 RAG 同步"| services
+
+    classDef entry fill:#89b4fa,stroke:#89b4fa,color:#1e1e2e
+    classDef store fill:#a6e3a1,stroke:#a6e3a1,color:#1e1e2e
+    class routes entry
+    class db store
