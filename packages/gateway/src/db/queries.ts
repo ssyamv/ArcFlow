@@ -8,6 +8,8 @@ import type {
   BugFixStatus,
   WebhookSource,
   User,
+  Conversation,
+  Message,
 } from "../types";
 
 // ─── workflow_execution ────────────────────────────────────────────────────────
@@ -237,4 +239,113 @@ export function upsertUser(params: {
 export function getUserById(id: number): User | null {
   const db = getDb();
   return db.query("SELECT * FROM users WHERE id = ?").get(id) as User | null;
+}
+
+// ─── conversations ───────────────────────────────────────────────────────────
+
+export function listConversations(userId: number, workspaceId?: number | null): Conversation[] {
+  const db = getDb();
+  if (workspaceId) {
+    return db
+      .query(
+        "SELECT * FROM conversations WHERE user_id = ? AND workspace_id = ? ORDER BY pinned DESC, updated_at DESC",
+      )
+      .all(userId, workspaceId) as Conversation[];
+  }
+  return db
+    .query("SELECT * FROM conversations WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC")
+    .all(userId) as Conversation[];
+}
+
+export function getConversation(id: number, userId: number): Conversation | null {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM conversations WHERE id = ? AND user_id = ?")
+    .get(id, userId) as Conversation | null;
+}
+
+export function createConversation(
+  userId: number,
+  title?: string,
+  workspaceId?: number | null,
+): Conversation {
+  const db = getDb();
+  db.query("INSERT INTO conversations (user_id, workspace_id, title) VALUES (?, ?, ?)").run(
+    userId,
+    workspaceId ?? null,
+    title ?? "新对话",
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return db.query("SELECT * FROM conversations WHERE id = ?").get(row.id) as Conversation;
+}
+
+export function updateConversation(
+  id: number,
+  userId: number,
+  patch: { title?: string; pinned?: number },
+): boolean {
+  const db = getDb();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.title !== undefined) {
+    sets.push("title = ?");
+    values.push(patch.title);
+  }
+  if (patch.pinned !== undefined) {
+    sets.push("pinned = ?");
+    values.push(patch.pinned);
+  }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  values.push(id, userId);
+  const result = db
+    .query(`UPDATE conversations SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+    .run(...values);
+  return result.changes > 0;
+}
+
+export function deleteConversation(id: number, userId: number): boolean {
+  const db = getDb();
+  const result = db.query("DELETE FROM conversations WHERE id = ? AND user_id = ?").run(id, userId);
+  return result.changes > 0;
+}
+
+export function searchConversations(userId: number, query: string): Conversation[] {
+  const db = getDb();
+  const like = `%${query}%`;
+  return db
+    .query(
+      `SELECT DISTINCT c.* FROM conversations c
+     LEFT JOIN messages m ON m.conversation_id = c.id
+     WHERE c.user_id = ? AND (c.title LIKE ? OR m.content LIKE ?)
+     ORDER BY c.updated_at DESC`,
+    )
+    .all(userId, like, like) as Conversation[];
+}
+
+// ─── messages ────────────────────────────────────────────────────────────────
+
+export function listMessages(conversationId: number, limit = 100): Message[] {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?")
+    .all(conversationId, limit) as Message[];
+}
+
+export function createMessage(
+  conversationId: number,
+  role: "user" | "assistant",
+  content: string,
+): Message {
+  const db = getDb();
+  db.query("INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)").run(
+    conversationId,
+    role,
+    content,
+  );
+  db.query("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(
+    conversationId,
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return db.query("SELECT * FROM messages WHERE id = ?").get(row.id) as Message;
 }
