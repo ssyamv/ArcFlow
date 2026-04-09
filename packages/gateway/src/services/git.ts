@@ -1,5 +1,14 @@
 import simpleGit, { type SimpleGit } from "simple-git";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  renameSync,
+} from "fs";
 import { join, dirname } from "path";
 import { getConfig } from "../config";
 
@@ -137,4 +146,75 @@ export async function listTree(repoName: string): Promise<TreeNode[]> {
   }
 
   return walk(repoDir, "");
+}
+
+export async function deleteFile(
+  repoName: string,
+  filePath: string,
+  commitMessage: string,
+): Promise<void> {
+  await ensureRepo(repoName);
+  const repoDir = getRepoDir(repoName);
+  const fullPath = join(repoDir, filePath);
+  unlinkSync(fullPath);
+  const git = simpleGit(repoDir);
+  const branch = await getDefaultBranch(git);
+  await git.add(filePath);
+  await git.commit(commitMessage);
+  await git.push("origin", branch);
+}
+
+export async function renameFile(
+  repoName: string,
+  oldPath: string,
+  newPath: string,
+  commitMessage: string,
+): Promise<void> {
+  await ensureRepo(repoName);
+  const repoDir = getRepoDir(repoName);
+  const oldFull = join(repoDir, oldPath);
+  const newFull = join(repoDir, newPath);
+  mkdirSync(dirname(newFull), { recursive: true });
+  renameSync(oldFull, newFull);
+  const git = simpleGit(repoDir);
+  const branch = await getDefaultBranch(git);
+  await git.add("-A");
+  await git.commit(commitMessage);
+  await git.push("origin", branch);
+}
+
+export interface SearchResult {
+  path: string;
+  name: string;
+  matches: string[];
+}
+
+export async function searchFiles(repoName: string, keyword: string): Promise<SearchResult[]> {
+  await ensureRepo(repoName);
+  const repoDir = getRepoDir(repoName);
+  const results: SearchResult[] = [];
+  const lowerKeyword = keyword.toLowerCase();
+
+  function walk(dir: string, relativePath: string): void {
+    const entries = readdirSync(dir);
+    for (const entry of entries) {
+      if (entry === ".git") continue;
+      const fullPath = join(dir, entry);
+      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        walk(fullPath, relPath);
+      } else if (entry.endsWith(".md")) {
+        const content = readFileSync(fullPath, "utf-8");
+        const lines = content.split("\n");
+        const matchedLines = lines.filter((l) => l.toLowerCase().includes(lowerKeyword));
+        if (matchedLines.length > 0 || entry.toLowerCase().includes(lowerKeyword)) {
+          results.push({ path: relPath, name: entry, matches: matchedLines.slice(0, 5) });
+        }
+      }
+    }
+  }
+
+  walk(repoDir, "");
+  return results;
 }
