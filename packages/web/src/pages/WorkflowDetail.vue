@@ -1,75 +1,152 @@
 <template>
   <div>
     <div class="flex items-center gap-3 mb-6">
-      <router-link to="/workflows" class="text-gray-400 hover:text-gray-600 transition-colors">
+      <router-link
+        to="/workflows"
+        class="text-sm transition-colors"
+        style="color: var(--color-text-tertiary)"
+        @mouseenter="($event.target as HTMLElement).style.color = 'var(--color-text-secondary)'"
+        @mouseleave="($event.target as HTMLElement).style.color = 'var(--color-text-tertiary)'"
+      >
         &larr; 返回列表
       </router-link>
-      <h1 class="text-2xl font-bold">执行详情 #{{ id }}</h1>
+      <h1
+        class="text-2xl"
+        style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.288px"
+      >
+        执行详情 #{{ id }}
+      </h1>
     </div>
 
-    <div v-if="loading" class="text-center py-10 text-gray-400">加载中...</div>
+    <!-- Loading -->
+    <div
+      v-if="loading"
+      class="text-center py-10 text-sm"
+      style="color: var(--color-text-quaternary)"
+    >
+      加载中...
+    </div>
 
-    <div v-else-if="error" class="p-4 bg-red-50 border border-red-200 rounded text-red-700">
+    <!-- Top-level Error -->
+    <div
+      v-else-if="error"
+      class="p-4 rounded-md text-sm"
+      style="
+        background-color: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        color: var(--color-error-light);
+      "
+    >
       {{ error }}
     </div>
 
-    <div v-else-if="execution" class="space-y-6">
-      <div class="bg-white rounded-lg p-6">
-        <h2 class="text-lg font-semibold mb-4">基本信息</h2>
-        <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+    <!-- Detail Content -->
+    <div v-else-if="execution" class="space-y-5">
+      <!-- Basic Info Card -->
+      <div
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          基本信息
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
           <div>
-            <dt class="text-sm text-gray-500">工作流类型</dt>
-            <dd class="font-medium">{{ typeLabel(execution.workflow_type) }}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">触发来源</dt>
-            <dd class="font-medium">{{ execution.trigger_source }}</dd>
-          </div>
-          <div>
-            <dt class="text-sm text-gray-500">状态</dt>
-            <dd>
-              <span
-                class="inline-block px-2.5 py-0.5 rounded-full text-sm font-medium"
-                :class="statusBadge[execution.status] ?? 'bg-gray-100 text-gray-600'"
-              >
-                {{ statusLabel[execution.status] ?? execution.status }}
+            <div class="field-label">工作流类型</div>
+            <div class="field-value">
+              <span class="status-pill" style="border-color: var(--color-border-solid)">
+                {{ typeLabel(execution.workflow_type) }}
               </span>
-            </dd>
+            </div>
           </div>
           <div>
-            <dt class="text-sm text-gray-500">Plane Issue ID</dt>
-            <dd class="font-medium">{{ execution.plane_issue_id ?? "-" }}</dd>
+            <div class="field-label">触发来源</div>
+            <div class="field-value">{{ execution.trigger_source }}</div>
+          </div>
+          <div>
+            <div class="field-label">状态</div>
+            <div class="field-value">
+              <span
+                class="inline-flex items-center gap-1.5 text-xs"
+                style="font-weight: 510"
+                :style="{ color: statusColor(execution.status) }"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full"
+                  :style="{ backgroundColor: statusColor(execution.status) }"
+                />
+                {{ statusLabelMap[execution.status] ?? execution.status }}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Plane Issue ID</div>
+            <div class="field-value">{{ execution.plane_issue_id ?? "-" }}</div>
           </div>
           <div v-if="execution.input_path">
-            <dt class="text-sm text-gray-500">输入路径</dt>
-            <dd class="font-mono text-sm">{{ execution.input_path }}</dd>
+            <div class="field-label">输入路径</div>
+            <div class="field-value font-mono text-xs">{{ execution.input_path }}</div>
           </div>
-        </dl>
+        </div>
       </div>
 
-      <div class="bg-white rounded-lg p-6">
-        <h2 class="text-lg font-semibold mb-4">时间线</h2>
-        <dl class="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-3">
+      <!-- Timeline Card -->
+      <div
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          时间线
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-4">
           <div>
-            <dt class="text-sm text-gray-500">创建时间</dt>
-            <dd class="font-medium">{{ execution.created_at }}</dd>
+            <div class="field-label">创建时间</div>
+            <div class="field-value">{{ execution.created_at }}</div>
           </div>
           <div>
-            <dt class="text-sm text-gray-500">开始时间</dt>
-            <dd class="font-medium">{{ execution.started_at ?? "-" }}</dd>
+            <div class="field-label">开始时间</div>
+            <div class="field-value">{{ execution.started_at ?? "-" }}</div>
           </div>
           <div>
-            <dt class="text-sm text-gray-500">完成时间</dt>
-            <dd class="font-medium">{{ execution.completed_at ?? "-" }}</dd>
+            <div class="field-label">完成时间</div>
+            <div class="field-value">{{ execution.completed_at ?? "-" }}</div>
           </div>
-        </dl>
+        </div>
       </div>
 
-      <div v-if="execution.error_message" class="bg-white rounded-lg p-6 border-l-4 border-red-500">
-        <h2 class="text-lg font-semibold mb-3 text-red-700">错误信息</h2>
-        <pre class="bg-red-50 p-4 rounded text-sm text-red-800 whitespace-pre-wrap overflow-auto">{{
-          execution.error_message
-        }}</pre>
+      <!-- Error Message -->
+      <div
+        v-if="execution.error_message"
+        class="rounded-lg p-5"
+        style="background-color: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2)"
+      >
+        <div
+          class="text-xs uppercase mb-3"
+          style="font-weight: 510; color: var(--color-error-light); letter-spacing: 0.05em"
+        >
+          错误信息
+        </div>
+        <pre
+          class="text-sm whitespace-pre-wrap overflow-auto p-3 rounded"
+          style="
+            font-family: ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, monospace;
+            color: var(--color-error-light);
+            background-color: rgba(239, 68, 68, 0.05);
+          "
+          >{{ execution.error_message }}</pre
+        >
       </div>
     </div>
   </div>
@@ -81,25 +158,30 @@ import { useRoute } from "vue-router";
 import { fetchExecution, type ExecutionDetail } from "@/api/workflow";
 import { typeLabel } from "@/utils/workflow";
 
+defineOptions({ name: "WorkflowDetail" });
+
 const route = useRoute();
 const id = Number(route.params.id);
 const execution = ref<ExecutionDetail | null>(null);
 const loading = ref(true);
 const error = ref("");
 
-const statusBadge: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-600",
-  running: "bg-blue-100 text-blue-700",
-  success: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-};
-
-const statusLabel: Record<string, string> = {
-  pending: "等待中",
+const statusLabelMap: Record<string, string> = {
+  pending: "待执行",
   running: "运行中",
   success: "成功",
   failed: "失败",
 };
+
+function statusColor(status: string) {
+  const map: Record<string, string> = {
+    pending: "var(--color-text-quaternary)",
+    running: "var(--color-accent-violet)",
+    success: "var(--color-success)",
+    failed: "var(--color-error)",
+  };
+  return map[status] ?? "var(--color-text-quaternary)";
+}
 
 onMounted(async () => {
   try {
@@ -111,3 +193,27 @@ onMounted(async () => {
   }
 });
 </script>
+
+<style scoped>
+.field-label {
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--color-text-quaternary);
+  margin-bottom: 4px;
+}
+
+.field-value {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.status-pill {
+  font-size: 12px;
+  font-weight: 510;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  border: 1px solid;
+  color: var(--color-text-secondary);
+}
+</style>
