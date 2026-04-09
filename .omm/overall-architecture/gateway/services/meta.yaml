@@ -1,0 +1,21 @@
+created: 2026-04-09T15:55:42.246Z
+updated: 2026-04-09T15:55:42.405Z
+update_count: 2
+last_field: diagram
+kind: nested-class
+title: services
+children:
+  - auth-svc
+  - claude-svc
+  - dify-svc
+  - feishu-svc
+  - git-svc
+  - ibuild-svc
+  - plane-svc
+  - prd-svc
+  - rag-sync
+  - wikijs-svc
+  - workflow
+  - ws-sync
+parentPath:
+  - gateway

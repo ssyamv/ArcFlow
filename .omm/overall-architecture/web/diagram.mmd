@@ -1,0 +1,14 @@
+graph LR
+    pages["页面层 Pages\nsrc/pages/"]
+    stores["状态管理 Stores\nsrc/stores/"]
+    api-layer["API 层\nsrc/api/"]
+    components["组件层\nsrc/components/"]
+    router["路由\nsrc/router/"]
+
+    router -->|"路由分发"| pages
+    pages -->|"读写状态"| stores
+    pages -->|"复用组件"| components
+    stores -->|"HTTP 请求"| api-layer
+
+    classDef entry fill:#89b4fa,stroke:#89b4fa,color:#1e1e2e
+    class router entry
