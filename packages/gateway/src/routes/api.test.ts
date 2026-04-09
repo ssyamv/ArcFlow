@@ -4,6 +4,7 @@ import { apiRoutes } from "./api";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
 import * as difyService from "../services/dify";
+import { recordWebhookLog } from "../db/queries";
 
 describe("api routes", () => {
   let app: Hono;
@@ -202,6 +203,26 @@ describe("rag routes", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("RAG query failed: Dify timeout");
+  });
+
+  it("GET /api/webhook/logs returns logs", async () => {
+    recordWebhookLog("plane", { test: "payload" });
+
+    const res = await app.request("/api/webhook/logs");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBeGreaterThanOrEqual(1);
+    expect(body.data[0].payload).toEqual({ test: "payload" });
+    expect(body.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it("GET /api/webhook/logs filters by source", async () => {
+    recordWebhookLog("git", { ref: "main" });
+
+    const res = await app.request("/api/webhook/logs?source=git&limit=5");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.every((l: { source: string }) => l.source === "git")).toBe(true);
   });
 
   it("POST /api/rag/query passes project_id", async () => {

@@ -12,6 +12,8 @@ import {
   getBugFixRetry,
   incrementBugFixRetry,
   updateBugFixStatus,
+  recordWebhookLog,
+  listWebhookLogs,
 } from "./queries";
 
 beforeEach(() => {
@@ -61,6 +63,19 @@ describe("workflow_execution", () => {
     const success = getWorkflowExecution(id);
     expect(success!.status).toBe("success");
     expect(success!.completed_at).not.toBeNull();
+  });
+
+  it("update status to pending (else branch)", () => {
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    updateWorkflowStatus(id, "pending");
+    const pending = getWorkflowExecution(id);
+    expect(pending!.status).toBe("pending");
+    expect(pending!.started_at).toBeNull();
+    expect(pending!.completed_at).toBeNull();
   });
 
   it("update status to failed with error message", () => {
@@ -138,6 +153,21 @@ describe("webhook_event", () => {
     expect(deleted).toBe(1);
     expect(isEventProcessed("evt-new")).toBe(true);
     expect(isEventProcessed("evt-old")).toBe(false);
+  });
+});
+
+describe("webhook_log", () => {
+  it("records and lists webhook logs", () => {
+    recordWebhookLog("plane", { issue: "test-1" });
+    recordWebhookLog("git", { ref: "main" });
+    recordWebhookLog("plane", { issue: "test-2" });
+
+    const all = listWebhookLogs(undefined, 10);
+    expect(all.length).toBe(3);
+
+    const planeOnly = listWebhookLogs("plane", 10);
+    expect(planeOnly.length).toBe(2);
+    expect(planeOnly.every((l) => l.source === "plane")).toBe(true);
   });
 });
 
