@@ -2,23 +2,22 @@ import { describe, it, afterEach, beforeEach, spyOn } from "bun:test";
 import * as queries from "./db/queries";
 import { getDb, closeDb } from "./db";
 
-let cleanSpy: ReturnType<typeof spyOn>;
-
-beforeEach(() => {
-  process.env.NODE_ENV = "test";
-  getDb();
-  cleanSpy = spyOn(queries, "cleanExpiredEvents").mockReturnValue(0);
-});
-
-afterEach(() => {
-  stopScheduler();
-  cleanSpy.mockRestore();
-  closeDb();
-});
-
 const { startScheduler, stopScheduler } = await import("./scheduler");
 
 describe("scheduler", () => {
+  let cleanSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+    cleanSpy = spyOn(queries, "cleanExpiredEvents").mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    stopScheduler();
+    cleanSpy.mockRestore();
+    closeDb();
+  });
   it("startScheduler sets up an interval that calls cleanExpiredEvents", () => {
     startScheduler();
     stopScheduler();
