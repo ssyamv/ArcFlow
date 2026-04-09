@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware } from "../middleware/auth";
+import { workspaceMiddleware } from "../middleware/workspace";
 import {
   listConversations,
   getConversation,
@@ -13,6 +14,7 @@ import {
 export const conversationRoutes = new Hono();
 
 conversationRoutes.use("/*", authMiddleware);
+conversationRoutes.use("/*", workspaceMiddleware);
 
 conversationRoutes.get("/search", (c) => {
   const userId = c.get("userId") as number;
@@ -24,14 +26,14 @@ conversationRoutes.get("/search", (c) => {
 
 conversationRoutes.get("/", (c) => {
   const userId = c.get("userId") as number;
-  const data = listConversations(userId);
+  const data = listConversations(userId, c.get("workspaceId") as number | null);
   return c.json({ data });
 });
 
 conversationRoutes.post("/", async (c) => {
   const userId = c.get("userId") as number;
   const body = await c.req.json<{ title?: string }>().catch(() => ({}));
-  const conv = createConversation(userId, body.title);
+  const conv = createConversation(userId, body.title, c.get("workspaceId") as number | null);
   return c.json(conv, 201);
 });
 

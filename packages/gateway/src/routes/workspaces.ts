@@ -1,0 +1,48 @@
+import { Hono } from "hono";
+import { authMiddleware } from "../middleware/auth";
+import {
+  listUserWorkspaces,
+  getWorkspace,
+  updateWorkspaceSettings,
+  getWorkspaceMemberRole,
+  listWorkspaceMembers,
+} from "../db/queries";
+import { syncPlaneProjects } from "../services/workspace-sync";
+
+export const workspaceRoutes = new Hono();
+workspaceRoutes.use("/*", authMiddleware);
+
+workspaceRoutes.get("/", (c) => {
+  const userId = c.get("userId") as number;
+  return c.json({ data: listUserWorkspaces(userId) });
+});
+
+workspaceRoutes.get("/:id", (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  const role = getWorkspaceMemberRole(id, userId);
+  if (!role) return c.json({ error: "Not found" }, 404);
+  const workspace = getWorkspace(id);
+  const members = listWorkspaceMembers(id);
+  return c.json({ ...workspace, members, user_role: role });
+});
+
+workspaceRoutes.patch("/:id/settings", async (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  const role = getWorkspaceMemberRole(id, userId);
+  if (role !== "admin") return c.json({ error: "Forbidden" }, 403);
+  const body = await c.req.json();
+  updateWorkspaceSettings(id, body);
+  return c.json({ ok: true });
+});
+
+workspaceRoutes.post("/sync-plane", async (c) => {
+  const userId = c.get("userId") as number;
+  try {
+    const result = await syncPlaneProjects(userId);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Sync failed" }, 500);
+  }
+});

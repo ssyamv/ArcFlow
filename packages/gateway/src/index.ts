@@ -8,6 +8,7 @@ import { createWebhookRoutes } from "./routes/webhook";
 import { apiRoutes } from "./routes/api";
 import { authRoutes } from "./routes/auth";
 import { conversationRoutes } from "./routes/conversations";
+import { workspaceRoutes } from "./routes/workspaces";
 import { startScheduler } from "./scheduler";
 
 // 初始化数据库
@@ -28,6 +29,7 @@ app.route("/", authRoutes); // for /api/auth/me
 app.route("/webhook", createWebhookRoutes());
 app.route("/api", apiRoutes);
 app.route("/api/conversations", conversationRoutes);
+app.route("/api/workspaces", workspaceRoutes);
 
 // 启动调度器（非测试环境）
 if (process.env.NODE_ENV !== "test") {
