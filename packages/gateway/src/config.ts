@@ -46,6 +46,9 @@ export interface Config {
   // PRD 生成
   difyPrdGenApiKey: string;
 
+  // RAG 知识库问答
+  difyRagApiKey: string;
+
   // Claude Code
   claudeCodeTimeout: number;
 
@@ -96,6 +99,8 @@ export function getConfig(): Config {
     wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",
 
     difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
+
+    difyRagApiKey: process.env.DIFY_RAG_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     claudeCodeTimeout: Number(process.env.CLAUDE_CODE_TIMEOUT) || 600000,
 
