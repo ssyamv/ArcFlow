@@ -107,3 +107,59 @@ export interface IBuildDetail {
   modules: IBuildModule[] | null;
   logUrl?: string;
 }
+
+// 用户
+export interface User {
+  id: number;
+  feishu_user_id: string;
+  feishu_union_id: string | null;
+  name: string;
+  avatar_url: string | null;
+  email: string | null;
+  role: "admin" | "member";
+  created_at: string;
+  last_login_at: string | null;
+}
+
+// 对话
+export interface Conversation {
+  id: number;
+  user_id: number;
+  workspace_id: number | null;
+  title: string;
+  pinned: number;
+  dify_conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 消息
+export interface Message {
+  id: number;
+  conversation_id: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+// 工作空间
+export interface Workspace {
+  id: number;
+  name: string;
+  slug: string;
+  plane_project_id: string | null;
+  dify_dataset_id: string | null;
+  dify_rag_api_key: string | null;
+  wiki_path_prefix: string | null;
+  git_repos: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMember {
+  id: number;
+  workspace_id: number;
+  user_id: number;
+  role: "admin" | "member";
+  created_at: string;
+}

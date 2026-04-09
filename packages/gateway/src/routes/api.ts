@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getWorkflowExecution, listWorkflowExecutions, listWebhookLogs } from "../db/queries";
+import {
+  getWorkflowExecution,
+  listWorkflowExecutions,
+  listWebhookLogs,
+  createMessage,
+} from "../db/queries";
 import { triggerWorkflow } from "../services/workflow";
 import {
   streamDifyChatflow,
@@ -70,22 +75,27 @@ apiRoutes.get("/webhook/logs", (c) => {
 });
 
 apiRoutes.post("/prd/chat", async (c) => {
-  const { message, conversation_id } = await c.req.json<{
+  const { message, conversation_id, dify_conversation_id } = await c.req.json<{
     message: string;
-    conversation_id?: string;
+    conversation_id?: number;
+    dify_conversation_id?: string;
   }>();
 
   if (!message?.trim()) {
     return c.json({ error: "message is required" }, 400);
   }
 
+  if (conversation_id) {
+    createMessage(conversation_id, "user", message);
+  }
+
   return streamSSE(c, async (stream) => {
     let fullAnswer = "";
-    let convId = conversation_id ?? "";
+    let convId = dify_conversation_id ?? "";
     let markerDetected = false;
 
     try {
-      for await (const chunk of streamDifyChatflow(message, conversation_id)) {
+      for await (const chunk of streamDifyChatflow(message, dify_conversation_id)) {
         if (chunk.event === "message" && chunk.answer) {
           convId = convId || chunk.conversation_id || "";
           fullAnswer += chunk.answer;
@@ -119,6 +129,21 @@ apiRoutes.post("/prd/chat", async (c) => {
         }
 
         if (chunk.event === "message_end") {
+          if (conversation_id && fullAnswer) {
+            const cleanAnswer = markerDetected
+              ? textBeforeMarker(fullAnswer) || fullAnswer
+              : fullAnswer;
+            createMessage(conversation_id, "assistant", cleanAnswer);
+          }
+          if (conversation_id && convId) {
+            const { getDb } = await import("../db");
+            const db = getDb();
+            db.query("UPDATE conversations SET dify_conversation_id = ? WHERE id = ?").run(
+              convId,
+              conversation_id,
+            );
+          }
+
           const prdResult = extractPrdResult(fullAnswer);
           if (prdResult) {
             try {

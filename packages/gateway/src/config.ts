@@ -64,6 +64,11 @@ export interface Config {
   ibuildUser: string;
   ibuildWebhookSecret: string;
   ibuildAppRepoMap: Record<string, string>;
+
+  // JWT / OAuth
+  jwtSecret: string;
+  jwtExpiresIn: string;
+  oauthRedirectUri: string;
 }
 
 export function getConfig(): Config {
@@ -119,5 +124,9 @@ export function getConfig(): Config {
     ibuildUser: process.env.IBUILD_USER ?? "",
     ibuildWebhookSecret: process.env.IBUILD_WEBHOOK_SECRET ?? "",
     ibuildAppRepoMap: JSON.parse(process.env.IBUILD_APP_REPO_MAP || '{"default":"backend"}'),
+
+    jwtSecret: process.env.JWT_SECRET ?? "arcflow-dev-secret",
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+    oauthRedirectUri: process.env.OAUTH_REDIRECT_URI ?? "http://localhost:5173/auth/callback",
   };
 }

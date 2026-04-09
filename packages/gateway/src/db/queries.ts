@@ -7,6 +7,10 @@ import type {
   BugFixRetry,
   BugFixStatus,
   WebhookSource,
+  User,
+  Conversation,
+  Message,
+  Workspace,
 } from "../types";
 
 // ─── workflow_execution ────────────────────────────────────────────────────────
@@ -191,4 +195,271 @@ export function updateBugFixStatus(planeIssueId: string, status: BugFixStatus): 
     status,
     planeIssueId,
   );
+}
+
+// ─── users ────────────────────────────────────────────────────────────────────
+
+export function findUserByFeishuId(feishuUserId: string): User | null {
+  const db = getDb();
+  return db.query("SELECT * FROM users WHERE feishu_user_id = ?").get(feishuUserId) as User | null;
+}
+
+export function upsertUser(params: {
+  feishu_user_id: string;
+  feishu_union_id?: string;
+  name: string;
+  avatar_url?: string;
+  email?: string;
+}): User {
+  const db = getDb();
+  const existing = findUserByFeishuId(params.feishu_user_id);
+  if (existing) {
+    db.query(
+      `UPDATE users SET name = ?, avatar_url = ?, email = ?, feishu_union_id = ?, last_login_at = datetime('now') WHERE id = ?`,
+    ).run(
+      params.name,
+      params.avatar_url ?? null,
+      params.email ?? null,
+      params.feishu_union_id ?? null,
+      existing.id,
+    );
+    return findUserByFeishuId(params.feishu_user_id)!;
+  }
+  db.query(
+    `INSERT INTO users (feishu_user_id, feishu_union_id, name, avatar_url, email, last_login_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+  ).run(
+    params.feishu_user_id,
+    params.feishu_union_id ?? null,
+    params.name,
+    params.avatar_url ?? null,
+    params.email ?? null,
+  );
+  return findUserByFeishuId(params.feishu_user_id)!;
+}
+
+export function getUserById(id: number): User | null {
+  const db = getDb();
+  return db.query("SELECT * FROM users WHERE id = ?").get(id) as User | null;
+}
+
+// ─── workspaces ──────────────────────────────────────────────────────────────
+
+export function listUserWorkspaces(userId: number): Workspace[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT w.* FROM workspaces w
+     INNER JOIN workspace_members wm ON wm.workspace_id = w.id
+     WHERE wm.user_id = ?
+     ORDER BY w.name ASC`,
+    )
+    .all(userId) as Workspace[];
+}
+
+export function getWorkspace(id: number): Workspace | null {
+  const db = getDb();
+  return db.query("SELECT * FROM workspaces WHERE id = ?").get(id) as Workspace | null;
+}
+
+export function getWorkspaceBySlug(slug: string): Workspace | null {
+  const db = getDb();
+  return db.query("SELECT * FROM workspaces WHERE slug = ?").get(slug) as Workspace | null;
+}
+
+export function getWorkspaceByPlaneProject(planeProjectId: string): Workspace | null {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM workspaces WHERE plane_project_id = ?")
+    .get(planeProjectId) as Workspace | null;
+}
+
+export function createWorkspace(params: {
+  name: string;
+  slug: string;
+  plane_project_id?: string;
+}): Workspace {
+  const db = getDb();
+  db.query("INSERT OR IGNORE INTO workspaces (name, slug, plane_project_id) VALUES (?, ?, ?)").run(
+    params.name,
+    params.slug,
+    params.plane_project_id ?? null,
+  );
+  return getWorkspaceBySlug(params.slug)!;
+}
+
+export function updateWorkspaceSettings(
+  id: number,
+  patch: {
+    dify_dataset_id?: string;
+    dify_rag_api_key?: string;
+    wiki_path_prefix?: string;
+    git_repos?: string;
+  },
+): boolean {
+  const db = getDb();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.dify_dataset_id !== undefined) {
+    sets.push("dify_dataset_id = ?");
+    values.push(patch.dify_dataset_id);
+  }
+  if (patch.dify_rag_api_key !== undefined) {
+    sets.push("dify_rag_api_key = ?");
+    values.push(patch.dify_rag_api_key);
+  }
+  if (patch.wiki_path_prefix !== undefined) {
+    sets.push("wiki_path_prefix = ?");
+    values.push(patch.wiki_path_prefix);
+  }
+  if (patch.git_repos !== undefined) {
+    sets.push("git_repos = ?");
+    values.push(patch.git_repos);
+  }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  values.push(id);
+  const result = db.query(`UPDATE workspaces SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+  return result.changes > 0;
+}
+
+export function addWorkspaceMember(
+  workspaceId: number,
+  userId: number,
+  role: "admin" | "member" = "member",
+): void {
+  const db = getDb();
+  db.query(
+    "INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)",
+  ).run(workspaceId, userId, role);
+}
+
+export function getWorkspaceMemberRole(workspaceId: number, userId: number): string | null {
+  const db = getDb();
+  const row = db
+    .query("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
+    .get(workspaceId, userId) as { role: string } | null;
+  return row?.role ?? null;
+}
+
+export function listWorkspaceMembers(
+  workspaceId: number,
+): Array<{ user_id: number; name: string; role: string }> {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT wm.user_id, u.name, wm.role FROM workspace_members wm
+     INNER JOIN users u ON u.id = wm.user_id
+     WHERE wm.workspace_id = ?
+     ORDER BY wm.role ASC, u.name ASC`,
+    )
+    .all(workspaceId) as Array<{ user_id: number; name: string; role: string }>;
+}
+
+// ─── conversations ───────────────────────────────────────────────────────────
+
+export function listConversations(userId: number, workspaceId?: number | null): Conversation[] {
+  const db = getDb();
+  if (workspaceId) {
+    return db
+      .query(
+        "SELECT * FROM conversations WHERE user_id = ? AND workspace_id = ? ORDER BY pinned DESC, updated_at DESC",
+      )
+      .all(userId, workspaceId) as Conversation[];
+  }
+  return db
+    .query("SELECT * FROM conversations WHERE user_id = ? ORDER BY pinned DESC, updated_at DESC")
+    .all(userId) as Conversation[];
+}
+
+export function getConversation(id: number, userId: number): Conversation | null {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM conversations WHERE id = ? AND user_id = ?")
+    .get(id, userId) as Conversation | null;
+}
+
+export function createConversation(
+  userId: number,
+  title?: string,
+  workspaceId?: number | null,
+): Conversation {
+  const db = getDb();
+  db.query("INSERT INTO conversations (user_id, workspace_id, title) VALUES (?, ?, ?)").run(
+    userId,
+    workspaceId ?? null,
+    title ?? "新对话",
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return db.query("SELECT * FROM conversations WHERE id = ?").get(row.id) as Conversation;
+}
+
+export function updateConversation(
+  id: number,
+  userId: number,
+  patch: { title?: string; pinned?: number },
+): boolean {
+  const db = getDb();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.title !== undefined) {
+    sets.push("title = ?");
+    values.push(patch.title);
+  }
+  if (patch.pinned !== undefined) {
+    sets.push("pinned = ?");
+    values.push(patch.pinned);
+  }
+  if (sets.length === 0) return false;
+  sets.push("updated_at = datetime('now')");
+  values.push(id, userId);
+  const result = db
+    .query(`UPDATE conversations SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+    .run(...values);
+  return result.changes > 0;
+}
+
+export function deleteConversation(id: number, userId: number): boolean {
+  const db = getDb();
+  const result = db.query("DELETE FROM conversations WHERE id = ? AND user_id = ?").run(id, userId);
+  return result.changes > 0;
+}
+
+export function searchConversations(userId: number, query: string): Conversation[] {
+  const db = getDb();
+  const like = `%${query}%`;
+  return db
+    .query(
+      `SELECT DISTINCT c.* FROM conversations c
+     LEFT JOIN messages m ON m.conversation_id = c.id
+     WHERE c.user_id = ? AND (c.title LIKE ? OR m.content LIKE ?)
+     ORDER BY c.updated_at DESC`,
+    )
+    .all(userId, like, like) as Conversation[];
+}
+
+// ─── messages ────────────────────────────────────────────────────────────────
+
+export function listMessages(conversationId: number, limit = 100): Message[] {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?")
+    .all(conversationId, limit) as Message[];
+}
+
+export function createMessage(
+  conversationId: number,
+  role: "user" | "assistant",
+  content: string,
+): Message {
+  const db = getDb();
+  db.query("INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)").run(
+    conversationId,
+    role,
+    content,
+  );
+  db.query("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(
+    conversationId,
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return db.query("SELECT * FROM messages WHERE id = ?").get(row.id) as Message;
 }

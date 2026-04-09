@@ -1,129 +1,226 @@
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-6">系统概览</h1>
+    <h1
+      class="text-2xl mb-6"
+      style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.288px"
+    >
+      系统概览
+    </h1>
 
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-4 gap-4 mb-8">
       <div
-        class="bg-white p-5 rounded-lg"
-        :class="gatewayOk ? 'border-l-4 border-green-500' : 'border-l-4 border-red-500'"
+        v-for="kpi in kpis"
+        :key="kpi.label"
+        class="p-4 rounded-lg"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
       >
-        <h3 class="m-0 mb-2 text-sm text-gray-500">Gateway 服务</h3>
-        <p class="text-lg font-semibold m-0" :class="gatewayOk ? 'text-green-500' : 'text-red-500'">
-          {{ gatewayOk ? "正常运行" : "连接失败" }}
-        </p>
-        <p v-if="gatewayVersion" class="mt-1 text-gray-400 text-sm m-0">v{{ gatewayVersion }}</p>
-      </div>
-      <div class="bg-white p-5 rounded-lg border-l-4 border-gray-300">
-        <h3 class="m-0 mb-2 text-sm text-gray-500">工作流总数</h3>
-        <p class="text-3xl font-bold text-gray-800 m-0">{{ stats.total }}</p>
-      </div>
-      <div class="bg-white p-5 rounded-lg border-l-4 border-blue-500">
-        <h3 class="m-0 mb-2 text-sm text-gray-500">运行中</h3>
-        <p class="text-3xl font-bold text-gray-800 m-0">{{ stats.running }}</p>
-      </div>
-      <div class="bg-white p-5 rounded-lg border-l-4 border-green-500">
-        <h3 class="m-0 mb-2 text-sm text-gray-500">成功</h3>
-        <p class="text-3xl font-bold text-gray-800 m-0">{{ stats.success }}</p>
-      </div>
-      <div class="bg-white p-5 rounded-lg border-l-4 border-red-500">
-        <h3 class="m-0 mb-2 text-sm text-gray-500">失败</h3>
-        <p class="text-3xl font-bold text-gray-800 m-0">{{ stats.failed }}</p>
+        <div class="text-xs mb-1" style="font-weight: 510; color: var(--color-text-tertiary)">
+          {{ kpi.label }}
+        </div>
+        <div
+          class="text-2xl"
+          style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.288px"
+        >
+          {{ kpi.value }}
+        </div>
       </div>
     </div>
 
-    <h2 class="text-xl font-semibold mb-4">最近执行</h2>
-    <div class="bg-white rounded-lg overflow-hidden">
-      <table class="w-full border-collapse">
-        <thead>
-          <tr class="bg-gray-50">
-            <th class="px-4 py-2.5 text-left font-semibold">ID</th>
-            <th class="px-4 py-2.5 text-left font-semibold">类型</th>
-            <th class="px-4 py-2.5 text-left font-semibold">状态</th>
-            <th class="px-4 py-2.5 text-left font-semibold">Issue</th>
-            <th class="px-4 py-2.5 text-left font-semibold">时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="exec in recentExecutions"
-            :key="exec.id"
-            class="border-t border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-            @click="$router.push(`/workflows/${exec.id}`)"
-          >
-            <td class="px-4 py-2.5">{{ exec.id }}</td>
-            <td class="px-4 py-2.5">{{ typeLabel(exec.workflow_type) }}</td>
-            <td class="px-4 py-2.5">
-              <span :class="statusColors[exec.status] ?? 'text-gray-400'">{{ exec.status }}</span>
-            </td>
-            <td class="px-4 py-2.5">{{ exec.plane_issue_id ?? "-" }}</td>
-            <td class="px-4 py-2.5">{{ exec.created_at }}</td>
-          </tr>
-          <tr v-if="recentExecutions.length === 0">
-            <td colspan="5" class="text-center text-gray-400 py-8">暂无执行记录</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- Gateway Status -->
+    <div class="flex items-center gap-2 mb-6">
+      <div
+        class="w-2 h-2 rounded-full"
+        :style="{ backgroundColor: gatewayOk ? 'var(--color-success)' : 'var(--color-error)' }"
+      />
+      <span class="text-xs" style="font-weight: 510; color: var(--color-text-tertiary)">
+        Gateway {{ gatewayOk ? "在线" : "离线" }}
+        <span v-if="gatewayVersion" style="color: var(--color-text-quaternary)">
+          v{{ gatewayVersion }}
+        </span>
+      </span>
     </div>
 
-    <p class="mt-3 text-gray-400 text-xs">每 10 秒自动刷新</p>
+    <!-- Recent Executions Table -->
+    <div>
+      <h2
+        class="text-xs uppercase mb-3"
+        style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+      >
+        最近执行
+      </h2>
+      <div class="rounded-lg overflow-hidden" style="border: 1px solid var(--color-border-default)">
+        <table class="w-full">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border-subtle)">
+              <th class="table-header">ID</th>
+              <th class="table-header">类型</th>
+              <th class="table-header">触发</th>
+              <th class="table-header">状态</th>
+              <th class="table-header">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="exec in store.executions.slice(0, 5)"
+              :key="exec.id"
+              class="table-row cursor-pointer"
+              @click="$router.push(`/workflows/${exec.id}`)"
+            >
+              <td class="table-cell" style="color: var(--color-text-tertiary)">#{{ exec.id }}</td>
+              <td class="table-cell">
+                <span class="status-pill" style="border-color: var(--color-border-solid)">
+                  {{ workflowLabel(exec.workflow_type) }}
+                </span>
+              </td>
+              <td class="table-cell" style="color: var(--color-text-tertiary)">
+                {{ exec.trigger_source }}
+              </td>
+              <td class="table-cell">
+                <span
+                  class="inline-flex items-center gap-1 text-xs"
+                  style="font-weight: 510"
+                  :style="{ color: statusColor(exec.status) }"
+                >
+                  <span
+                    class="w-1.5 h-1.5 rounded-full"
+                    :style="{ backgroundColor: statusColor(exec.status) }"
+                  />
+                  {{ statusLabel(exec.status) }}
+                </span>
+              </td>
+              <td class="table-cell" style="color: var(--color-text-quaternary)">
+                {{ exec.created_at }}
+              </td>
+            </tr>
+            <tr v-if="store.executions.length === 0">
+              <td
+                colspan="5"
+                class="table-cell text-center"
+                style="color: var(--color-text-quaternary)"
+              >
+                暂无执行记录
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from "vue";
-import { checkHealth, fetchExecutions, fetchVersion } from "@/api/workflow";
-import { typeLabel, statusColors } from "@/utils/workflow";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useWorkflowStore } from "../stores/workflow";
+import { checkHealth, fetchVersion } from "../api/workflow";
 
 defineOptions({ name: "SystemDashboard" });
 
-interface Execution {
-  id: number | string;
-  workflow_type: string;
-  status: string;
-  plane_issue_id?: string | null;
-  created_at: string;
-}
-
+const store = useWorkflowStore();
 const gatewayOk = ref(false);
 const gatewayVersion = ref("");
-const recentExecutions = ref<Execution[]>([]);
-const stats = reactive({ total: 0, running: 0, success: 0, failed: 0 });
 
-let timer: ReturnType<typeof setInterval> | null = null;
+const kpis = computed(() => {
+  const execs = store.executions;
+  return [
+    { label: "总执行", value: store.total },
+    { label: "运行中", value: execs.filter((e) => e.status === "running").length },
+    { label: "成功", value: execs.filter((e) => e.status === "success").length },
+    { label: "失败", value: execs.filter((e) => e.status === "failed").length },
+  ];
+});
 
-async function refresh() {
-  try {
-    const health = await checkHealth();
-    gatewayOk.value = health.status === "ok";
-  } catch {
-    gatewayOk.value = false;
-  }
-
-  try {
-    const data = await fetchVersion();
-    gatewayVersion.value = data.version ?? "";
-  } catch {
-    gatewayVersion.value = "";
-  }
-
-  try {
-    const all = await fetchExecutions({ limit: 100 });
-    stats.total = all.total;
-    stats.running = all.data.filter((e) => e.status === "running").length;
-    stats.success = all.data.filter((e) => e.status === "success").length;
-    stats.failed = all.data.filter((e) => e.status === "failed").length;
-    recentExecutions.value = all.data.slice(0, 5);
-  } catch {
-    // ignore
-  }
+function workflowLabel(type: string) {
+  const map: Record<string, string> = {
+    prd_to_tech: "PRD → 技术文档",
+    tech_to_openapi: "技术文档 → OpenAPI",
+    bug_analysis: "Bug 分析",
+    code_gen: "代码生成",
+  };
+  return map[type] ?? type;
 }
 
-onMounted(() => {
-  refresh();
-  timer = setInterval(refresh, 10000);
+function statusColor(status: string) {
+  const map: Record<string, string> = {
+    pending: "var(--color-text-quaternary)",
+    running: "var(--color-accent-violet)",
+    success: "var(--color-success)",
+    failed: "var(--color-error)",
+  };
+  return map[status] ?? "var(--color-text-quaternary)";
+}
+
+function statusLabel(status: string) {
+  const map: Record<string, string> = {
+    pending: "待执行",
+    running: "运行中",
+    success: "成功",
+    failed: "失败",
+  };
+  return map[status] ?? status;
+}
+
+let timer: ReturnType<typeof setInterval>;
+
+onMounted(async () => {
+  await store.loadExecutions({ limit: 20 });
+  checkHealth()
+    .then(() => {
+      gatewayOk.value = true;
+    })
+    .catch(() => {
+      gatewayOk.value = false;
+    });
+  fetchVersion()
+    .then((v) => {
+      gatewayVersion.value = v.version;
+    })
+    .catch(() => {});
+  timer = setInterval(() => store.loadExecutions({ limit: 20 }), 10000);
 });
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer);
-});
+onUnmounted(() => clearInterval(timer));
 </script>
+
+<style scoped>
+.table-header {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+}
+
+.table-row {
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: all 120ms ease;
+}
+
+.table-row:hover {
+  background-color: var(--color-surface-04);
+}
+
+.table-row:last-child {
+  border-bottom: none;
+}
+
+.table-cell {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.status-pill {
+  font-size: 12px;
+  font-weight: 510;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  border: 1px solid;
+  color: var(--color-text-secondary);
+}
+</style>
