@@ -7,12 +7,13 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "lint": "eslint src/ --max-warnings 0",
-    "test": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
-    "test:all": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
-    "test:coverage": "bun test --coverage src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync}.test.ts"
+    "test": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync,auth}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
+    "test:all": "bun test --coverage --coverage-reporter lcov src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync,auth}.test.ts && bun test src/scheduler.test.ts src/services/workflow.test.ts",
+    "test:coverage": "bun test --coverage src/{index,config}.test.ts src/middleware/ src/db/ src/routes/ src/services/{dify,feishu,git,claude-code,plane,plane-webhook,wikijs,ibuild,ibuild-log-fetcher,prd,rag-sync,auth}.test.ts"
   },
   "dependencies": {
     "hono": "^4.0.0",
+    "jose": "^6.2.2",
     "simple-git": "^3.33.0"
   },
   "devDependencies": {

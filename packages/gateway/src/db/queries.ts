@@ -7,6 +7,7 @@ import type {
   BugFixRetry,
   BugFixStatus,
   WebhookSource,
+  User,
 } from "../types";
 
 // ─── workflow_execution ────────────────────────────────────────────────────────
@@ -191,4 +192,49 @@ export function updateBugFixStatus(planeIssueId: string, status: BugFixStatus): 
     status,
     planeIssueId,
   );
+}
+
+// ─── users ────────────────────────────────────────────────────────────────────
+
+export function findUserByFeishuId(feishuUserId: string): User | null {
+  const db = getDb();
+  return db.query("SELECT * FROM users WHERE feishu_user_id = ?").get(feishuUserId) as User | null;
+}
+
+export function upsertUser(params: {
+  feishu_user_id: string;
+  feishu_union_id?: string;
+  name: string;
+  avatar_url?: string;
+  email?: string;
+}): User {
+  const db = getDb();
+  const existing = findUserByFeishuId(params.feishu_user_id);
+  if (existing) {
+    db.query(
+      `UPDATE users SET name = ?, avatar_url = ?, email = ?, feishu_union_id = ?, last_login_at = datetime('now') WHERE id = ?`,
+    ).run(
+      params.name,
+      params.avatar_url ?? null,
+      params.email ?? null,
+      params.feishu_union_id ?? null,
+      existing.id,
+    );
+    return findUserByFeishuId(params.feishu_user_id)!;
+  }
+  db.query(
+    `INSERT INTO users (feishu_user_id, feishu_union_id, name, avatar_url, email, last_login_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+  ).run(
+    params.feishu_user_id,
+    params.feishu_union_id ?? null,
+    params.name,
+    params.avatar_url ?? null,
+    params.email ?? null,
+  );
+  return findUserByFeishuId(params.feishu_user_id)!;
+}
+
+export function getUserById(id: number): User | null {
+  const db = getDb();
+  return db.query("SELECT * FROM users WHERE id = ?").get(id) as User | null;
 }
