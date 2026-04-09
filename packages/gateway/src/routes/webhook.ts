@@ -8,6 +8,7 @@ import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
+import { syncRecentChanges } from "../services/rag-sync";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -42,16 +43,25 @@ export function createWebhookRoutes(): Hono {
     },
   );
 
-  // Git: MR merged / docs push
+  // Git: MR merged / docs push → trigger RAG sync
   webhookRoutes.post(
     "/git",
     createWebhookVerifier("X-Gitea-Secret", config.gitWebhookSecret),
     createDedup("X-Gitea-Delivery", "git"),
     async (c) => {
-      await c.req.json();
-      // Git webhooks are handled by CI/CD pipeline and Plane
-      // This endpoint primarily logs the event for auditing
-      return c.json({ received: true, source: "git" });
+      const body = await c.req.json();
+
+      // 检测 docs 仓库 push 事件，立即触发 RAG 增量同步
+      const repoName = body.repository?.full_name ?? body.repository?.name ?? "";
+      const isDocsPush = repoName.includes("docs") || repoName === config.docsGitRepo;
+
+      if (isDocsPush && config.difyDatasetApiKey && config.difyDatasetId) {
+        syncRecentChanges(10).catch((err) => {
+          console.error("Git hook RAG sync error:", err instanceof Error ? err.message : err);
+        });
+      }
+
+      return c.json({ received: true, source: "git", rag_sync_triggered: isDocsPush });
     },
   );
 

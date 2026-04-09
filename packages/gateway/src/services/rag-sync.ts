@@ -158,15 +158,83 @@ async function deleteDifyDocument(
   return res.ok;
 }
 
+/** Track last sync time for incremental sync */
+let lastSyncTime: Date | null = null;
+
 /**
- * Sync Wiki.js pages to Dify knowledge base.
+ * Incremental sync: only sync pages updated since last sync.
+ * Much faster than full sync for periodic polling.
+ */
+export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> {
+  const config = getConfig();
+  const { difyDatasetApiKey: apiKey, difyDatasetId: datasetId } = config;
+
+  if (!apiKey || !datasetId) {
+    throw new Error("DIFY_DATASET_API_KEY and DIFY_DATASET_ID are required for sync");
+  }
+
+  const result: SyncResult = { created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] };
+  const since = lastSyncTime ?? new Date(Date.now() - sinceMinutes * 60 * 1000);
+
+  // Get all Wiki.js pages and filter recently updated ones
+  const allPages = await listWikiPages();
+  const recentPages = allPages.filter((p) => new Date(p.updatedAt) > since);
+
+  if (recentPages.length === 0) {
+    lastSyncTime = new Date();
+    return result;
+  }
+
+  // Get Dify docs for matching
+  const difyDocs = await listDifyDocuments(datasetId, apiKey);
+  const difyDocMap = new Map<string, DifyDocument>();
+  for (const doc of difyDocs) {
+    difyDocMap.set(doc.name, doc);
+  }
+
+  for (const page of recentPages) {
+    const fileName = `${page.path.replace(/\//g, "-")}.md`;
+
+    try {
+      const content = await getWikiPageContent(page.id);
+      if (!content.trim()) {
+        result.skipped++;
+        continue;
+      }
+
+      const existingDoc = difyDocMap.get(fileName);
+      if (existingDoc) {
+        const ok = await updateDifyDocument(datasetId, apiKey, existingDoc.id, fileName, content);
+        if (ok) result.updated++;
+        else result.errors.push(`Update failed: ${fileName}`);
+      } else {
+        const ok = await createDifyDocument(datasetId, apiKey, fileName, content);
+        if (ok) result.created++;
+        else result.errors.push(`Create failed: ${fileName}`);
+      }
+
+      await new Promise((r) => setTimeout(r, 200));
+    } catch (err) {
+      result.errors.push(`${fileName}: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
+  lastSyncTime = new Date();
+  return result;
+}
+
+/**
+ * Full sync: compare all Wiki.js pages with Dify knowledge base.
  * - New pages → create in Dify
  * - Existing pages → update in Dify
  * - Pages removed from Wiki.js → delete from Dify
+ *
+ * @param targetDatasetId - 指定同步到哪个 dataset（不传则使用默认）
  */
-export async function syncWikiToDify(): Promise<SyncResult> {
+export async function syncWikiToDify(targetDatasetId?: string): Promise<SyncResult> {
   const config = getConfig();
-  const { difyDatasetApiKey: apiKey, difyDatasetId: datasetId } = config;
+  const apiKey = config.difyDatasetApiKey;
+  const datasetId = targetDatasetId ?? config.difyDatasetId;
 
   if (!apiKey || !datasetId) {
     throw new Error("DIFY_DATASET_API_KEY and DIFY_DATASET_ID are required for sync");
@@ -234,4 +302,45 @@ export async function syncWikiToDify(): Promise<SyncResult> {
   }
 
   return result;
+}
+
+/**
+ * Sync all configured datasets (default + multi-project).
+ * Returns aggregated results per dataset.
+ */
+export async function syncAllDatasets(): Promise<Record<string, SyncResult>> {
+  const config = getConfig();
+  const results: Record<string, SyncResult> = {};
+
+  // Sync default dataset
+  if (config.difyDatasetApiKey && config.difyDatasetId) {
+    try {
+      results["default"] = await syncWikiToDify();
+    } catch (err) {
+      results["default"] = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        skipped: 0,
+        errors: [err instanceof Error ? err.message : "unknown error"],
+      };
+    }
+  }
+
+  // Sync project-specific datasets
+  for (const [projectId, dataset] of Object.entries(config.difyDatasetMap)) {
+    try {
+      results[projectId] = await syncWikiToDify(dataset.datasetId);
+    } catch (err) {
+      results[projectId] = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        skipped: 0,
+        errors: [err instanceof Error ? err.message : "unknown error"],
+      };
+    }
+  }
+
+  return results;
 }

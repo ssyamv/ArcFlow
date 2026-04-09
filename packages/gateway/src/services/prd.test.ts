@@ -1,5 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { extractPrdResult, buildPrdFilePath, buildWikiUrl, parseDifySSEChunk } from "./prd";
+import { describe, expect, it, afterEach } from "bun:test";
+import {
+  extractPrdResult,
+  buildPrdFilePath,
+  buildWikiUrl,
+  parseDifySSEChunk,
+  containsPrdMarker,
+  textBeforeMarker,
+} from "./prd";
 
 describe("extractPrdResult", () => {
   it("should extract PRD JSON from marked text", () => {
@@ -32,6 +39,11 @@ describe("buildPrdFilePath", () => {
   it("should build correct path with current year-month", () => {
     const path = buildPrdFilePath("sms-login");
     expect(path).toMatch(/^prd\/\d{4}-\d{2}\/sms-login\.md$/);
+  });
+
+  it("handles filename with hyphens", () => {
+    const path = buildPrdFilePath("user-center-redesign");
+    expect(path).toMatch(/user-center-redesign\.md$/);
   });
 });
 
@@ -75,5 +87,124 @@ describe("parseDifySSEChunk", () => {
     const chunk = parseDifySSEChunk(line);
     expect(chunk).not.toBeNull();
     expect(chunk!.event).toBe("ping");
+  });
+
+  it("should return null for invalid JSON", () => {
+    const line = `data: {invalid`;
+    expect(parseDifySSEChunk(line)).toBeNull();
+  });
+});
+
+describe("containsPrdMarker", () => {
+  it("returns true when marker is present", () => {
+    expect(containsPrdMarker("text before <<<PRD_OUTPUT>>> after")).toBe(true);
+  });
+
+  it("returns false when marker is absent", () => {
+    expect(containsPrdMarker("normal text")).toBe(false);
+  });
+});
+
+describe("textBeforeMarker", () => {
+  it("returns text before marker", () => {
+    expect(textBeforeMarker("hello <<<PRD_OUTPUT>>> rest")).toBe("hello ");
+  });
+
+  it("returns full text when no marker", () => {
+    expect(textBeforeMarker("no marker here")).toBe("no marker here");
+  });
+});
+
+describe("streamDifyChatflow", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("handles buffered partial lines across chunks", async () => {
+    // Simulate data split across two chunks
+    const part1 = 'data: {"event":"message","answ';
+    const part2 = 'er":"split","conversation_id":"c2"}\n\n';
+
+    globalThis.fetch = (async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(part1));
+          controller.enqueue(new TextEncoder().encode(part2));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { streamDifyChatflow } = await import("./prd");
+    const chunks = [];
+    for await (const chunk of streamDifyChatflow("test")) {
+      chunks.push(chunk);
+    }
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].answer).toBe("split");
+  });
+
+  it("streams SSE chunks from Dify chatflow", async () => {
+    const sseData = [
+      'data: {"event":"message","answer":"Hello","conversation_id":"c1"}\n\n',
+      'data: {"event":"message","answer":" World","conversation_id":"c1"}\n\n',
+      'data: {"event":"message_end","conversation_id":"c1"}\n\n',
+    ].join("");
+
+    globalThis.fetch = (async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sseData));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { streamDifyChatflow } = await import("./prd");
+    const chunks = [];
+    for await (const chunk of streamDifyChatflow("test")) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.length).toBe(3);
+    expect(chunks[0].answer).toBe("Hello");
+    expect(chunks[1].answer).toBe(" World");
+    expect(chunks[2].event).toBe("message_end");
+  });
+
+  it("throws on HTTP error", async () => {
+    globalThis.fetch = (async () =>
+      new Response("Internal Error", { status: 500 })) as unknown as typeof fetch;
+
+    const { streamDifyChatflow } = await import("./prd");
+    const gen = streamDifyChatflow("fail");
+    await expect(gen.next()).rejects.toThrow("Dify Chatflow API error: 500");
+  });
+
+  it("filters out ping events", async () => {
+    const sseData = 'data: {"event":"ping"}\ndata: {"event":"message","answer":"hi"}\n';
+
+    globalThis.fetch = (async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sseData));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { streamDifyChatflow } = await import("./prd");
+    const chunks = [];
+    for await (const chunk of streamDifyChatflow("test")) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].answer).toBe("hi");
   });
 });

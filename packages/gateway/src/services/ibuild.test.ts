@@ -18,16 +18,16 @@ const {
   _resetTokenCache,
 } = await import("./ibuild");
 
-const originalFetch = globalThis.fetch;
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  _resetTokenCache();
-});
-
 // ─── Task 2: Token Management ─────────────────────────────────────────────────
 
 describe("getAccessToken", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    _resetTokenCache();
+  });
+
   it("requests token from CS API and caches it", async () => {
     let fetchCallCount = 0;
     globalThis.fetch = mock(async () => {
@@ -66,6 +66,13 @@ describe("getAccessToken", () => {
 // ─── Task 3: Build Detail + Log Fetching + Failed Modules ─────────────────────
 
 describe("getBuildDetail", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    _resetTokenCache();
+  });
+
   it("fetches build detail successfully", async () => {
     const mockDetail = {
       uuid: "uuid-1",
@@ -134,6 +141,13 @@ describe("getBuildDetail", () => {
 });
 
 describe("getBuildLog", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    _resetTokenCache();
+  });
+
   it("fetches build log via logUrl", async () => {
     const logContent = "Build log line 1\nBuild log line 2\n";
 

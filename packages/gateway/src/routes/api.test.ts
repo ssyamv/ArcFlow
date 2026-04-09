@@ -4,6 +4,7 @@ import { apiRoutes } from "./api";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
 import * as difyService from "../services/dify";
+import { recordWebhookLog } from "../db/queries";
 
 describe("api routes", () => {
   let app: Hono;
@@ -162,7 +163,7 @@ describe("rag routes", () => {
     expect(body.answer).toBe("ArcFlow is an AI DevOps platform");
     expect(body.conversation_id).toBe("conv-001");
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined);
+    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined, undefined);
   });
 
   it("POST /api/rag/query passes conversation_id", async () => {
@@ -177,7 +178,7 @@ describe("rag routes", () => {
       body: JSON.stringify({ question: "What stack?", conversation_id: "conv-002" }),
     });
     expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002");
+    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002", undefined);
   });
 
   it("POST /api/rag/query returns 400 if question is empty", async () => {
@@ -202,5 +203,40 @@ describe("rag routes", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("RAG query failed: Dify timeout");
+  });
+
+  it("GET /api/webhook/logs returns logs", async () => {
+    recordWebhookLog("plane", { test: "payload" });
+
+    const res = await app.request("/api/webhook/logs");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBeGreaterThanOrEqual(1);
+    expect(body.data[0].payload).toEqual({ test: "payload" });
+    expect(body.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it("GET /api/webhook/logs filters by source", async () => {
+    recordWebhookLog("git", { ref: "main" });
+
+    const res = await app.request("/api/webhook/logs?source=git&limit=5");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.every((l: { source: string }) => l.source === "git")).toBe(true);
+  });
+
+  it("POST /api/rag/query passes project_id", async () => {
+    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
+      answer: "project-specific answer",
+      conversation_id: "conv-p1",
+    });
+
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "What?", project_id: "proj-alpha" }),
+    });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith("What?", undefined, "proj-alpha");
   });
 });

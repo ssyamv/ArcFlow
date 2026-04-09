@@ -12,18 +12,20 @@ import {
   getBugFixRetry,
   incrementBugFixRetry,
   updateBugFixStatus,
+  recordWebhookLog,
+  listWebhookLogs,
 } from "./queries";
 
-beforeEach(() => {
-  process.env.NODE_ENV = "test";
-  getDb();
-});
-
-afterEach(() => {
-  closeDb();
-});
-
 describe("workflow_execution", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
   it("create and get workflow execution", () => {
     const id = createWorkflowExecution({
       workflow_type: "prd_to_tech",
@@ -61,6 +63,19 @@ describe("workflow_execution", () => {
     const success = getWorkflowExecution(id);
     expect(success!.status).toBe("success");
     expect(success!.completed_at).not.toBeNull();
+  });
+
+  it("update status to pending (else branch)", () => {
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    updateWorkflowStatus(id, "pending");
+    const pending = getWorkflowExecution(id);
+    expect(pending!.status).toBe("pending");
+    expect(pending!.started_at).toBeNull();
+    expect(pending!.completed_at).toBeNull();
   });
 
   it("update status to failed with error message", () => {
@@ -112,6 +127,15 @@ describe("workflow_execution", () => {
 });
 
 describe("webhook_event", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
   it("record and check event processed", () => {
     recordWebhookEvent("evt-001", "plane");
     expect(isEventProcessed("evt-001")).toBe(true);
@@ -141,7 +165,40 @@ describe("webhook_event", () => {
   });
 });
 
+describe("webhook_log", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it("records and lists webhook logs", () => {
+    recordWebhookLog("plane", { issue: "test-1" });
+    recordWebhookLog("git", { ref: "main" });
+    recordWebhookLog("plane", { issue: "test-2" });
+
+    const all = listWebhookLogs(undefined, 10);
+    expect(all.length).toBe(3);
+
+    const planeOnly = listWebhookLogs("plane", 10);
+    expect(planeOnly.length).toBe(2);
+    expect(planeOnly.every((l) => l.source === "plane")).toBe(true);
+  });
+});
+
 describe("bug_fix_retry", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
   it("create and get bug fix retry", () => {
     createBugFixRetry("ISSUE-BUG-1");
     const retry = getBugFixRetry("ISSUE-BUG-1");

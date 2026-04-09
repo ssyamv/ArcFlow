@@ -154,15 +154,16 @@ apiRoutes.post("/prd/chat", async (c) => {
 });
 
 apiRoutes.post("/rag/query", async (c) => {
-  const { question, conversation_id } = await c.req.json<{
+  const { question, conversation_id, project_id } = await c.req.json<{
     question: string;
     conversation_id?: string;
+    project_id?: string;
   }>();
   if (!question?.trim()) {
     return c.json({ error: "question is required" }, 400);
   }
   try {
-    const result = await queryKnowledgeBase(question, conversation_id);
+    const result = await queryKnowledgeBase(question, conversation_id, project_id);
     return c.json(result);
   } catch (err) {
     return c.json(
@@ -174,6 +175,16 @@ apiRoutes.post("/rag/query", async (c) => {
 
 apiRoutes.post("/rag/sync", async (c) => {
   try {
+    const body = await c.req.json<{ project_id?: string }>().catch(() => ({}));
+    if (body.project_id) {
+      const config = (await import("../config")).getConfig();
+      const dataset = config.difyDatasetMap[body.project_id];
+      if (!dataset) {
+        return c.json({ error: `Unknown project: ${body.project_id}` }, 400);
+      }
+      const result = await syncWikiToDify(dataset.datasetId);
+      return c.json(result);
+    }
     const result = await syncWikiToDify();
     return c.json(result);
   } catch (err) {

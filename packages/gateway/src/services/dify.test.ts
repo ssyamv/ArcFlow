@@ -9,6 +9,10 @@ mock.module("../config", () => ({
     difyOpenApiApiKey: "dify-openapi-val",
     difyBugAnalysisApiKey: "dify-bugfix-val",
     difyRagApiKey: "dify-rag-val",
+    difyDatasetMap: {
+      "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha-key" },
+      "proj-beta": { datasetId: "ds-beta" },
+    },
   }),
 }));
 
@@ -156,5 +160,51 @@ describe("dify service", () => {
       new Response("Bad Request", { status: 400 })) as unknown as typeof fetch;
 
     await expect(queryKnowledgeBase("bad query")).rejects.toThrow("Dify RAG API error: 400");
+  });
+
+  it("queryKnowledgeBase uses project-specific ragApiKey when projectId provided", async () => {
+    let capturedAuth = "";
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      capturedAuth = headers["Authorization"];
+      return new Response(
+        JSON.stringify({ answer: "project answer", conversation_id: "conv-p1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const result = await queryKnowledgeBase("project question", undefined, "proj-alpha");
+    expect(capturedAuth).toBe("Bearer rag-alpha-key");
+    expect(result.answer).toBe("project answer");
+  });
+
+  it("queryKnowledgeBase falls back to default ragApiKey for unknown project", async () => {
+    let capturedAuth = "";
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      capturedAuth = headers["Authorization"];
+      return new Response(
+        JSON.stringify({ answer: "default answer", conversation_id: "conv-d1" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await queryKnowledgeBase("question", undefined, "unknown-project");
+    expect(capturedAuth).toBe("Bearer dify-rag-val");
+  });
+
+  it("queryKnowledgeBase falls back to default when project has no ragApiKey", async () => {
+    let capturedAuth = "";
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      capturedAuth = headers["Authorization"];
+      return new Response(JSON.stringify({ answer: "beta answer", conversation_id: "conv-b1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    await queryKnowledgeBase("question", undefined, "proj-beta");
+    expect(capturedAuth).toBe("Bearer dify-rag-val");
   });
 });

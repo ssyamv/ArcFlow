@@ -4,6 +4,7 @@ import { createWebhookRoutes } from "./webhook";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
 import * as ibuildLogFetcher from "../services/ibuild-log-fetcher";
+import * as ragSync from "../services/rag-sync";
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -97,11 +98,44 @@ describe("webhook routes", () => {
     const res = await app.request("/webhook/git", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ref: "refs/heads/main" }),
+      body: JSON.stringify({ ref: "refs/heads/main", repository: { name: "backend" } }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.source).toBe("git");
+    expect(body.rag_sync_triggered).toBe(false);
+  });
+
+  it("POST /webhook/git triggers RAG sync on docs repo push", async () => {
+    process.env.DIFY_DATASET_API_KEY = "test-key";
+    process.env.DIFY_DATASET_ID = "test-dataset";
+    const syncSpy = spyOn(ragSync, "syncRecentChanges").mockResolvedValue({
+      created: 1,
+      updated: 0,
+      deleted: 0,
+      skipped: 0,
+      errors: [],
+    });
+
+    // Recreate routes to pick up new env vars
+    const freshApp = new Hono();
+    freshApp.route("/webhook", createWebhookRoutes());
+
+    const res = await freshApp.request("/webhook/git", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: "refs/heads/main",
+        repository: { full_name: "org/docs", name: "docs" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rag_sync_triggered).toBe(true);
+    expect(syncSpy).toHaveBeenCalledWith(10);
+
+    delete process.env.DIFY_DATASET_API_KEY;
+    delete process.env.DIFY_DATASET_ID;
   });
 
   it("POST /webhook/cicd returns received", async () => {

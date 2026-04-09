@@ -7,28 +7,28 @@ mock.module("../config", () => ({
   }),
 }));
 
-const originalFetch = globalThis.fetch;
-let mockFetchFn: ReturnType<typeof mock>;
-
-beforeEach(() => {
-  mockFetchFn = mock(() =>
-    Promise.resolve(
-      new Response(JSON.stringify({ data: { storage: { executeAction: true } } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  );
-  globalThis.fetch = mockFetchFn as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
 import { triggerSync, searchPages } from "./wikijs";
 
 describe("triggerSync", () => {
+  const originalFetch = globalThis.fetch;
+  let mockFetchFn: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    mockFetchFn = mock(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: { storage: { executeAction: true } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   it("should call storage.executeAction mutation", async () => {
     await triggerSync();
     expect(mockFetchFn).toHaveBeenCalledTimes(1);
@@ -54,6 +54,25 @@ describe("triggerSync", () => {
 });
 
 describe("searchPages", () => {
+  const originalFetch = globalThis.fetch;
+  let mockFetchFn: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    mockFetchFn = mock(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: { storage: { executeAction: true } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   it("should send search query with correct variables", async () => {
     const searchResponse = {
       data: {

@@ -10,34 +10,34 @@ mock.module("../config", () => ({
 
 const { getIssue, updateIssueState, createBugIssue } = await import("./plane");
 
-const originalFetch = globalThis.fetch;
-let mockFetchFn: ReturnType<typeof mock>;
-let fetchCalls: Array<{ url: string; init: RequestInit }>;
-
-beforeEach(() => {
-  fetchCalls = [];
-  mockFetchFn = mock(async (url: string, init: RequestInit) => {
-    fetchCalls.push({ url, init });
-    return new Response(
-      JSON.stringify({
-        id: "issue-1",
-        name: "Test Issue",
-        description_html: "<p>desc</p>",
-        state: "state-1",
-        priority: "high",
-        labels: [],
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
-  });
-  globalThis.fetch = mockFetchFn as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
 describe("plane service", () => {
+  const originalFetch = globalThis.fetch;
+  let mockFetchFn: ReturnType<typeof mock>;
+  let fetchCalls: Array<{ url: string; init: RequestInit }>;
+
+  beforeEach(() => {
+    fetchCalls = [];
+    mockFetchFn = mock(async (url: string, init: RequestInit) => {
+      fetchCalls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          id: "issue-1",
+          name: "Test Issue",
+          description_html: "<p>desc</p>",
+          state: "state-1",
+          priority: "high",
+          labels: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   describe("getIssue", () => {
     it("should call correct URL with X-API-Key header", async () => {
       const issue = await getIssue("proj-1", "issue-1");

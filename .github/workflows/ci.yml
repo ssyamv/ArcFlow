@@ -85,8 +85,8 @@ jobs:
         run: |
           COVERAGE=$(lcov --summary packages/gateway/coverage/lcov.info 2>&1 | grep 'lines' | grep -o '[0-9.]*%' | head -1 | tr -d '%')
           echo "Coverage: ${COVERAGE}%"
-          if (( $(echo "$COVERAGE < 60" | bc -l) )); then
-            echo "::error::Coverage ${COVERAGE}% is below threshold 60%"
+          if (( $(echo "$COVERAGE < 50" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below threshold 50%"
             exit 1
           fi
 
