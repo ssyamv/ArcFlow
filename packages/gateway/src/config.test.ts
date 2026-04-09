@@ -38,6 +38,32 @@ describe("config", () => {
     process.env.DIFY_BUG_ANALYSIS_API_KEY = origBug;
   });
 
+  it("parses DIFY_DATASET_MAP from env", () => {
+    const orig = process.env.DIFY_DATASET_MAP;
+    process.env.DIFY_DATASET_MAP = JSON.stringify({
+      "proj-1": { datasetId: "ds-1", ragApiKey: "rag-key-1" },
+      "proj-2": { datasetId: "ds-2" },
+    });
+
+    const config = getConfig();
+    expect(config.difyDatasetMap["proj-1"].datasetId).toBe("ds-1");
+    expect(config.difyDatasetMap["proj-1"].ragApiKey).toBe("rag-key-1");
+    expect(config.difyDatasetMap["proj-2"].datasetId).toBe("ds-2");
+    expect(config.difyDatasetMap["proj-2"].ragApiKey).toBeUndefined();
+
+    process.env.DIFY_DATASET_MAP = orig;
+  });
+
+  it("defaults DIFY_DATASET_MAP to empty object", () => {
+    const orig = process.env.DIFY_DATASET_MAP;
+    delete process.env.DIFY_DATASET_MAP;
+
+    const config = getConfig();
+    expect(config.difyDatasetMap).toEqual({});
+
+    process.env.DIFY_DATASET_MAP = orig;
+  });
+
   it("falls back to DIFY_API_KEY when specific keys are not set", () => {
     const origBase = process.env.DIFY_API_KEY;
     const origTech = process.env.DIFY_TECH_DOC_API_KEY;

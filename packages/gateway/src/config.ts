@@ -52,6 +52,8 @@ export interface Config {
   // Dify Dataset API（知识库管理）
   difyDatasetApiKey: string;
   difyDatasetId: string;
+  // 多项目知识库映射：project_id → { datasetId, ragApiKey? }
+  difyDatasetMap: Record<string, { datasetId: string; ragApiKey?: string }>;
 
   // Claude Code
   claudeCodeTimeout: number;
@@ -108,6 +110,7 @@ export function getConfig(): Config {
 
     difyDatasetApiKey: process.env.DIFY_DATASET_API_KEY ?? "",
     difyDatasetId: process.env.DIFY_DATASET_ID ?? "",
+    difyDatasetMap: JSON.parse(process.env.DIFY_DATASET_MAP || "{}"),
 
     claudeCodeTimeout: Number(process.env.CLAUDE_CODE_TIMEOUT) || 600000,
 

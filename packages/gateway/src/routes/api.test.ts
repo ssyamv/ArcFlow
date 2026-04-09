@@ -162,7 +162,7 @@ describe("rag routes", () => {
     expect(body.answer).toBe("ArcFlow is an AI DevOps platform");
     expect(body.conversation_id).toBe("conv-001");
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined);
+    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined, undefined);
   });
 
   it("POST /api/rag/query passes conversation_id", async () => {
@@ -177,7 +177,7 @@ describe("rag routes", () => {
       body: JSON.stringify({ question: "What stack?", conversation_id: "conv-002" }),
     });
     expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002");
+    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002", undefined);
   });
 
   it("POST /api/rag/query returns 400 if question is empty", async () => {
@@ -202,5 +202,20 @@ describe("rag routes", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("RAG query failed: Dify timeout");
+  });
+
+  it("POST /api/rag/query passes project_id", async () => {
+    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
+      answer: "project-specific answer",
+      conversation_id: "conv-p1",
+    });
+
+    const res = await app.request("/api/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "What?", project_id: "proj-alpha" }),
+    });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith("What?", undefined, "proj-alpha");
   });
 });

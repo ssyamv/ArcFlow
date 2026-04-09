@@ -83,15 +83,22 @@ export interface RagQueryResult {
 export async function queryKnowledgeBase(
   question: string,
   conversationId?: string,
+  projectId?: string,
 ): Promise<RagQueryResult> {
   const config = getConfig();
   const url = `${config.difyBaseUrl}/v1/chat-messages`;
+
+  // 根据 projectId 选择对应的 RAG API Key
+  let apiKey = config.difyRagApiKey;
+  if (projectId && config.difyDatasetMap[projectId]?.ragApiKey) {
+    apiKey = config.difyDatasetMap[projectId].ragApiKey!;
+  }
 
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${config.difyRagApiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       query: question,

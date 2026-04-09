@@ -228,10 +228,13 @@ export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> 
  * - New pages → create in Dify
  * - Existing pages → update in Dify
  * - Pages removed from Wiki.js → delete from Dify
+ *
+ * @param targetDatasetId - 指定同步到哪个 dataset（不传则使用默认）
  */
-export async function syncWikiToDify(): Promise<SyncResult> {
+export async function syncWikiToDify(targetDatasetId?: string): Promise<SyncResult> {
   const config = getConfig();
-  const { difyDatasetApiKey: apiKey, difyDatasetId: datasetId } = config;
+  const apiKey = config.difyDatasetApiKey;
+  const datasetId = targetDatasetId ?? config.difyDatasetId;
 
   if (!apiKey || !datasetId) {
     throw new Error("DIFY_DATASET_API_KEY and DIFY_DATASET_ID are required for sync");
@@ -299,4 +302,45 @@ export async function syncWikiToDify(): Promise<SyncResult> {
   }
 
   return result;
+}
+
+/**
+ * Sync all configured datasets (default + multi-project).
+ * Returns aggregated results per dataset.
+ */
+export async function syncAllDatasets(): Promise<Record<string, SyncResult>> {
+  const config = getConfig();
+  const results: Record<string, SyncResult> = {};
+
+  // Sync default dataset
+  if (config.difyDatasetApiKey && config.difyDatasetId) {
+    try {
+      results["default"] = await syncWikiToDify();
+    } catch (err) {
+      results["default"] = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        skipped: 0,
+        errors: [err instanceof Error ? err.message : "unknown error"],
+      };
+    }
+  }
+
+  // Sync project-specific datasets
+  for (const [projectId, dataset] of Object.entries(config.difyDatasetMap)) {
+    try {
+      results[projectId] = await syncWikiToDify(dataset.datasetId);
+    } catch (err) {
+      results[projectId] = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        skipped: 0,
+        errors: [err instanceof Error ? err.message : "unknown error"],
+      };
+    }
+  }
+
+  return results;
 }
