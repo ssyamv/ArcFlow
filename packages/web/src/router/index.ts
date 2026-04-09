@@ -40,6 +40,11 @@ const router = createRouter({
       component: () => import("../pages/AiChat.vue"),
     },
     {
+      path: "/docs",
+      name: "docs",
+      component: () => import("../pages/Docs.vue"),
+    },
+    {
       path: "/prd/chat",
       redirect: "/chat",
     },
