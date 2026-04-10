@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
-import { createWebhookRoutes } from "./webhook";
 import { closeDb, getDb } from "../db";
-import * as workflowService from "../services/workflow";
-import * as ibuildLogFetcher from "../services/ibuild-log-fetcher";
-import * as ragSync from "../services/rag-sync";
+import { createTestConfig } from "../test-config";
+
+// Mock config to ensure stable values regardless of other test files' mock.module pollution
+let configOverrides: Record<string, unknown> = {};
+mock.module("../config", () => ({
+  getConfig: () => createTestConfig(configOverrides),
+}));
+
+const { createWebhookRoutes } = await import("./webhook");
+const workflowService = await import("../services/workflow");
+const ibuildLogFetcher = await import("../services/ibuild-log-fetcher");
+const ragSync = await import("../services/rag-sync");
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -12,9 +20,7 @@ describe("webhook routes", () => {
 
   beforeEach(() => {
     process.env.NODE_ENV = "test";
-    process.env.PLANE_DEFAULT_PROJECT_ID = "test-plane-proj";
-    process.env.PLANE_APPROVED_STATE_ID = "state-approved";
-    process.env.FEISHU_DEFAULT_CHAT_ID = "oc_test_chat";
+    configOverrides = {};
     getDb();
     app = new Hono();
     app.route("/webhook", createWebhookRoutes());
@@ -25,9 +31,7 @@ describe("webhook routes", () => {
   afterEach(() => {
     closeDb();
     mock.restore();
-    delete process.env.PLANE_DEFAULT_PROJECT_ID;
-    delete process.env.PLANE_APPROVED_STATE_ID;
-    delete process.env.FEISHU_DEFAULT_CHAT_ID;
+    configOverrides = {};
   });
 
   it("POST /webhook/plane returns received", async () => {
@@ -107,8 +111,10 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/git triggers RAG sync on docs repo push", async () => {
-    process.env.DIFY_DATASET_API_KEY = "test-key";
-    process.env.DIFY_DATASET_ID = "test-dataset";
+    configOverrides = {
+      difyDatasetApiKey: "test-key",
+      difyDatasetId: "test-dataset",
+    };
     const syncSpy = spyOn(ragSync, "syncRecentChanges").mockResolvedValue({
       created: 1,
       updated: 0,
@@ -117,7 +123,7 @@ describe("webhook routes", () => {
       errors: [],
     });
 
-    // Recreate routes to pick up new env vars
+    // Recreate routes to pick up new config overrides
     const freshApp = new Hono();
     freshApp.route("/webhook", createWebhookRoutes());
 
@@ -133,9 +139,6 @@ describe("webhook routes", () => {
     const body = await res.json();
     expect(body.rag_sync_triggered).toBe(true);
     expect(syncSpy).toHaveBeenCalledWith(10);
-
-    delete process.env.DIFY_DATASET_API_KEY;
-    delete process.env.DIFY_DATASET_ID;
   });
 
   it("POST /webhook/cicd returns received", async () => {

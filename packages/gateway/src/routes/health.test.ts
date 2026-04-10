@@ -1,41 +1,15 @@
 import { describe, expect, it, afterEach, mock } from "bun:test";
+import { createTestConfig } from "../test-config";
 
 process.env.NODE_ENV = "test";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    port: 3100,
-    difyBaseUrl: "http://dify-test:3001",
-    difyApiKey: "",
-    difyTechDocApiKey: "",
-    difyOpenApiApiKey: "",
-    difyBugAnalysisApiKey: "",
-    planeBaseUrl: "http://plane-test:80",
-    planeApiToken: "",
-    planeWorkspaceSlug: "",
-    planeDefaultProjectId: "",
-    docsGitRepo: "",
-    backendGitRepo: "",
-    vue3GitRepo: "",
-    flutterGitRepo: "",
-    androidGitRepo: "",
-    gitWorkDir: "/tmp/gateway-git",
-    planeWebhookSecret: "",
-    gitWebhookSecret: "",
-    cicdWebhookSecret: "",
-    feishuAppId: "",
-    feishuAppSecret: "",
-    feishuVerificationToken: "",
-    feishuEncryptKey: "",
-    wikijsBaseUrl: "http://wikijs-test:3000",
-    wikijsApiKey: "",
-    claudeCodeTimeout: 600000,
-    ibuildBaseUrl: "",
-    ibuildClientKey: "",
-    ibuildUser: "",
-    ibuildWebhookSecret: "",
-    ibuildAppRepoMap: { default: "backend" },
-  }),
+  getConfig: () =>
+    createTestConfig({
+      planeBaseUrl: "http://plane-test:80",
+      wikijsBaseUrl: "http://wikijs-test:3000",
+      claudeCodeTimeout: 600000,
+    }),
 }));
 
 // Import health routes directly to avoid full app initialization side effects

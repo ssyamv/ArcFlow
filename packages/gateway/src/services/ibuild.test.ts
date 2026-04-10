@@ -1,12 +1,14 @@
 import { describe, expect, it, mock, afterEach } from "bun:test";
+import { createTestConfig } from "../test-config";
 
 // Mock config to avoid env var masking in CI
 mock.module("../config", () => ({
-  getConfig: () => ({
-    ibuildBaseUrl: "http://ibuild-test:8080",
-    ibuildClientKey: "test-client-key",
-    ibuildUser: "test-user",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      ibuildBaseUrl: "http://ibuild-test:8080",
+      ibuildClientKey: "test-client-key",
+      ibuildUser: "test-user",
+    }),
 }));
 
 const {

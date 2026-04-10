@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    feishuAppId: "test-app-id",
-    feishuAppSecret: "test-app-secret",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      feishuAppId: "test-app-id",
+      feishuAppSecret: "test-app-secret",
+    }),
 }));
 
 const { sendNotification, sendBugNotification, sendTechReviewCard, updateCard } =

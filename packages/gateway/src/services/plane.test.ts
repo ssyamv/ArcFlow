@@ -1,11 +1,13 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    planeBaseUrl: "http://localhost:8082",
-    planeApiToken: "test-token",
-    planeWorkspaceSlug: "test-workspace",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      planeBaseUrl: "http://localhost:8082",
+      planeApiToken: "test-token",
+      planeWorkspaceSlug: "test-workspace",
+    }),
 }));
 
 const { getIssue, updateIssueState, createBugIssue } = await import("./plane");

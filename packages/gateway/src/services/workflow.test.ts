@@ -50,10 +50,12 @@ mock.module("./dify", () => ({
 }));
 
 // --- Mock config ---
+import { createTestConfig } from "../test-config";
 mock.module("../config", () => ({
-  getConfig: () => ({
-    gitWorkDir: "/tmp/test-workdir",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      gitWorkDir: "/tmp/test-workdir",
+    }),
 }));
 
 // --- Use spyOn for modules that have their own test files downstream ---
