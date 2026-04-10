@@ -2,15 +2,14 @@ import { computed } from "vue";
 import { useWorkspaceStore } from "../stores/workspace";
 
 const PLANE_BASE = import.meta.env.VITE_PLANE_BASE_URL ?? "http://172.29.230.21:8082";
-const PLANE_SLUG = import.meta.env.VITE_PLANE_WORKSPACE_SLUG ?? "homture";
 
 export function usePlaneUrl() {
   const wsStore = useWorkspaceStore();
 
   const planeProjectBase = computed(() => {
-    const pid = wsStore.current?.plane_project_id;
-    if (!pid) return null;
-    return `${PLANE_BASE}/${PLANE_SLUG}/projects/${pid}`;
+    const ws = wsStore.current;
+    if (!ws?.plane_project_id || !ws?.plane_workspace_slug) return null;
+    return `${PLANE_BASE}/${ws.plane_workspace_slug}/projects/${ws.plane_project_id}`;
   });
 
   function issueUrl(issueId: string): string | null {

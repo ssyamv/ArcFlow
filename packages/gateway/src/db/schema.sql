@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
   plane_project_id TEXT,
+  plane_workspace_slug TEXT,
   dify_dataset_id TEXT,
   dify_rag_api_key TEXT,
   wiki_path_prefix TEXT,

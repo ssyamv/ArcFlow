@@ -12,6 +12,13 @@ export function getDb(): Database {
     db.exec("PRAGMA journal_mode = WAL;");
     const schema = readFileSync(join(import.meta.dir, "schema.sql"), "utf-8");
     db.exec(schema);
+
+    // Migrations — add columns that may not exist yet
+    const cols = db.query("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;
+    const colNames = new Set(cols.map((c) => c.name));
+    if (!colNames.has("plane_workspace_slug")) {
+      db.exec("ALTER TABLE workspaces ADD COLUMN plane_workspace_slug TEXT");
+    }
   }
   return db;
 }

@@ -134,7 +134,7 @@
               :href="item.url"
               class="flex items-center gap-2.5 px-3 py-1.5 rounded-md no-underline text-sm my-0.5 nav-default"
               style="transition: all 120ms ease"
-              @click.prevent="openPlaneLink(item.url)"
+              target="_blank"
             >
               <component :is="item.icon" :size="16" style="opacity: 0.6" />
               {{ item.label }}
@@ -321,10 +321,6 @@ const planeNavItems = computed(() => {
     { label: "分析", icon: BarChart3, url: projectPath("analytics/")! },
   ];
 });
-
-function openPlaneLink(url: string) {
-  window.location.href = url;
-}
 
 const currentPageTitle = computed(() => {
   const item = navItems.value.find((i) => route.path.startsWith(i.path));
