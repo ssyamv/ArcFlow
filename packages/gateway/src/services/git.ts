@@ -69,6 +69,11 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
  */
 export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
+    // 清理残留的 lock 文件（异常退出后可能残留）
+    const lockFile = join(repoDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      unlinkSync(lockFile);
+    }
     const git = simpleGit(repoDir);
     // 确保 git user 配置存在
     await git.addConfig("user.email", "gateway@arcflow.local", false, "local");
