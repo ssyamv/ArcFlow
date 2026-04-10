@@ -8,6 +8,7 @@ import {
   searchFiles,
   ensureRepoByUrl,
   getRepoDir,
+  registerRepoUrl,
 } from "../services/git";
 import { triggerSync } from "../services/wikijs";
 import { authMiddleware } from "../middleware/auth";
@@ -52,6 +53,8 @@ function getDocsRepoInfo(c: { get: (key: string) => unknown }): {
  */
 async function ensureWorkspaceDocs(repoName: string, repoUrl: string | null): Promise<void> {
   if (!repoUrl) throw new Error("文档仓库未配置，请在工作空间设置中配置 docs Git 仓库 URL");
+  // 注册到动态表，这样 listTree / searchFiles 内部的 ensureRepo 也能找到
+  registerRepoUrl(repoName, repoUrl);
   const repoDir = getRepoDir(repoName);
   await ensureRepoByUrl(repoDir, repoUrl);
 }

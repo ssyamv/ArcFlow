@@ -11,6 +11,8 @@ const mockEnsureRepo = mock(() => Promise.resolve());
 const mockEnsureRepoByUrl = mock(() => Promise.resolve());
 const mockGetRepoDir = mock((name: string) => `/tmp/gateway-git/${name}`);
 
+const mockRegisterRepoUrl = mock(() => {});
+
 mock.module("../services/git", () => ({
   listTree: mockListTree,
   readFile: mockReadFile,
@@ -21,6 +23,7 @@ mock.module("../services/git", () => ({
   ensureRepo: mockEnsureRepo,
   ensureRepoByUrl: mockEnsureRepoByUrl,
   getRepoDir: mockGetRepoDir,
+  registerRepoUrl: mockRegisterRepoUrl,
 }));
 
 // Mock wikijs

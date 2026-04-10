@@ -17,7 +17,21 @@ export function getRepoDir(repoName: string): string {
   return join(config.gitWorkDir, repoName);
 }
 
+/**
+ * 动态仓库注册表：工作空间级别的仓库在运行时注册 URL，
+ * 这样 ensureRepo / listTree / searchFiles 等函数也能找到它们。
+ */
+const dynamicRepoUrls = new Map<string, string>();
+
+export function registerRepoUrl(repoName: string, url: string): void {
+  dynamicRepoUrls.set(repoName, url);
+}
+
 function getRepoUrl(repoName: string): string {
+  // 优先查动态注册表（工作空间级仓库）
+  const dynamic = dynamicRepoUrls.get(repoName);
+  if (dynamic) return dynamic;
+
   const config = getConfig();
   const repoMap: Record<string, string> = {
     docs: config.docsGitRepo,
