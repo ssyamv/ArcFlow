@@ -32,7 +32,7 @@ authRoutes.get("/callback", async (c) => {
 
     const config = getConfig();
     const frontendUrl = config.oauthRedirectUri.replace("/auth/callback", "");
-    return c.redirect(`${frontendUrl}/auth/callback#token=${token}`, 302);
+    return c.redirect(`${frontendUrl}/oauth/complete#token=${token}`, 302);
   } catch (err) {
     return c.json(
       { error: `OAuth failed: ${err instanceof Error ? err.message : "unknown"}` },

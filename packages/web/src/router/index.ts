@@ -10,8 +10,8 @@ const router = createRouter({
       meta: { public: true },
     },
     {
-      path: "/auth/callback",
-      name: "auth-callback",
+      path: "/oauth/complete",
+      name: "oauth-complete",
       component: () => import("../pages/AuthCallback.vue"),
       meta: { public: true },
     },
