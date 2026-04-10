@@ -120,6 +120,30 @@
         </li>
       </ul>
 
+      <!-- Plane Navigation -->
+      <div v-if="planeNavItems.length > 0" class="px-2 mt-1">
+        <div
+          class="px-3 py-1 text-xs uppercase"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          项目管理
+        </div>
+        <ul class="list-none p-0 m-0">
+          <li v-for="item in planeNavItems" :key="item.url">
+            <a
+              :href="item.url"
+              class="flex items-center gap-2.5 px-3 py-1.5 rounded-md no-underline text-sm my-0.5 nav-default"
+              style="transition: all 120ms ease"
+              @click.prevent="openPlaneLink(item.url)"
+            >
+              <component :is="item.icon" :size="16" style="opacity: 0.6" />
+              {{ item.label }}
+              <ExternalLink :size="12" style="opacity: 0.3; margin-left: auto" />
+            </a>
+          </li>
+        </ul>
+      </div>
+
       <!-- User -->
       <div
         class="px-3 py-3 flex items-center gap-2.5"
@@ -248,12 +272,16 @@ import {
   LayoutDashboard,
   MessageSquare,
   List,
-  Zap,
   Settings,
   FileText,
   Sun,
   Moon,
   PanelLeft,
+  ExternalLink,
+  Kanban,
+  CalendarDays,
+  Package,
+  BarChart3,
 } from "lucide-vue-next";
 import { useThemeStore } from "../stores/theme";
 import UiDialog from "./ui/AppDialog.vue";
@@ -274,13 +302,32 @@ const navItems = computed(() => {
     { path: "/chat", label: "AI 对话", icon: MessageSquare },
     { path: "/docs", label: "文档", icon: FileText },
     { path: "/workflows", label: "工作流", icon: List },
-    { path: "/trigger", label: "触发工作流", icon: Zap },
   ];
   if (wsStore.isAdmin) {
     items.push({ path: "/workspace/settings", label: "工作空间设置", icon: Settings });
   }
   return items;
 });
+
+const PLANE_BASE = import.meta.env.VITE_PLANE_BASE_URL ?? "http://172.29.230.21:8082";
+
+const planeNavItems = computed(() => {
+  const ws = wsStore.current;
+  if (!ws?.plane_project_id) return [];
+  const slug = "arcflow";
+  const pid = ws.plane_project_id;
+  const base = `${PLANE_BASE}/${slug}/projects/${pid}`;
+  return [
+    { label: "看板", icon: Kanban, url: `${base}/issues/` },
+    { label: "Cycles", icon: CalendarDays, url: `${base}/cycles/` },
+    { label: "Modules", icon: Package, url: `${base}/modules/` },
+    { label: "分析", icon: BarChart3, url: `${base}/analytics/` },
+  ];
+});
+
+function openPlaneLink(url: string) {
+  window.location.href = url;
+}
 
 const currentPageTitle = computed(() => {
   const item = navItems.value.find((i) => route.path.startsWith(i.path));
