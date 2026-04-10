@@ -2,11 +2,13 @@
   <div class="flex min-h-screen" style="background-color: var(--color-bg-primary)">
     <!-- Sidebar -->
     <nav
-      class="w-56 shrink-0 flex flex-col"
-      style="
-        background-color: var(--color-bg-panel);
-        border-right: 1px solid var(--color-border-subtle);
-      "
+      class="shrink-0 flex flex-col transition-all duration-150"
+      :style="{
+        width: sidebarCollapsed ? '0px' : '224px',
+        overflow: sidebarCollapsed ? 'hidden' : 'visible',
+        backgroundColor: 'var(--color-bg-panel)',
+        borderRight: sidebarCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
+      }"
     >
       <!-- Workspace Switcher -->
       <div class="px-3 py-3 relative" style="border-bottom: 1px solid var(--color-border-subtle)">
@@ -80,6 +82,18 @@
               style="
                 background: none;
                 border: none;
+                color: var(--color-text-secondary);
+                transition: all 120ms ease;
+              "
+              @click="handleCreateWorkspace"
+            >
+              + 新建工作空间
+            </button>
+            <button
+              class="w-full text-left px-3 py-1.5 text-xs cursor-pointer"
+              style="
+                background: none;
+                border: none;
                 color: var(--color-accent-violet);
                 transition: all 120ms ease;
               "
@@ -106,10 +120,54 @@
         </li>
       </ul>
 
+      <!-- Plane Navigation -->
+      <div v-if="planeNavItems.length > 0" class="px-2 mt-1">
+        <div
+          class="px-3 py-1 text-xs uppercase"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          项目管理
+        </div>
+        <ul class="list-none p-0 m-0">
+          <li v-for="item in planeNavItems" :key="item.url">
+            <a
+              :href="item.url"
+              class="flex items-center gap-2.5 px-3 py-1.5 rounded-md no-underline text-sm my-0.5 nav-default"
+              style="transition: all 120ms ease"
+              @click.prevent="openPlaneLink(item.url)"
+            >
+              <component :is="item.icon" :size="16" style="opacity: 0.6" />
+              {{ item.label }}
+              <ExternalLink :size="12" style="opacity: 0.3; margin-left: auto" />
+            </a>
+          </li>
+        </ul>
+      </div>
+
       <!-- User -->
       <div
-        class="px-3 py-3 flex items-center gap-2.5 cursor-pointer"
-        style="border-top: 1px solid var(--color-border-subtle); transition: all 120ms ease"
+        class="px-3 py-3 flex items-center gap-2.5"
+        style="border-top: 1px solid var(--color-border-subtle)"
+      >
+        <!-- Theme toggle -->
+        <button
+          class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 cursor-pointer"
+          style="
+            background: var(--color-surface-05);
+            border: none;
+            color: var(--color-text-tertiary);
+            transition: all 120ms ease;
+          "
+          title="切换亮/暗模式"
+          @click="themeStore.toggle()"
+        >
+          <Sun v-if="themeStore.theme === 'dark'" :size="14" />
+          <Moon v-else :size="14" />
+        </button>
+      </div>
+      <div
+        class="px-3 pb-3 pt-0 flex items-center gap-2.5 cursor-pointer"
+        style="transition: all 120ms ease"
         @click="$router.push('/profile')"
       >
         <div
@@ -141,22 +199,63 @@
       </div>
     </nav>
 
+    <!-- Create Workspace Dialog -->
+    <UiDialog v-model:open="showCreateWsDialog">
+      <div class="mb-4">
+        <h2 style="font-weight: 590; color: var(--color-text-primary); font-size: 15px; margin: 0">
+          新建工作空间
+        </h2>
+      </div>
+      <input
+        ref="wsNameInput"
+        v-model="newWsName"
+        placeholder="工作空间名称"
+        class="w-full px-3 py-2 rounded-md text-sm"
+        style="
+          background-color: var(--color-bg-primary);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-text-primary);
+          outline: none;
+        "
+        @keydown.enter="confirmCreateWorkspace"
+      />
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="dialog-btn" @click="showCreateWsDialog = false">取消</button>
+        <button class="dialog-btn-primary" @click="confirmCreateWorkspace">创建</button>
+      </div>
+    </UiDialog>
+
     <!-- Main -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
       <header
-        class="h-12 flex items-center justify-between px-6 shrink-0"
+        class="h-12 flex items-center justify-between px-4 shrink-0"
         style="border-bottom: 1px solid var(--color-border-subtle)"
       >
-        <div class="text-xs" style="color: var(--color-text-tertiary); font-weight: 510">
-          <span style="color: var(--color-text-quaternary)">ArcFlow /</span>
-          {{ currentPageTitle }}
+        <div class="flex items-center gap-2">
+          <button
+            class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 cursor-pointer"
+            style="
+              background: none;
+              border: none;
+              color: var(--color-text-quaternary);
+              transition: all 120ms ease;
+            "
+            title="折叠侧边栏"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <PanelLeft :size="16" />
+          </button>
+          <div class="text-xs" style="color: var(--color-text-tertiary); font-weight: 510">
+            <span style="color: var(--color-text-quaternary)">ArcFlow /</span>
+            {{ currentPageTitle }}
+          </div>
         </div>
       </header>
 
       <!-- Content -->
-      <main class="flex-1 overflow-y-auto p-8">
-        <div class="max-w-5xl mx-auto">
+      <main class="flex-1 overflow-y-auto" :class="isFullWidthPage ? '' : 'p-8'">
+        <div :class="isFullWidthPage ? 'h-full' : 'max-w-5xl mx-auto'">
           <router-view />
         </div>
       </main>
@@ -165,16 +264,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useWorkspaceStore } from "../stores/workspace";
-import { LayoutDashboard, MessageSquare, List, Zap, Settings, FileText } from "lucide-vue-next";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  List,
+  Settings,
+  FileText,
+  Sun,
+  Moon,
+  PanelLeft,
+  ExternalLink,
+  Kanban,
+  CalendarDays,
+  Package,
+  BarChart3,
+} from "lucide-vue-next";
+import { useThemeStore } from "../stores/theme";
+import UiDialog from "./ui/AppDialog.vue";
+import { usePlaneUrl } from "../composables/usePlaneUrl";
 
 const route = useRoute();
 const auth = useAuthStore();
 const wsStore = useWorkspaceStore();
+const themeStore = useThemeStore();
+const sidebarCollapsed = ref(false);
 const wsDropdownOpen = ref(false);
+const showCreateWsDialog = ref(false);
+const newWsName = ref("");
+const wsNameInput = ref<HTMLInputElement | null>(null);
 
 const navItems = computed(() => {
   const items = [
@@ -182,13 +303,28 @@ const navItems = computed(() => {
     { path: "/chat", label: "AI 对话", icon: MessageSquare },
     { path: "/docs", label: "文档", icon: FileText },
     { path: "/workflows", label: "工作流", icon: List },
-    { path: "/trigger", label: "触发工作流", icon: Zap },
   ];
   if (wsStore.isAdmin) {
     items.push({ path: "/workspace/settings", label: "工作空间设置", icon: Settings });
   }
   return items;
 });
+
+const { planeProjectBase, projectPath } = usePlaneUrl();
+
+const planeNavItems = computed(() => {
+  if (!planeProjectBase.value) return [];
+  return [
+    { label: "看板", icon: Kanban, url: projectPath("issues/")! },
+    { label: "Cycles", icon: CalendarDays, url: projectPath("cycles/")! },
+    { label: "Modules", icon: Package, url: projectPath("modules/")! },
+    { label: "分析", icon: BarChart3, url: projectPath("analytics/")! },
+  ];
+});
+
+function openPlaneLink(url: string) {
+  window.location.href = url;
+}
 
 const currentPageTitle = computed(() => {
   const item = navItems.value.find((i) => route.path.startsWith(i.path));
@@ -197,6 +333,10 @@ const currentPageTitle = computed(() => {
   return item?.label ?? "";
 });
 
+const isFullWidthPage = computed(
+  () => route.path.startsWith("/docs") || route.path.startsWith("/chat"),
+);
+
 function isActive(path: string) {
   return route.path.startsWith(path);
 }
@@ -204,6 +344,20 @@ function isActive(path: string) {
 function switchWorkspace(id: number) {
   wsStore.select(id);
   wsDropdownOpen.value = false;
+  window.location.reload();
+}
+
+function handleCreateWorkspace() {
+  newWsName.value = "";
+  showCreateWsDialog.value = true;
+  wsDropdownOpen.value = false;
+  nextTick(() => wsNameInput.value?.focus());
+}
+
+async function confirmCreateWorkspace() {
+  if (!newWsName.value.trim()) return;
+  await wsStore.create(newWsName.value.trim());
+  showCreateWsDialog.value = false;
   window.location.reload();
 }
 
@@ -225,5 +379,32 @@ async function handleSyncPlane() {
   background-color: var(--color-surface-05);
   color: var(--color-text-primary);
   border-left: 2px solid var(--color-accent);
+}
+.dialog-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-border-default);
+  background: none;
+  color: var(--color-text-secondary);
+  transition: all 120ms ease;
+}
+.dialog-btn:hover {
+  background-color: var(--color-surface-05);
+}
+.dialog-btn-primary {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  background-color: var(--color-accent);
+  color: #fff;
+  font-weight: 510;
+  transition: all 120ms ease;
+}
+.dialog-btn-primary:hover {
+  background-color: var(--color-accent-hover);
 }
 </style>

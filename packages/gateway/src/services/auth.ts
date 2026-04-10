@@ -58,6 +58,7 @@ export async function exchangeCodeForUser(code: string): Promise<{
   console.log("[auth] OIDC response:", JSON.stringify(oidcJson));
 
   if (oidcJson.data?.open_id) {
+    // 标准飞书：OIDC 直接返回用户信息
     userData = {
       open_id: oidcJson.data.open_id,
       union_id: oidcJson.data.union_id,
@@ -65,6 +66,27 @@ export async function exchangeCodeForUser(code: string): Promise<{
       avatar_url: oidcJson.data.avatar_url ?? oidcJson.data.avatar?.avatar_origin,
       email: oidcJson.data.email,
     };
+  } else if (oidcJson.data?.access_token) {
+    // 私有化飞书：OIDC 只返回 user_access_token，需要额外调 user_info
+    const userInfoRes = await fetch(`${config.feishuBaseUrl}/open-apis/authen/v1/user_info`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${oidcJson.data.access_token}`,
+      },
+    });
+    const userInfoJson = await userInfoRes.json();
+    console.log("[auth] user_info response:", JSON.stringify(userInfoJson));
+
+    const d = userInfoJson.data;
+    if (d?.open_id) {
+      userData = {
+        open_id: d.open_id,
+        union_id: d.union_id,
+        name: d.name ?? d.en_name ?? "用户",
+        avatar_url: d.avatar_url ?? d.avatar?.avatar_origin,
+        email: d.email,
+      };
+    }
   }
 
   // 如果 OIDC 没拿到，尝试旧版端点

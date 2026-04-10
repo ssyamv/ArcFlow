@@ -6,6 +6,8 @@ import {
   updateWorkspaceSettings,
   getWorkspaceMemberRole,
   listWorkspaceMembers,
+  createWorkspace,
+  addWorkspaceMember,
 } from "../db/queries";
 import { syncPlaneProjects } from "../services/workspace-sync";
 
@@ -15,6 +17,21 @@ workspaceRoutes.use("/*", authMiddleware);
 workspaceRoutes.get("/", (c) => {
   const userId = c.get("userId") as number;
   return c.json({ data: listUserWorkspaces(userId) });
+});
+
+workspaceRoutes.post("/", async (c) => {
+  const userId = c.get("userId") as number;
+  const body = await c.req.json<{ name?: string; slug?: string }>();
+  const name = body.name?.trim();
+  if (!name) return c.json({ error: "name is required" }, 400);
+  const slug = (body.slug?.trim() || name)
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-")
+    .replace(/^-|-$/g, "");
+  if (!slug) return c.json({ error: "invalid slug" }, 400);
+  const workspace = createWorkspace({ name, slug });
+  addWorkspaceMember(workspace.id, userId, "admin");
+  return c.json(workspace, 201);
 });
 
 workspaceRoutes.get("/:id", (c) => {

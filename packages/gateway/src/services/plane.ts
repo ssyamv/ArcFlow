@@ -75,3 +75,66 @@ export async function createBugIssue(
     body: JSON.stringify(params),
   }) as Promise<PlaneIssue>;
 }
+
+export interface PlaneProject {
+  id: string;
+  name: string;
+  identifier: string;
+  description: string;
+}
+
+export async function listProjects(): Promise<PlaneProject[]> {
+  const result = (await planeRequest("/projects/")) as { results: PlaneProject[] };
+  return result.results;
+}
+
+export interface IssueSummary {
+  total: number;
+  started: number;
+  backlog: number;
+  completed: number;
+  cancelled: number;
+}
+
+export async function getIssueSummary(projectId: string): Promise<IssueSummary> {
+  const groups = ["backlog", "unstarted", "started", "completed", "cancelled"] as const;
+
+  const results = await Promise.all(
+    groups.map((group) =>
+      planeRequest(`/projects/${projectId}/issues/?state__group=${group}&per_page=1`, {}, 0).then(
+        (r) => ({ group, count: (r as { total_count: number }).total_count ?? 0 }),
+      ),
+    ),
+  );
+
+  const counts: Record<string, number> = {};
+  let total = 0;
+  for (const { group, count } of results) {
+    counts[group] = count;
+    total += count;
+  }
+
+  return {
+    total,
+    started: counts.started ?? 0,
+    backlog: (counts.backlog ?? 0) + (counts.unstarted ?? 0),
+    completed: counts.completed ?? 0,
+    cancelled: counts.cancelled ?? 0,
+  };
+}
+
+export interface PlaneCycle {
+  id: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  total_issues: number;
+  completed_issues: number;
+}
+
+export async function getActiveCycles(projectId: string): Promise<PlaneCycle[]> {
+  const result = (await planeRequest(`/projects/${projectId}/cycles/?cycle_view=current`)) as {
+    results: PlaneCycle[];
+  };
+  return result.results ?? [];
+}

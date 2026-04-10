@@ -1,12 +1,14 @@
 <template>
-  <div class="flex -m-8" style="height: calc(100vh - 48px)">
+  <div class="flex" style="height: calc(100vh - 48px)">
     <!-- File Tree Sidebar -->
     <div
-      class="w-64 shrink-0 flex flex-col"
-      style="
-        background-color: var(--color-bg-panel);
-        border-right: 1px solid var(--color-border-subtle);
-      "
+      class="shrink-0 flex flex-col transition-all duration-150"
+      :style="{
+        width: treeCollapsed ? '0px' : '256px',
+        overflow: treeCollapsed ? 'hidden' : 'visible',
+        backgroundColor: 'var(--color-bg-panel)',
+        borderRight: treeCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
+      }"
     >
       <!-- Search -->
       <div class="p-3" style="border-bottom: 1px solid var(--color-border-subtle)">
@@ -78,6 +80,14 @@
         style="border-bottom: 1px solid var(--color-border-subtle)"
       >
         <div class="flex items-center gap-1 text-xs" style="color: var(--color-text-tertiary)">
+          <button
+            class="w-6 h-6 rounded flex items-center justify-center cursor-pointer mr-1"
+            style="background: none; border: none; color: var(--color-text-quaternary)"
+            title="折叠文件树"
+            @click="treeCollapsed = !treeCollapsed"
+          >
+            <PanelLeft :size="14" />
+          </button>
           <span v-for="(seg, i) in breadcrumbs" :key="i">
             <span v-if="i > 0" style="color: var(--color-text-quaternary)"> / </span>
             <span
@@ -92,12 +102,25 @@
             >
           </span>
           <span
-            v-if="store.isDirty"
+            v-if="store.isDirty && autoSaveStatus !== 'saving'"
             class="w-2 h-2 rounded-full ml-2"
             style="background-color: var(--color-accent)"
+            title="未保存"
           />
         </div>
         <div class="flex items-center gap-2">
+          <span
+            v-if="autoSaveStatus === 'saving'"
+            class="text-xs"
+            style="color: var(--color-text-quaternary)"
+            >自动保存中...</span
+          >
+          <span
+            v-else-if="autoSaveStatus === 'saved'"
+            class="text-xs"
+            style="color: var(--color-success)"
+            >已保存</span
+          >
           <button class="save-btn" :disabled="!store.isDirty || store.saving" @click="handleSave">
             {{ store.saving ? "保存中..." : "保存" }}
           </button>
@@ -110,72 +133,78 @@
       </div>
 
       <!-- Empty State -->
-      <div v-else class="flex-1 flex items-center justify-center">
-        <div class="text-center">
-          <div class="text-sm mb-2" style="font-weight: 510; color: var(--color-text-tertiary)">
-            选择一个文档开始编辑
-          </div>
-          <div class="text-xs" style="color: var(--color-text-quaternary)">
-            从左侧文件树中选择，或创建新文档
+      <div v-else class="flex-1 flex flex-col">
+        <div
+          v-if="treeCollapsed"
+          class="px-4 py-2"
+          style="border-bottom: 1px solid var(--color-border-subtle)"
+        >
+          <button
+            class="w-6 h-6 rounded flex items-center justify-center cursor-pointer"
+            style="background: none; border: none; color: var(--color-text-quaternary)"
+            title="展开文件树"
+            @click="treeCollapsed = false"
+          >
+            <PanelLeft :size="14" />
+          </button>
+        </div>
+        <div class="flex-1 flex items-center justify-center">
+          <div class="text-center">
+            <div class="text-sm mb-2" style="font-weight: 510; color: var(--color-text-tertiary)">
+              选择一个文档开始编辑
+            </div>
+            <div class="text-xs" style="color: var(--color-text-quaternary)">
+              从左侧文件树中选择，或创建新文档
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- New File Dialog -->
-    <Teleport to="body">
-      <div v-if="showNewFileDialog" class="dialog-overlay" @click.self="showNewFileDialog = false">
-        <div class="dialog-box">
-          <div class="dialog-title">新建文档</div>
-          <input
-            v-model="newFilePath"
-            class="dialog-input"
-            placeholder="文件路径，如 prd/new-feature.md"
-            @keyup.enter="confirmNewFile"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showNewFileDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmNewFile">创建</button>
-          </div>
-        </div>
+    <UiDialog v-model:open="showNewFileDialog">
+      <div class="dialog-title">新建文档</div>
+      <input
+        v-model="newFilePath"
+        class="dialog-input"
+        placeholder="文件路径，如 prd/new-feature.md"
+        @keydown.enter="confirmNewFile"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showNewFileDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmNewFile">创建</button>
       </div>
+    </UiDialog>
 
-      <div
-        v-if="showNewFolderDialog"
-        class="dialog-overlay"
-        @click.self="showNewFolderDialog = false"
-      >
-        <div class="dialog-box">
-          <div class="dialog-title">新建文件夹</div>
-          <input
-            v-model="newFolderPath"
-            class="dialog-input"
-            placeholder="文件夹路径，如 tech-design"
-            @keyup.enter="confirmNewFolder"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showNewFolderDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmNewFolder">创建</button>
-          </div>
-        </div>
+    <!-- New Folder Dialog -->
+    <UiDialog v-model:open="showNewFolderDialog">
+      <div class="dialog-title">新建文件夹</div>
+      <input
+        v-model="newFolderPath"
+        class="dialog-input"
+        placeholder="文件夹路径，如 tech-design"
+        @keydown.enter="confirmNewFolder"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showNewFolderDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmNewFolder">创建</button>
       </div>
+    </UiDialog>
 
-      <div v-if="showRenameDialog" class="dialog-overlay" @click.self="showRenameDialog = false">
-        <div class="dialog-box">
-          <div class="dialog-title">重命名</div>
-          <input
-            v-model="renamePath"
-            class="dialog-input"
-            placeholder="新路径"
-            @keyup.enter="confirmRename"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showRenameDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmRename">确认</button>
-          </div>
-        </div>
+    <!-- Rename Dialog -->
+    <UiDialog v-model:open="showRenameDialog">
+      <div class="dialog-title">重命名</div>
+      <input
+        v-model="renamePath"
+        class="dialog-input"
+        placeholder="新路径"
+        @keydown.enter="confirmRename"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showRenameDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmRename">确认</button>
       </div>
-    </Teleport>
+    </UiDialog>
   </div>
 </template>
 
@@ -187,6 +216,8 @@ import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { marked } from "marked";
+import UiDialog from "../components/ui/AppDialog.vue";
+import { PanelLeft } from "lucide-vue-next";
 import TurndownService from "turndown";
 import { useDocsStore } from "../stores/docs";
 import TreeItem from "../components/DocTreeItem.vue";
@@ -194,6 +225,7 @@ import TreeItem from "../components/DocTreeItem.vue";
 defineOptions({ name: "DocsPage" });
 
 const store = useDocsStore();
+const treeCollapsed = ref(false);
 const searchInput = ref("");
 const showNewFileDialog = ref(false);
 const showNewFolderDialog = ref(false);
@@ -227,8 +259,28 @@ const editor = useEditor({
     const html = e.getHTML();
     const md = turndown.turndown(html);
     store.setContent(md);
+    scheduleAutoSave();
   },
 });
+
+const autoSaveStatus = ref<"idle" | "saving" | "saved">("idle");
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let savedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveStatus.value = "idle";
+  autoSaveTimer = setTimeout(async () => {
+    if (!store.isDirty) return;
+    autoSaveStatus.value = "saving";
+    await store.saveFile();
+    autoSaveStatus.value = "saved";
+    if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
+    savedFeedbackTimer = setTimeout(() => {
+      autoSaveStatus.value = "idle";
+    }, 2000);
+  }, 1500);
+}
 
 const breadcrumbs = computed(() => store.currentPath?.split("/") ?? []);
 
@@ -242,8 +294,10 @@ function handleSearch() {
 
 async function handleFileSelect(path: string) {
   if (store.isDirty) {
-    if (!confirm("当前文档未保存，是否放弃修改？")) return;
+    await store.saveFile();
   }
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveStatus.value = "idle";
   await store.openFile(path);
 }
 
@@ -271,8 +325,24 @@ watch(
 );
 
 async function handleSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveStatus.value = "saving";
   await store.saveFile();
+  autoSaveStatus.value = "saved";
+  if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
+  savedFeedbackTimer = setTimeout(() => {
+    autoSaveStatus.value = "idle";
+  }, 2000);
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    handleSave();
+  }
+}
+
+// lifecycle hooks merged below
 
 async function confirmNewFile() {
   if (!newFilePath.value.trim()) return;
@@ -330,20 +400,15 @@ async function handleDeleteNode(path: string) {
   }
 }
 
-// Warn before leaving with unsaved changes
-function handleBeforeUnload(e: BeforeUnloadEvent) {
-  if (store.isDirty) {
-    e.preventDefault();
-  }
-}
-
 onMounted(() => {
   store.loadTree();
-  window.addEventListener("beforeunload", handleBeforeUnload);
+  document.addEventListener("keydown", onKeydown);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("beforeunload", handleBeforeUnload);
+  document.removeEventListener("keydown", onKeydown);
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  if (store.isDirty) store.saveFile();
   editor.value?.destroy();
 });
 </script>
@@ -420,25 +485,6 @@ onBeforeUnmount(() => {
 .save-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.dialog-box {
-  background-color: var(--color-bg-surface);
-  border: 1px solid var(--color-border-default);
-  border-radius: 12px;
-  padding: 20px;
-  width: 400px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .dialog-title {

@@ -10,8 +10,8 @@ const router = createRouter({
       meta: { public: true },
     },
     {
-      path: "/auth/callback",
-      name: "auth-callback",
+      path: "/oauth/complete",
+      name: "oauth-complete",
       component: () => import("../pages/AuthCallback.vue"),
       meta: { public: true },
     },
@@ -47,11 +47,6 @@ const router = createRouter({
     {
       path: "/prd/chat",
       redirect: "/chat",
-    },
-    {
-      path: "/trigger",
-      name: "trigger",
-      component: () => import("../pages/WorkflowTrigger.vue"),
     },
     {
       path: "/workspace/settings",

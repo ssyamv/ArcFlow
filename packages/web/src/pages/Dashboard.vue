@@ -30,6 +30,60 @@
       </div>
     </div>
 
+    <!-- Plane Project Overview -->
+    <div v-if="planeKpis.length > 0" class="mb-8">
+      <h2
+        class="text-xs uppercase mb-3"
+        style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+      >
+        Plane 项目概览
+      </h2>
+      <div class="grid grid-cols-4 gap-4">
+        <div
+          v-for="kpi in planeKpis"
+          :key="kpi.label"
+          class="p-4 rounded-lg"
+          style="
+            background-color: var(--color-surface-02);
+            border: 1px solid var(--color-border-default);
+          "
+        >
+          <div class="text-xs mb-1" style="font-weight: 510; color: var(--color-text-tertiary)">
+            {{ kpi.label }}
+          </div>
+          <div
+            class="text-2xl"
+            style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.288px"
+          >
+            {{ kpi.value }}
+          </div>
+        </div>
+      </div>
+      <!-- Active Cycle -->
+      <div
+        v-if="activeCycles.length > 0"
+        class="mt-3 px-4 py-3 rounded-lg flex items-center gap-3"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <span class="text-xs" style="font-weight: 510; color: var(--color-text-tertiary)">
+          当前 Cycle:
+        </span>
+        <span class="text-sm" style="font-weight: 510; color: var(--color-text-primary)">
+          {{ activeCycles[0].name }}
+        </span>
+        <span
+          v-if="activeCycles[0].total_issues > 0"
+          class="text-xs"
+          style="color: var(--color-text-quaternary)"
+        >
+          {{ activeCycles[0].completed_issues }}/{{ activeCycles[0].total_issues }} issues
+        </span>
+      </div>
+    </div>
+
     <!-- Gateway Status -->
     <div class="flex items-center gap-2 mb-6">
       <div
@@ -116,6 +170,9 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useWorkflowStore } from "../stores/workflow";
 import { checkHealth, fetchVersion } from "../api/workflow";
+import { useWorkspaceStore } from "../stores/workspace";
+import { fetchIssueSummary, fetchActiveCycles } from "../api/plane";
+import type { IssueSummary, PlaneCycle } from "../api/plane";
 
 defineOptions({ name: "SystemDashboard" });
 
@@ -130,6 +187,21 @@ const kpis = computed(() => {
     { label: "运行中", value: execs.filter((e) => e.status === "running").length },
     { label: "成功", value: execs.filter((e) => e.status === "success").length },
     { label: "失败", value: execs.filter((e) => e.status === "failed").length },
+  ];
+});
+
+const wsStore = useWorkspaceStore();
+const issueSummary = ref<IssueSummary | null>(null);
+const activeCycles = ref<PlaneCycle[]>([]);
+
+const planeKpis = computed(() => {
+  if (!issueSummary.value) return [];
+  const s = issueSummary.value;
+  return [
+    { label: "Issue 总数", value: s.total },
+    { label: "进行中", value: s.started },
+    { label: "待处理", value: s.backlog },
+    { label: "已完成", value: s.completed },
   ];
 });
 
@@ -180,6 +252,18 @@ onMounted(async () => {
     })
     .catch(() => {});
   timer = setInterval(() => store.loadExecutions({ limit: 20 }), 10000);
+  if (wsStore.current?.plane_project_id) {
+    fetchIssueSummary()
+      .then((s) => {
+        issueSummary.value = s;
+      })
+      .catch(() => {});
+    fetchActiveCycles()
+      .then((c) => {
+        activeCycles.value = c;
+      })
+      .catch(() => {});
+  }
 });
 
 onUnmounted(() => clearInterval(timer));

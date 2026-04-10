@@ -4,6 +4,7 @@ import {
   fetchWorkspaces,
   fetchWorkspaceDetail,
   syncPlaneProjects,
+  createWorkspace as apiCreateWorkspace,
   type Workspace,
   type WorkspaceDetail,
 } from "../api/workspaces";
@@ -50,11 +51,29 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     }
   }
 
+  async function create(name: string) {
+    const ws = await apiCreateWorkspace(name);
+    await load();
+    await select(ws.id);
+    return ws;
+  }
+
   async function sync() {
     const result = await syncPlaneProjects();
     await load();
     return result;
   }
 
-  return { workspaces, currentId, current, currentDetail, isAdmin, loading, load, select, sync };
+  return {
+    workspaces,
+    currentId,
+    current,
+    currentDetail,
+    isAdmin,
+    loading,
+    load,
+    select,
+    create,
+    sync,
+  };
 });

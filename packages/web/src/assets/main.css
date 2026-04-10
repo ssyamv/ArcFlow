@@ -49,6 +49,40 @@
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* ── 亮色主题覆盖 ── */
+[data-theme="light"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-panel: #f8f9fa;
+  --color-bg-surface: #f0f1f3;
+  --color-bg-surface-secondary: #e8e9ec;
+
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #4a4f57;
+  --color-text-tertiary: #7c818a;
+  --color-text-quaternary: #a1a5ad;
+
+  --color-accent: #5e6ad2;
+  --color-accent-hover: #4850b8;
+  --color-accent-violet: #6366f1;
+
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-error-light: #ef4444;
+
+  --color-border-default: rgba(0, 0, 0, 0.1);
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
+  --color-border-solid: #d9dbdf;
+
+  --color-surface-02: rgba(0, 0, 0, 0.02);
+  --color-surface-03: rgba(0, 0, 0, 0.03);
+  --color-surface-04: rgba(0, 0, 0, 0.04);
+  --color-surface-05: rgba(0, 0, 0, 0.05);
+  --color-surface-08: rgba(0, 0, 0, 0.07);
+
+  --color-overlay: rgba(255, 255, 255, 0.85);
+}
+
 /* ── 全局样式 ── */
 * {
   font-feature-settings: "cv01", "ss03";
@@ -83,6 +117,14 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 /* ── Markdown 渲染（暗色版） ── */
