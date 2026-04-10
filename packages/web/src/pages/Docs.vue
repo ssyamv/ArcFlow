@@ -271,19 +271,35 @@ const autoSaveStatus = ref<"idle" | "saving" | "saved">("idle");
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let savedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 当前正在进行的保存 Promise，用于防止并发保存 */
+let savingPromise: Promise<void> | null = null;
+
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";
-  autoSaveTimer = setTimeout(async () => {
-    if (!store.isDirty) return;
-    autoSaveStatus.value = "saving";
-    await store.saveFile();
-    autoSaveStatus.value = "saved";
-    if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
-    savedFeedbackTimer = setTimeout(() => {
-      autoSaveStatus.value = "idle";
-    }, 2000);
+  autoSaveTimer = setTimeout(() => {
+    fireAutoSave();
   }, 1500);
+}
+
+function fireAutoSave() {
+  if (!store.isDirty || savingPromise) return;
+  autoSaveStatus.value = "saving";
+  savingPromise = store
+    .saveFile()
+    .then(() => {
+      autoSaveStatus.value = "saved";
+      if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
+      savedFeedbackTimer = setTimeout(() => {
+        autoSaveStatus.value = "idle";
+      }, 2000);
+    })
+    .catch(() => {
+      autoSaveStatus.value = "idle";
+    })
+    .finally(() => {
+      savingPromise = null;
+    });
 }
 
 const breadcrumbs = computed(() => store.currentPath?.split("/") ?? []);
@@ -297,11 +313,13 @@ function handleSearch() {
 }
 
 async function handleFileSelect(path: string) {
-  if (store.isDirty) {
-    await store.saveFile().catch(() => {});
-  }
+  // 取消待执行的自动保存
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";
+  // 脏数据后台保存，不阻塞切换
+  if (store.isDirty) {
+    fireAutoSave();
+  }
   await store.openFile(path);
 }
 
