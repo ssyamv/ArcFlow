@@ -289,7 +289,9 @@ const currentPageTitle = computed(() => {
   return item?.label ?? "";
 });
 
-const isFullWidthPage = computed(() => route.path.startsWith("/docs"));
+const isFullWidthPage = computed(
+  () => route.path.startsWith("/docs") || route.path.startsWith("/chat"),
+);
 
 function isActive(path: string) {
   return route.path.startsWith(path);

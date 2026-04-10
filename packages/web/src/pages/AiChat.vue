@@ -1,12 +1,14 @@
 <template>
-  <div class="flex -m-8" style="height: calc(100vh - 48px)">
+  <div class="flex" style="height: calc(100vh - 48px)">
     <!-- Conversation Sidebar -->
     <div
-      class="w-64 shrink-0 flex flex-col"
-      style="
-        background-color: var(--color-bg-panel);
-        border-right: 1px solid var(--color-border-subtle);
-      "
+      class="shrink-0 flex flex-col transition-all duration-150"
+      :style="{
+        width: sidebarCollapsed ? '0px' : '256px',
+        overflow: sidebarCollapsed ? 'hidden' : 'visible',
+        backgroundColor: 'var(--color-bg-panel)',
+        borderRight: sidebarCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
+      }"
     >
       <!-- Search + New -->
       <div class="p-3 flex gap-2" style="border-bottom: 1px solid var(--color-border-subtle)">
@@ -74,6 +76,26 @@
     <!-- Chat Area -->
     <div class="flex-1 flex flex-col min-w-0">
       <template v-if="convStore.currentId">
+        <!-- Toolbar -->
+        <div
+          class="px-4 py-2 flex items-center shrink-0"
+          style="border-bottom: 1px solid var(--color-border-subtle)"
+        >
+          <button
+            class="w-6 h-6 rounded flex items-center justify-center cursor-pointer"
+            style="background: none; border: none; color: var(--color-text-quaternary)"
+            title="折叠对话列表"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <PanelLeft :size="14" />
+          </button>
+          <span
+            class="ml-2 text-xs truncate"
+            style="color: var(--color-text-tertiary); font-weight: 510"
+          >
+            {{ convStore.conversations.find((c) => c.id === convStore.currentId)?.title ?? "" }}
+          </span>
+        </div>
         <!-- Messages -->
         <div ref="msgContainer" class="flex-1 overflow-y-auto px-6 py-4">
           <div v-for="msg in chatStore.messages" :key="msg.id" class="mb-4">
@@ -132,6 +154,20 @@
 
       <!-- Empty State -->
       <template v-else>
+        <div
+          v-if="sidebarCollapsed"
+          class="px-4 py-2"
+          style="border-bottom: 1px solid var(--color-border-subtle)"
+        >
+          <button
+            class="w-6 h-6 rounded flex items-center justify-center cursor-pointer"
+            style="background: none; border: none; color: var(--color-text-quaternary)"
+            title="展开对话列表"
+            @click="sidebarCollapsed = false"
+          >
+            <PanelLeft :size="14" />
+          </button>
+        </div>
         <div class="flex-1 flex flex-col items-center justify-center">
           <div
             class="text-4xl mb-4"
@@ -151,12 +187,14 @@ import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { useConversationStore } from "../stores/conversation";
 import { useChatStore } from "../stores/chat";
 import { marked } from "marked";
+import { PanelLeft } from "lucide-vue-next";
 import type { Conversation } from "../api/conversations";
 
 defineOptions({ name: "AiChatPage" });
 
 const convStore = useConversationStore();
 const chatStore = useChatStore();
+const sidebarCollapsed = ref(false);
 const input = ref("");
 const searchQuery = ref("");
 const msgContainer = ref<HTMLElement | null>(null);
