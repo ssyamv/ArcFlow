@@ -298,7 +298,7 @@ function handleSearch() {
 
 async function handleFileSelect(path: string) {
   if (store.isDirty) {
-    await store.saveFile();
+    await store.saveFile().catch(() => {});
   }
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";

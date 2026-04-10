@@ -15,12 +15,22 @@ import {
 
 /**
  * 分离 YAML frontmatter（Wiki.js 遗留的元数据块）和正文内容。
- * frontmatter 格式：文件以 --- 开头，到第二个 --- 结束。
+ * 支持两种格式：
+ * 1. 标准 frontmatter: --- 开头，到第二个 --- 结束
+ * 2. Wiki.js 损坏格式: * * * 开头，紧跟 ## title: ... dateCreated: ... 行
  */
 function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return { frontmatter: "", body: raw };
-  return { frontmatter: `---\n${match[1]}\n---\n`, body: match[2] };
+  // 标准 frontmatter
+  const stdMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (stdMatch) return { frontmatter: `---\n${stdMatch[1]}\n---\n`, body: stdMatch[2] };
+
+  // Wiki.js 损坏格式: "* * *\n\n## title: ... dateCreated: ...\n\n..."
+  const wikiMatch = raw.match(
+    /^\* \* \*\r?\n\r?\n##\s+title:.*?dateCreated:.*?\r?\n\r?\n([\s\S]*)$/,
+  );
+  if (wikiMatch) return { frontmatter: "", body: wikiMatch[1] };
+
+  return { frontmatter: "", body: raw };
 }
 
 function joinFrontmatter(frontmatter: string, body: string): string {
