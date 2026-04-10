@@ -5,7 +5,7 @@
       class="shrink-0 flex flex-col transition-all duration-150"
       :style="{
         width: treeCollapsed ? '0px' : '256px',
-        overflow: treeCollapsed ? 'hidden' : 'visible',
+        overflow: 'hidden',
         backgroundColor: 'var(--color-bg-panel)',
         borderRight: treeCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
       }"
