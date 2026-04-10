@@ -123,59 +123,49 @@
     </div>
 
     <!-- New File Dialog -->
-    <Teleport to="body">
-      <div v-if="showNewFileDialog" class="dialog-overlay" @click.self="showNewFileDialog = false">
-        <div class="dialog-box">
-          <div class="dialog-title">新建文档</div>
-          <input
-            v-model="newFilePath"
-            class="dialog-input"
-            placeholder="文件路径，如 prd/new-feature.md"
-            @keyup.enter="confirmNewFile"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showNewFileDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmNewFile">创建</button>
-          </div>
-        </div>
+    <UiDialog v-model:open="showNewFileDialog">
+      <div class="dialog-title">新建文档</div>
+      <input
+        v-model="newFilePath"
+        class="dialog-input"
+        placeholder="文件路径，如 prd/new-feature.md"
+        @keydown.enter="confirmNewFile"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showNewFileDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmNewFile">创建</button>
       </div>
+    </UiDialog>
 
-      <div
-        v-if="showNewFolderDialog"
-        class="dialog-overlay"
-        @click.self="showNewFolderDialog = false"
-      >
-        <div class="dialog-box">
-          <div class="dialog-title">新建文件夹</div>
-          <input
-            v-model="newFolderPath"
-            class="dialog-input"
-            placeholder="文件夹路径，如 tech-design"
-            @keyup.enter="confirmNewFolder"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showNewFolderDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmNewFolder">创建</button>
-          </div>
-        </div>
+    <!-- New Folder Dialog -->
+    <UiDialog v-model:open="showNewFolderDialog">
+      <div class="dialog-title">新建文件夹</div>
+      <input
+        v-model="newFolderPath"
+        class="dialog-input"
+        placeholder="文件夹路径，如 tech-design"
+        @keydown.enter="confirmNewFolder"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showNewFolderDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmNewFolder">创建</button>
       </div>
+    </UiDialog>
 
-      <div v-if="showRenameDialog" class="dialog-overlay" @click.self="showRenameDialog = false">
-        <div class="dialog-box">
-          <div class="dialog-title">重命名</div>
-          <input
-            v-model="renamePath"
-            class="dialog-input"
-            placeholder="新路径"
-            @keyup.enter="confirmRename"
-          />
-          <div class="dialog-actions">
-            <button class="dialog-cancel" @click="showRenameDialog = false">取消</button>
-            <button class="dialog-confirm" @click="confirmRename">确认</button>
-          </div>
-        </div>
+    <!-- Rename Dialog -->
+    <UiDialog v-model:open="showRenameDialog">
+      <div class="dialog-title">重命名</div>
+      <input
+        v-model="renamePath"
+        class="dialog-input"
+        placeholder="新路径"
+        @keydown.enter="confirmRename"
+      />
+      <div class="dialog-actions">
+        <button class="dialog-cancel" @click="showRenameDialog = false">取消</button>
+        <button class="dialog-confirm" @click="confirmRename">确认</button>
       </div>
-    </Teleport>
+    </UiDialog>
   </div>
 </template>
 
@@ -187,6 +177,7 @@ import { Table, TableRow, TableCell, TableHeader } from "@tiptap/extension-table
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { marked } from "marked";
+import UiDialog from "../components/ui/AppDialog.vue";
 import TurndownService from "turndown";
 import { useDocsStore } from "../stores/docs";
 import TreeItem from "../components/DocTreeItem.vue";
@@ -420,25 +411,6 @@ onBeforeUnmount(() => {
 .save-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.dialog-box {
-  background-color: var(--color-bg-surface);
-  border: 1px solid var(--color-border-default);
-  border-radius: 12px;
-  padding: 20px;
-  width: 400px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .dialog-title {

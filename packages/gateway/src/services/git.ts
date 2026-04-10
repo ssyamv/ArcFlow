@@ -50,6 +50,11 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
 
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
+    // Wiki.js 同步可能留下未提交变更，先 stash 再 pull
+    const status = await git.status();
+    if (!status.isClean()) {
+      await git.stash();
+    }
     await git.fetch();
     const branch = await getDefaultBranch(git);
     await git.pull("origin", branch, { "--rebase": null });

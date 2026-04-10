@@ -173,6 +173,32 @@
       </div>
     </nav>
 
+    <!-- Create Workspace Dialog -->
+    <UiDialog v-model:open="showCreateWsDialog">
+      <div class="mb-4">
+        <h2 style="font-weight: 590; color: var(--color-text-primary); font-size: 15px; margin: 0">
+          新建工作空间
+        </h2>
+      </div>
+      <input
+        ref="wsNameInput"
+        v-model="newWsName"
+        placeholder="工作空间名称"
+        class="w-full px-3 py-2 rounded-md text-sm"
+        style="
+          background-color: var(--color-bg-primary);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-text-primary);
+          outline: none;
+        "
+        @keydown.enter="confirmCreateWorkspace"
+      />
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="dialog-btn" @click="showCreateWsDialog = false">取消</button>
+        <button class="dialog-btn-primary" @click="confirmCreateWorkspace">创建</button>
+      </div>
+    </UiDialog>
+
     <!-- Main -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
@@ -197,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useWorkspaceStore } from "../stores/workspace";
@@ -212,12 +238,16 @@ import {
   Moon,
 } from "lucide-vue-next";
 import { useThemeStore } from "../stores/theme";
+import UiDialog from "./ui/AppDialog.vue";
 
 const route = useRoute();
 const auth = useAuthStore();
 const wsStore = useWorkspaceStore();
 const themeStore = useThemeStore();
 const wsDropdownOpen = ref(false);
+const showCreateWsDialog = ref(false);
+const newWsName = ref("");
+const wsNameInput = ref<HTMLInputElement | null>(null);
 
 const navItems = computed(() => {
   const items = [
@@ -250,11 +280,17 @@ function switchWorkspace(id: number) {
   window.location.reload();
 }
 
-async function handleCreateWorkspace() {
-  const name = window.prompt("工作空间名称");
-  if (!name?.trim()) return;
-  await wsStore.create(name.trim());
+function handleCreateWorkspace() {
+  newWsName.value = "";
+  showCreateWsDialog.value = true;
   wsDropdownOpen.value = false;
+  nextTick(() => wsNameInput.value?.focus());
+}
+
+async function confirmCreateWorkspace() {
+  if (!newWsName.value.trim()) return;
+  await wsStore.create(newWsName.value.trim());
+  showCreateWsDialog.value = false;
   window.location.reload();
 }
 
@@ -276,5 +312,32 @@ async function handleSyncPlane() {
   background-color: var(--color-surface-05);
   color: var(--color-text-primary);
   border-left: 2px solid var(--color-accent);
+}
+.dialog-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-border-default);
+  background: none;
+  color: var(--color-text-secondary);
+  transition: all 120ms ease;
+}
+.dialog-btn:hover {
+  background-color: var(--color-surface-05);
+}
+.dialog-btn-primary {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  background-color: var(--color-accent);
+  color: #fff;
+  font-weight: 510;
+  transition: all 120ms ease;
+}
+.dialog-btn-primary:hover {
+  background-color: var(--color-accent-hover);
 }
 </style>
