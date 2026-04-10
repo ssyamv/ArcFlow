@@ -106,8 +106,17 @@
               <td class="table-cell" style="color: var(--color-text-tertiary)">
                 {{ exec.trigger_source }}
               </td>
-              <td class="table-cell" style="color: var(--color-text-tertiary)">
-                {{ exec.plane_issue_id ?? "-" }}
+              <td class="table-cell">
+                <a
+                  v-if="exec.plane_issue_id && planeIssueUrl(exec.plane_issue_id)"
+                  :href="planeIssueUrl(exec.plane_issue_id)!"
+                  class="no-underline text-sm"
+                  style="color: var(--color-accent); font-weight: 510"
+                  @click.stop
+                >
+                  {{ exec.plane_issue_id }}
+                </a>
+                <span v-else style="color: var(--color-text-tertiary)">-</span>
               </td>
               <td class="table-cell">
                 <span
@@ -151,13 +160,23 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useWorkflowStore } from "@/stores/workflow";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { typeLabel } from "@/utils/workflow";
 
 defineOptions({ name: "WorkflowList" });
 
 const store = useWorkflowStore();
+const wsStore = useWorkspaceStore();
 const filterType = ref("");
 const filterStatus = ref("");
+
+const PLANE_BASE = import.meta.env.VITE_PLANE_BASE_URL ?? "http://172.29.230.21:8082";
+
+function planeIssueUrl(issueId: string): string | null {
+  const ws = wsStore.current;
+  if (!ws?.plane_project_id) return null;
+  return `${PLANE_BASE}/arcflow/projects/${ws.plane_project_id}/issues/${issueId}/`;
+}
 
 const typeOptions = [
   { value: "", label: "全部" },
