@@ -2,7 +2,7 @@ import { computed } from "vue";
 import { useWorkspaceStore } from "../stores/workspace";
 
 const PLANE_BASE = import.meta.env.VITE_PLANE_BASE_URL ?? "http://172.29.230.21:8082";
-const PLANE_SLUG = "arcflow";
+const PLANE_SLUG = import.meta.env.VITE_PLANE_WORKSPACE_SLUG ?? "homture";
 
 export function usePlaneUrl() {
   const wsStore = useWorkspaceStore();
