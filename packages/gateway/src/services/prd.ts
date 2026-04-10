@@ -1,3 +1,4 @@
+import { getConfig } from "../config";
 import { ensureRepo, writeAndPush } from "./git";
 
 export interface PrdResult {
