@@ -35,12 +35,8 @@ async function checkService(url: string, timeout = 5000): Promise<ServiceCheck> 
 healthRoutes.get("/health/dependencies", async (c) => {
   const config = getConfig();
 
-  const names = ["dify", "plane", "wikijs"] as const;
-  const urls = [
-    `${config.difyBaseUrl}/health`,
-    config.planeBaseUrl,
-    `${config.wikijsBaseUrl}/healthz`,
-  ];
+  const names = ["dify", "plane"] as const;
+  const urls = [`${config.difyBaseUrl}/health`, config.planeBaseUrl];
 
   const checks = await Promise.all(urls.map((url) => checkService(url)));
 

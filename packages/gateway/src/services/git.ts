@@ -70,7 +70,7 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
 export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
-    // Wiki.js 同步可能留下未提交变更，先 stash 再 pull
+    // 外部同步可能留下未提交变更，先 stash 再 pull
     const status = await git.status();
     if (!status.isClean()) {
       await git.stash();

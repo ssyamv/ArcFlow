@@ -12,7 +12,6 @@ import { ensureRepo, readFile, writeAndPush, createBranchAndPush } from "./git";
 import { generateTechDoc, generateOpenApi, analyzeBug } from "./dify";
 import { createBugIssue } from "./plane";
 import { sendTechReviewCard, sendNotification, sendBugNotification } from "./feishu";
-import { triggerSync } from "./wikijs";
 import { runClaudeCode } from "./claude-code";
 import { join } from "path";
 
@@ -94,18 +93,12 @@ async function flowPrdToTech(executionId: number, params: TriggerParams): Promis
   const techDocPath = `tech-design/${monthDir}/${featureName}.md`;
   await writeAndPush("docs", techDocPath, techDoc, `docs: AI 生成技术设计文档 - ${featureName}`);
 
-  // 3. Trigger Wiki.js sync (non-blocking)
-  triggerSync().catch(() => {});
-
-  // 4. Call Dify workflow 2: Tech Doc → OpenAPI
+  // 3. Call Dify workflow 2: Tech Doc → OpenAPI
   const openApi = await generateOpenApi(techDoc);
   const openApiPath = `api/${monthDir}/${featureName}.yaml`;
   await writeAndPush("docs", openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
 
-  // 5. Trigger Wiki.js sync again (non-blocking)
-  triggerSync().catch(() => {});
-
-  // 6. Send Feishu review card (non-blocking)
+  // 4. Send Feishu review card (non-blocking)
   if (params.chat_id) {
     sendTechReviewCard({
       chatId: params.chat_id,
@@ -133,8 +126,6 @@ async function flowTechToOpenApi(_executionId: number, params: TriggerParams): P
   const openApi = await generateOpenApi(techDocContent);
   const openApiPath = `api/${monthDir}/${featureName}.yaml`;
   await writeAndPush("docs", openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
-
-  triggerSync().catch(() => {});
 }
 
 // Flow D: CI/CD Failure → Bug Analysis + Auto Fix

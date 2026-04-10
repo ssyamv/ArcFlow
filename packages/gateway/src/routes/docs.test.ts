@@ -26,12 +26,6 @@ mock.module("../services/git", () => ({
   registerRepoUrl: mockRegisterRepoUrl,
 }));
 
-// Mock wikijs
-const mockTriggerSync = mock(() => Promise.resolve());
-mock.module("../services/wikijs", () => ({
-  triggerSync: mockTriggerSync,
-}));
-
 // Mock auth middleware — always pass with userId=1
 mock.module("../middleware/auth", () => ({
   authMiddleware: mock(async (_c: unknown, next: () => Promise<void>) => {
@@ -87,7 +81,6 @@ function clearAll() {
   mockSearchFiles.mockClear();
   mockEnsureRepo.mockClear();
   mockEnsureRepoByUrl.mockClear();
-  mockTriggerSync.mockClear();
 }
 
 describe("GET /api/docs/tree", () => {
@@ -136,7 +129,6 @@ describe("POST /api/docs/file", () => {
       "# New",
       "docs: 新建 prd/new.md",
     );
-    expect(mockTriggerSync).toHaveBeenCalled();
   });
 });
 
@@ -156,7 +148,6 @@ describe("PUT /api/docs/file", () => {
       "# Updated",
       "docs: 更新 prd/test.md",
     );
-    expect(mockTriggerSync).toHaveBeenCalled();
   });
 });
 
@@ -169,7 +160,6 @@ describe("DELETE /api/docs/file", () => {
     });
     expect(res.status).toBe(200);
     expect(mockDeleteFile).toHaveBeenCalledWith("ws-1-docs", "prd/old.md", "docs: 删除 prd/old.md");
-    expect(mockTriggerSync).toHaveBeenCalled();
   });
 });
 
@@ -189,7 +179,6 @@ describe("PUT /api/docs/rename", () => {
       "prd/b.md",
       "docs: 重命名 prd/a.md → prd/b.md",
     );
-    expect(mockTriggerSync).toHaveBeenCalled();
   });
 });
 
@@ -209,7 +198,6 @@ describe("POST /api/docs/folder", () => {
       "",
       "docs: 新建目录 new-folder",
     );
-    expect(mockTriggerSync).toHaveBeenCalled();
   });
 });
 

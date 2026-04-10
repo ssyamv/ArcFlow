@@ -1,7 +1,6 @@
 # ArcFlow Core Services
 # - Gateway: Bun + Hono API (port 3100)
 # - Web: Vue3 管理界面 (port 80)
-# - Wiki.js: 文档知识库 (port 3000)
 #
 # 其他服务独立部署：
 # - Plane CE: setup/plane/docker-compose.yml
@@ -44,44 +43,6 @@ services:
       gateway:
         condition: service_healthy
 
-  # ─── Wiki.js ─────────────────────────────────────────────────────
-  wiki:
-    image: ghcr.io/requarks/wiki:2
-    container_name: arcflow-wiki
-    restart: unless-stopped
-    depends_on:
-      wiki-db:
-        condition: service_healthy
-    environment:
-      DB_TYPE: postgres
-      DB_HOST: wiki-db
-      DB_PORT: 5432
-      DB_USER: ${WIKI_DB_USER:-wikijs}
-      DB_PASS: ${WIKI_DB_PASSWORD:-wikijs}
-      DB_NAME: ${WIKI_DB_NAME:-wikijs}
-    ports:
-      - "${WIKI_PORT:-3000}:3000"
-    volumes:
-      - wiki-data:/wiki/data
-
-  wiki-db:
-    image: postgres:15-alpine
-    container_name: arcflow-wiki-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${WIKI_DB_USER:-wikijs}
-      POSTGRES_PASSWORD: ${WIKI_DB_PASSWORD:-wikijs}
-      POSTGRES_DB: ${WIKI_DB_NAME:-wikijs}
-    volumes:
-      - wiki-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${WIKI_DB_USER:-wikijs}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   gateway-data:
   git-workdir:
-  wiki-data:
-  wiki-db-data:

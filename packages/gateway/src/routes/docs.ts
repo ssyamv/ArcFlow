@@ -10,7 +10,6 @@ import {
   getRepoDir,
   registerRepoUrl,
 } from "../services/git";
-import { triggerSync } from "../services/wikijs";
 import { authMiddleware } from "../middleware/auth";
 import { workspaceMiddleware } from "../middleware/workspace";
 import { getWorkspace } from "../db/queries";
@@ -82,7 +81,6 @@ docsRoutes.post("/file", async (c) => {
   const { repoName, repoUrl } = getDocsRepoInfo(c);
   await ensureWorkspaceDocs(repoName, repoUrl);
   await writeAndPush(repoName, path, content ?? "", `docs: 新建 ${path}`);
-  triggerSync();
   return c.json({ ok: true, path }, 201);
 });
 
@@ -92,7 +90,6 @@ docsRoutes.put("/file", async (c) => {
   const { repoName, repoUrl } = getDocsRepoInfo(c);
   await ensureWorkspaceDocs(repoName, repoUrl);
   await writeAndPush(repoName, path, content, `docs: 更新 ${path}`);
-  triggerSync();
   return c.json({ ok: true, path });
 });
 
@@ -102,7 +99,6 @@ docsRoutes.delete("/file", async (c) => {
   const { repoName, repoUrl } = getDocsRepoInfo(c);
   await ensureWorkspaceDocs(repoName, repoUrl);
   await deleteFile(repoName, path, `docs: 删除 ${path}`);
-  triggerSync();
   return c.json({ ok: true });
 });
 
@@ -112,7 +108,6 @@ docsRoutes.post("/folder", async (c) => {
   const { repoName, repoUrl } = getDocsRepoInfo(c);
   await ensureWorkspaceDocs(repoName, repoUrl);
   await writeAndPush(repoName, `${path}/.gitkeep`, "", `docs: 新建目录 ${path}`);
-  triggerSync();
   return c.json({ ok: true, path }, 201);
 });
 
@@ -122,7 +117,6 @@ docsRoutes.put("/rename", async (c) => {
   const { repoName, repoUrl } = getDocsRepoInfo(c);
   await ensureWorkspaceDocs(repoName, repoUrl);
   await renameFile(repoName, oldPath, newPath, `docs: 重命名 ${oldPath} → ${newPath}`);
-  triggerSync();
   return c.json({ ok: true });
 });
 
