@@ -13,11 +13,28 @@ import {
   type SearchResult,
 } from "../api/docs";
 
+/**
+ * 分离 YAML frontmatter（Wiki.js 遗留的元数据块）和正文内容。
+ * frontmatter 格式：文件以 --- 开头，到第二个 --- 结束。
+ */
+function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { frontmatter: "", body: raw };
+  return { frontmatter: `---\n${match[1]}\n---\n`, body: match[2] };
+}
+
+function joinFrontmatter(frontmatter: string, body: string): string {
+  if (!frontmatter) return body;
+  return frontmatter + body;
+}
+
 export const useDocsStore = defineStore("docs", () => {
   const tree = ref<TreeNode[]>([]);
   const currentPath = ref<string | null>(null);
   const currentContent = ref("");
   const originalContent = ref("");
+  /** 当前文件的 frontmatter（编辑器不显示，保存时自动拼回） */
+  const currentFrontmatter = ref("");
   const loading = ref(false);
   const saving = ref(false);
   const searchQuery = ref("");
@@ -43,9 +60,11 @@ export const useDocsStore = defineStore("docs", () => {
     loading.value = true;
     try {
       const res = await fetchFile(path);
+      const { frontmatter, body } = splitFrontmatter(res.content);
       currentPath.value = path;
-      currentContent.value = res.content;
-      originalContent.value = res.content;
+      currentFrontmatter.value = frontmatter;
+      currentContent.value = body;
+      originalContent.value = body;
     } finally {
       loading.value = false;
     }
@@ -55,7 +74,8 @@ export const useDocsStore = defineStore("docs", () => {
     if (!currentPath.value || !isDirty.value) return;
     saving.value = true;
     try {
-      await updateFile(currentPath.value, currentContent.value);
+      const fullContent = joinFrontmatter(currentFrontmatter.value, currentContent.value);
+      await updateFile(currentPath.value, fullContent);
       originalContent.value = currentContent.value;
     } finally {
       saving.value = false;
@@ -107,6 +127,7 @@ export const useDocsStore = defineStore("docs", () => {
     currentPath.value = null;
     currentContent.value = "";
     originalContent.value = "";
+    currentFrontmatter.value = "";
   }
 
   return {

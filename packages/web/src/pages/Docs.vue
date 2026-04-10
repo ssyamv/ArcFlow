@@ -240,6 +240,9 @@ const turndown = new TurndownService({
   codeBlockStyle: "fenced",
 });
 
+/** 标记：正在程序化设置编辑器内容，此时 onUpdate 不应触发自动保存 */
+let settingContent = false;
+
 const editor = useEditor({
   extensions: [
     StarterKit,
@@ -256,6 +259,7 @@ const editor = useEditor({
     },
   },
   onUpdate: ({ editor: e }) => {
+    if (settingContent) return;
     const html = e.getHTML();
     const md = turndown.turndown(html);
     store.setContent(md);
@@ -307,8 +311,10 @@ watch(
     if (!editor.value) return;
     // Only set content when file is freshly loaded (not dirty)
     if (!store.isDirty || store.currentContent === store.originalContent) {
+      settingContent = true;
       const html = marked.parse(newContent) as string;
       editor.value.commands.setContent(html);
+      settingContent = false;
     }
   },
   { immediate: false },
@@ -319,8 +325,10 @@ watch(
   () => store.currentPath,
   async () => {
     if (!editor.value || !store.currentPath) return;
+    settingContent = true;
     const html = marked.parse(store.currentContent) as string;
     editor.value.commands.setContent(html);
+    settingContent = false;
   },
 );
 
