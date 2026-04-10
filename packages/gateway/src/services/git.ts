@@ -76,7 +76,7 @@ export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise
     }
     const git = simpleGit(repoDir);
     // 确保 git user 配置存在
-    await git.addConfig("user.email", "gateway@arcflow.local", false, "local");
+    await git.addConfig("user.email", "qichen22@iflytek.com", false, "local");
     await git.addConfig("user.name", "ArcFlow Gateway", false, "local");
     // 外部同步可能留下未提交变更，先 stash 再 pull
     const status = await git.status();
@@ -93,7 +93,7 @@ export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise
   const git = simpleGit();
   await git.clone(repoUrl, repoDir);
   const cloned = simpleGit(repoDir);
-  await cloned.addConfig("user.email", "gateway@arcflow.local");
+  await cloned.addConfig("user.email", "qichen22@iflytek.com");
   await cloned.addConfig("user.name", "ArcFlow Gateway");
   return cloned;
 }
