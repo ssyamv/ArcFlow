@@ -12,7 +12,7 @@ import {
 import { join, dirname } from "path";
 import { getConfig } from "../config";
 
-function getRepoDir(repoName: string): string {
+export function getRepoDir(repoName: string): string {
   const config = getConfig();
   return join(config.gitWorkDir, repoName);
 }
@@ -47,7 +47,13 @@ async function getDefaultBranch(git: SimpleGit): Promise<string> {
 export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   const repoDir = getRepoDir(repoName);
   const repoUrl = getRepoUrl(repoName);
+  return ensureRepoByUrl(repoDir, repoUrl);
+}
 
+/**
+ * 通过指定目录和 URL 确保仓库就绪（支持工作空间级别的独立仓库）
+ */
+export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
     // Wiki.js 同步可能留下未提交变更，先 stash 再 pull

@@ -155,6 +155,23 @@
         <div class="space-y-4">
           <div>
             <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
+              >文档仓库</label
+            >
+            <input
+              v-model="gitRepos.docs"
+              type="text"
+              class="w-full px-3 py-2 rounded-lg text-sm"
+              style="
+                background-color: var(--color-bg-primary);
+                border: 1px solid var(--color-border-default);
+                color: var(--color-text-primary);
+                outline: none;
+              "
+              placeholder="https://code.example.com/org/docs.git"
+            />
+          </div>
+          <div>
+            <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
               >后端仓库</label
             >
             <input
@@ -337,6 +354,7 @@ const form = reactive({
 });
 
 const gitRepos = reactive({
+  docs: "",
   backend: "",
   vue3: "",
   flutter: "",
@@ -353,6 +371,7 @@ function loadForm() {
 
   try {
     const repos = JSON.parse(detail.value.git_repos || "{}");
+    gitRepos.docs = repos.docs ?? "";
     gitRepos.backend = repos.backend ?? "";
     gitRepos.vue3 = repos.vue3 ?? "";
     gitRepos.flutter = repos.flutter ?? "";
@@ -384,6 +403,7 @@ async function handleSave() {
       plane_project_id: form.plane_project_id || null,
       plane_workspace_slug: form.plane_workspace_slug || null,
       git_repos: JSON.stringify({
+        docs: gitRepos.docs || undefined,
         backend: gitRepos.backend || undefined,
         vue3: gitRepos.vue3 || undefined,
         flutter: gitRepos.flutter || undefined,
