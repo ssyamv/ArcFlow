@@ -46,6 +46,10 @@
         <!-- File Tree -->
         <template v-else>
           <div class="tree-label">文档目录</div>
+          <div v-if="store.loading && !store.tree.length" class="tree-loading">
+            <div class="loading-dot" />
+            <span>加载文档树...</span>
+          </div>
           <TreeItem
             v-for="node in store.tree"
             :key="node.path"
@@ -129,7 +133,13 @@
 
       <!-- Tiptap Editor -->
       <div v-if="store.currentPath" class="flex-1 overflow-y-auto">
-        <editor-content :editor="editor" class="docs-editor" />
+        <div v-if="store.loading" class="flex-1 flex items-center justify-center py-20">
+          <div class="flex items-center gap-2">
+            <div class="loading-dot" />
+            <span class="text-xs" style="color: var(--color-text-quaternary)">加载文档中...</span>
+          </div>
+        </div>
+        <editor-content v-else :editor="editor" class="docs-editor" />
       </div>
 
       <!-- Empty State -->
@@ -312,7 +322,7 @@ function handleSearch() {
   }, 300);
 }
 
-async function handleFileSelect(path: string) {
+function handleFileSelect(path: string) {
   // 取消待执行的自动保存
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";
@@ -320,7 +330,8 @@ async function handleFileSelect(path: string) {
   if (store.isDirty) {
     fireAutoSave();
   }
-  await store.openFile(path);
+  // openFile 内部立即设 path + loading，不需要 await
+  store.openFile(path);
 }
 
 watch(
@@ -440,6 +451,33 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  font-size: 11px;
+  color: var(--color-text-quaternary);
+}
+
+.loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-text-quaternary);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .tree-label {
   padding: 4px 8px;
   font-size: 10px;

@@ -67,11 +67,17 @@ export const useDocsStore = defineStore("docs", () => {
   }
 
   async function openFile(path: string) {
+    // 立即切换路径并清空内容，让 UI 马上显示 loading
+    currentPath.value = path;
+    currentContent.value = "";
+    originalContent.value = "";
+    currentFrontmatter.value = "";
     loading.value = true;
     try {
       const res = await fetchFile(path);
+      // 防止加载完成时用户已切换到其他文件
+      if (currentPath.value !== path) return;
       const { frontmatter, body } = splitFrontmatter(res.content);
-      currentPath.value = path;
       currentFrontmatter.value = frontmatter;
       currentContent.value = body;
       originalContent.value = body;
