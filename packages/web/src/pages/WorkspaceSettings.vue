@@ -32,11 +32,25 @@
             <div class="text-sm" style="color: var(--color-text-primary)">{{ detail.slug }}</div>
           </div>
           <div>
-            <label class="block text-xs mb-1" style="color: var(--color-text-tertiary)"
-              >Plane 项目 ID</label
-            >
-            <div class="text-sm" style="color: var(--color-text-secondary)">
-              {{ detail.plane_project_id ?? "未关联" }}
+            <label class="block text-xs mb-1" style="color: var(--color-text-tertiary)">
+              Plane 项目
+            </label>
+            <div class="relative">
+              <select
+                v-model="form.plane_project_id"
+                class="w-full px-3 py-2 rounded-lg text-sm appearance-none cursor-pointer"
+                style="
+                  background-color: var(--color-bg-primary);
+                  border: 1px solid var(--color-border-default);
+                  color: var(--color-text-primary);
+                  outline: none;
+                "
+              >
+                <option value="">未关联</option>
+                <option v-for="p in planeProjects" :key="p.id" :value="p.id">
+                  {{ p.identifier }} — {{ p.name }}
+                </option>
+              </select>
             </div>
           </div>
           <div>
@@ -272,6 +286,8 @@
 import { ref, reactive, watch } from "vue";
 import { useWorkspaceStore } from "../stores/workspace";
 import { updateWorkspaceSettings } from "../api/workspaces";
+import { fetchPlaneProjects } from "../api/plane";
+import type { PlaneProject } from "../api/plane";
 
 const wsStore = useWorkspaceStore();
 const loading = ref(false);
@@ -281,10 +297,25 @@ const statusError = ref(false);
 
 const detail = ref(wsStore.currentDetail);
 
+const planeProjects = ref<PlaneProject[]>([]);
+const loadingProjects = ref(false);
+
+async function loadPlaneProjects() {
+  loadingProjects.value = true;
+  try {
+    planeProjects.value = await fetchPlaneProjects();
+  } catch {
+    // Plane 不可用时静默失败
+  } finally {
+    loadingProjects.value = false;
+  }
+}
+
 const form = reactive({
   dify_dataset_id: "",
   dify_rag_api_key: "",
   wiki_path_prefix: "",
+  plane_project_id: "",
 });
 
 const gitRepos = reactive({
@@ -299,6 +330,7 @@ function loadForm() {
   form.dify_dataset_id = detail.value.dify_dataset_id ?? "";
   form.dify_rag_api_key = detail.value.dify_rag_api_key ?? "";
   form.wiki_path_prefix = detail.value.wiki_path_prefix ?? "";
+  form.plane_project_id = detail.value.plane_project_id ?? "";
 
   try {
     const repos = JSON.parse(detail.value.git_repos || "{}");
@@ -316,6 +348,7 @@ watch(
   (val) => {
     detail.value = val;
     loadForm();
+    loadPlaneProjects();
   },
   { immediate: true },
 );
@@ -329,6 +362,7 @@ async function handleSave() {
       dify_dataset_id: form.dify_dataset_id || null,
       dify_rag_api_key: form.dify_rag_api_key || null,
       wiki_path_prefix: form.wiki_path_prefix || null,
+      plane_project_id: form.plane_project_id || null,
       git_repos: JSON.stringify({
         backend: gitRepos.backend || undefined,
         vue3: gitRepos.vue3 || undefined,
