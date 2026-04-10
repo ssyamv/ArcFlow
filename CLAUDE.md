@@ -103,3 +103,4 @@ docs 仓库（规划中）的目录规范：
 | `2026-04-02-nanoclaw-routing-design.md` | NanoClaw 意图路由 + 工具接入 |
 | `2026-04-07-nanoclaw-setup-design.md` | NanoClaw ArcFlow 接入设计（Fork 策略 / 工具配置 / 部署） |
 | `2026-04-08-web-nanoclaw-integration-design.md` | Web 前端接入 NanoClaw WebChannel 设计 |
+| `2026-04-10-arcflow-plane-integration-design.md` | ArcFlow + Plane 无缝集成（双向导航 + 统一 OAuth + 页面精简） |
