@@ -39,7 +39,7 @@ export interface Config {
   feishuEncryptKey: string;
   feishuDefaultChatId: string;
 
-  // Wiki.js
+  // Wiki.js (deprecated — kept for backward compat, will be removed)
   wikijsBaseUrl: string;
   wikijsApiKey: string;
 

@@ -1,31 +1,25 @@
-import { describe, expect, it, mock, afterEach } from "bun:test";
+import { describe, expect, it, mock, afterEach, beforeEach } from "bun:test";
+import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
+
+const TEST_GIT_DIR = "/tmp/rag-sync-test-git";
 
 mock.module("../config", () => ({
   getConfig: () => ({
-    wikijsBaseUrl: "http://wikijs-test:3000",
-    wikijsApiKey: "wiki-key",
     difyBaseUrl: "http://dify-test:3001",
     difyDatasetApiKey: "dataset-key",
     difyDatasetId: "ds-default",
     difyDatasetMap: {
       "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha" },
     },
+    gitWorkDir: TEST_GIT_DIR,
   }),
 }));
 
-const { syncRecentChanges, syncWikiToDify, syncAllDatasets } = await import("./rag-sync");
+const { syncRecentChanges, syncGitToDify, syncAllDatasets, resetSyncState } =
+  await import("./rag-sync");
 
 const originalFetch = globalThis.fetch;
-
-function wikiPagesJson(pages: Array<{ id: number; path: string; updatedAt: string }>) {
-  return JSON.stringify({
-    data: { pages: { list: pages.map((p) => ({ ...p, title: p.path })) } },
-  });
-}
-
-function wikiContentJson(content: string) {
-  return JSON.stringify({ data: { pages: { single: { content } } } });
-}
 
 function difyDocsJson(docs: Array<{ id: string; name: string }>) {
   return JSON.stringify({
@@ -36,26 +30,17 @@ function difyDocsJson(docs: Array<{ id: string; name: string }>) {
 
 const jsonHeaders = { "Content-Type": "application/json" };
 
-/**
- * Build a fetch mock that dispatches based on URL patterns.
- * handlers: array of { match, response } where match is a string to check via includes().
- * First matching handler wins. Falls back to 404.
- */
 function mockFetch(
   handlers: Array<{
     match: string | ((url: string) => boolean);
     response: Response | (() => Response);
   }>,
 ) {
-  const counts = new Map<number, number>();
   globalThis.fetch = (async (url: string) => {
     const urlStr = String(url);
-    for (let i = 0; i < handlers.length; i++) {
-      const h = handlers[i];
-      const n = (counts.get(i) ?? 0) + 1;
+    for (const h of handlers) {
       const matched = typeof h.match === "string" ? urlStr.includes(h.match) : h.match(urlStr);
       if (matched) {
-        counts.set(i, n);
         return typeof h.response === "function" ? h.response() : h.response.clone();
       }
     }
@@ -63,97 +48,59 @@ function mockFetch(
   }) as unknown as typeof fetch;
 }
 
+function createTestRepo(name: string, files: Record<string, string>) {
+  const repoDir = join(TEST_GIT_DIR, name);
+  mkdirSync(repoDir, { recursive: true });
+  for (const [filePath, content] of Object.entries(files)) {
+    const fullPath = join(repoDir, filePath);
+    mkdirSync(join(fullPath, ".."), { recursive: true });
+    writeFileSync(fullPath, content, "utf-8");
+  }
+  return repoDir;
+}
+
 describe("rag-sync", () => {
+  beforeEach(() => {
+    rmSync(TEST_GIT_DIR, { recursive: true, force: true });
+    mkdirSync(TEST_GIT_DIR, { recursive: true });
+    resetSyncState();
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    rmSync(TEST_GIT_DIR, { recursive: true, force: true });
   });
 
   describe("syncRecentChanges", () => {
-    // Use a future timestamp to guarantee pages are "recent" regardless of lastSyncTime state
-    const futureDate = new Date(Date.now() + 86400000).toISOString();
-
-    it("returns empty result when no recent pages", async () => {
-      mockFetch([
-        {
-          match: "graphql",
-          response: new Response(
-            wikiPagesJson([{ id: 1, path: "old", updatedAt: "2020-01-01T00:00:00Z" }]),
-            { headers: jsonHeaders },
-          ),
-        },
-      ]);
-
+    it("returns empty result when no docs repos exist", async () => {
       const result = await syncRecentChanges(10);
       expect(result.created).toBe(0);
       expect(result.updated).toBe(0);
     });
 
-    it("creates new documents for recent pages not in Dify", async () => {
-      let graphqlCall = 0;
+    it("creates new documents for recent files not in Dify", async () => {
+      createTestRepo("ws-1-docs", { "prd/feature.md": "# New Feature\nContent here" });
 
       mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 10, path: "prd/new-feature", updatedAt: futureDate }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response(wikiContentJson("# New Feature\nContent here"), {
-              headers: jsonHeaders,
-            });
-          },
-        },
-        {
-          match: "documents?",
-          response: new Response(difyDocsJson([]), { headers: jsonHeaders }),
-        },
-        {
-          match: "create-by-file",
-          response: new Response(JSON.stringify({}), { status: 200 }),
-        },
+        { match: "documents?", response: new Response(difyDocsJson([]), { headers: jsonHeaders }) },
+        { match: "create-by-file", response: new Response(JSON.stringify({}), { status: 200 }) },
       ]);
 
       const result = await syncRecentChanges(999999);
       expect(result.created).toBe(1);
     });
 
-    it("updates existing documents for recent pages in Dify", async () => {
-      let graphqlCall = 0;
+    it("updates existing documents for recent files in Dify", async () => {
+      createTestRepo("ws-1-docs", { "tech/existing.md": "Updated content" });
 
       mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 20, path: "tech/existing", updatedAt: futureDate }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response(wikiContentJson("Updated content"), { headers: jsonHeaders });
-          },
-        },
         {
           match: "documents?",
           response: new Response(difyDocsJson([{ id: "doc-existing", name: "tech-existing.md" }]), {
             headers: jsonHeaders,
           }),
         },
-        {
-          match: "update-by-file",
-          response: new Response(JSON.stringify({}), { status: 200 }),
-        },
+        { match: "update-by-file", response: new Response(JSON.stringify({}), { status: 200 }) },
       ]);
 
       const result = await syncRecentChanges(999999);
@@ -161,64 +108,12 @@ describe("rag-sync", () => {
       expect(result.created).toBe(0);
     });
 
-    it("skips pages with empty content", async () => {
-      let graphqlCall = 0;
-
-      mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 30, path: "empty-page", updatedAt: futureDate }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response(wikiContentJson("  "), { headers: jsonHeaders });
-          },
-        },
-        {
-          match: "documents?",
-          response: new Response(difyDocsJson([]), { headers: jsonHeaders }),
-        },
-      ]);
-
-      const result = await syncRecentChanges(999999);
-      expect(result.skipped).toBe(1);
-    });
-
     it("records errors when Dify create fails", async () => {
-      let graphqlCall = 0;
+      createTestRepo("ws-1-docs", { "fail.md": "Some content" });
 
       mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 40, path: "fail-page", updatedAt: futureDate }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response(wikiContentJson("Some content"), { headers: jsonHeaders });
-          },
-        },
-        {
-          match: "documents?",
-          response: new Response(difyDocsJson([]), { headers: jsonHeaders }),
-        },
-        {
-          match: "create-by-file",
-          response: new Response("Error", { status: 500 }),
-        },
+        { match: "documents?", response: new Response(difyDocsJson([]), { headers: jsonHeaders }) },
+        { match: "create-by-file", response: new Response("Error", { status: 500 }) },
       ]);
 
       const result = await syncRecentChanges(999999);
@@ -227,35 +122,14 @@ describe("rag-sync", () => {
     });
   });
 
-  describe("syncWikiToDify", () => {
+  describe("syncGitToDify", () => {
     it("creates, updates, and deletes documents", async () => {
-      let graphqlCall = 0;
+      createTestRepo("docs", {
+        "page-a.md": "Content A",
+        "page-b.md": "Content B",
+      });
 
       mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([
-                  { id: 1, path: "page-a", updatedAt: "2026-01-01T00:00:00Z" },
-                  { id: 2, path: "page-b", updatedAt: "2026-01-01T00:00:00Z" },
-                  { id: 3, path: "empty", updatedAt: "2026-01-01T00:00:00Z" },
-                ]),
-                { headers: jsonHeaders },
-              );
-            }
-            if (graphqlCall === 2)
-              return new Response(wikiContentJson("Content A"), { headers: jsonHeaders });
-            if (graphqlCall === 3)
-              return new Response(wikiContentJson("Content B"), { headers: jsonHeaders });
-            return new Response(wikiContentJson("   "), { headers: jsonHeaders });
-          },
-        },
         {
           match: "documents?",
           response: new Response(
@@ -274,18 +148,17 @@ describe("rag-sync", () => {
         },
       ]);
 
-      const result = await syncWikiToDify();
+      const result = await syncGitToDify();
       expect(result.updated).toBe(1);
       expect(result.created).toBe(1);
-      expect(result.skipped).toBe(1);
       expect(result.deleted).toBe(1);
     });
 
     it("uses targetDatasetId when provided", async () => {
       let capturedUrl = "";
+      createTestRepo("docs", {});
 
       mockFetch([
-        { match: "graphql", response: new Response(wikiPagesJson([]), { headers: jsonHeaders }) },
         {
           match: (url) => {
             if (url.includes("documents?")) {
@@ -298,36 +171,20 @@ describe("rag-sync", () => {
         },
       ]);
 
-      await syncWikiToDify("custom-dataset-id");
+      await syncGitToDify("custom-dataset-id");
       expect(capturedUrl).toContain("custom-dataset-id");
     });
 
     it("throws when dataset id is empty", async () => {
-      await expect(syncWikiToDify("")).rejects.toThrow(
+      await expect(syncGitToDify("")).rejects.toThrow(
         "DIFY_DATASET_API_KEY and DIFY_DATASET_ID are required",
       );
     });
 
     it("handles update failure", async () => {
-      let graphqlCall = 0;
+      createTestRepo("docs", { "page-x.md": "content" });
 
       mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 1, path: "page-x", updatedAt: "2026-01-01T00:00:00Z" }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response(wikiContentJson("content"), { headers: jsonHeaders });
-          },
-        },
         {
           match: "documents?",
           response: new Response(difyDocsJson([{ id: "doc-x", name: "page-x.md" }]), {
@@ -337,14 +194,16 @@ describe("rag-sync", () => {
         { match: "update-by-file", response: new Response("Error", { status: 500 }) },
       ]);
 
-      const result = await syncWikiToDify();
+      const result = await syncGitToDify();
       expect(result.errors.length).toBe(1);
       expect(result.errors[0]).toContain("Update failed");
     });
 
     it("handles delete failure", async () => {
+      // No files in repo, but orphan in Dify
+      createTestRepo("docs", {});
+
       mockFetch([
-        { match: "graphql", response: new Response(wikiPagesJson([]), { headers: jsonHeaders }) },
         {
           match: "documents?",
           response: new Response(difyDocsJson([{ id: "doc-orphan", name: "orphan.md" }]), {
@@ -357,44 +216,17 @@ describe("rag-sync", () => {
         },
       ]);
 
-      const result = await syncWikiToDify();
+      const result = await syncGitToDify();
       expect(result.errors.length).toBe(1);
       expect(result.errors[0]).toContain("Delete failed");
-    });
-
-    it("handles page content fetch error gracefully", async () => {
-      let graphqlCall = 0;
-
-      mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            graphqlCall++;
-            return true;
-          },
-          response: () => {
-            if (graphqlCall === 1) {
-              return new Response(
-                wikiPagesJson([{ id: 1, path: "err-page", updatedAt: "2026-01-01T00:00:00Z" }]),
-                { headers: jsonHeaders },
-              );
-            }
-            return new Response("Server Error", { status: 500 });
-          },
-        },
-        { match: "documents?", response: new Response(difyDocsJson([]), { headers: jsonHeaders }) },
-      ]);
-
-      const result = await syncWikiToDify();
-      expect(result.errors.length).toBe(1);
-      expect(result.errors[0]).toContain("err-page");
     });
   });
 
   describe("syncAllDatasets", () => {
     it("syncs default and project-specific datasets", async () => {
+      createTestRepo("docs", {});
+
       mockFetch([
-        { match: "graphql", response: new Response(wikiPagesJson([]), { headers: jsonHeaders }) },
         { match: "documents?", response: new Response(difyDocsJson([]), { headers: jsonHeaders }) },
       ]);
 
@@ -403,33 +235,6 @@ describe("rag-sync", () => {
       expect(results["proj-alpha"]).toBeDefined();
       expect(results["default"].errors.length).toBe(0);
       expect(results["proj-alpha"].errors.length).toBe(0);
-    });
-
-    it("captures errors per dataset without stopping others", async () => {
-      let wikiCallCount = 0;
-
-      mockFetch([
-        {
-          match: (url) => {
-            if (!url.includes("graphql")) return false;
-            wikiCallCount++;
-            return true;
-          },
-          response: () => {
-            // First Wiki.js call (default dataset) succeeds, second (proj-alpha) fails
-            if (wikiCallCount <= 1) {
-              return new Response(wikiPagesJson([]), { headers: jsonHeaders });
-            }
-            return new Response("Wiki.js Error", { status: 500 });
-          },
-        },
-        { match: "documents?", response: new Response(difyDocsJson([]), { headers: jsonHeaders }) },
-      ]);
-
-      const results = await syncAllDatasets();
-      expect(results["default"]).toBeDefined();
-      expect(results["proj-alpha"]).toBeDefined();
-      expect(results["proj-alpha"].errors.length).toBeGreaterThan(0);
     });
   });
 });

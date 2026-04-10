@@ -1,6 +1,5 @@
 import { getConfig } from "../config";
 import { ensureRepo, writeAndPush } from "./git";
-import { triggerSync } from "./wikijs";
 
 export interface PrdResult {
   action: "prd_generated";
@@ -49,16 +48,12 @@ export function textBeforeMarker(text: string): string {
 }
 
 export async function savePrdToGit(result: PrdResult): Promise<{ path: string; wikiUrl: string }> {
-  const config = getConfig();
   const path = buildPrdFilePath(result.filename);
 
   await ensureRepo("docs");
   await writeAndPush("docs", path, result.content, `feat(prd): 新增 ${result.title} PRD`);
 
-  triggerSync().catch(() => {});
-
-  const wikiUrl = buildWikiUrl(config.wikijsBaseUrl, path);
-  return { path, wikiUrl };
+  return { path, wikiUrl: "" };
 }
 
 export interface DifySSEChunk {

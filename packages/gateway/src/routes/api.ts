@@ -15,7 +15,7 @@ import {
   savePrdToGit,
 } from "../services/prd";
 import { queryKnowledgeBase } from "../services/dify";
-import { syncWikiToDify } from "../services/rag-sync";
+import { syncGitToDify } from "../services/rag-sync";
 import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
@@ -207,10 +207,10 @@ apiRoutes.post("/rag/sync", async (c) => {
       if (!dataset) {
         return c.json({ error: `Unknown project: ${body.project_id}` }, 400);
       }
-      const result = await syncWikiToDify(dataset.datasetId);
+      const result = await syncGitToDify(dataset.datasetId);
       return c.json(result);
     }
-    const result = await syncWikiToDify();
+    const result = await syncGitToDify();
     return c.json(result);
   } catch (err) {
     return c.json(

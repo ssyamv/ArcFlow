@@ -64,7 +64,6 @@ describe("health dependencies", () => {
     expect(body.status).toBe("ok");
     expect(body.services.dify.status).toBe("ok");
     expect(body.services.plane.status).toBe("ok");
-    expect(body.services.wikijs.status).toBe("ok");
     expect(typeof body.services.dify.latency_ms).toBe("number");
   });
 

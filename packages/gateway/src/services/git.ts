@@ -12,12 +12,26 @@ import {
 import { join, dirname } from "path";
 import { getConfig } from "../config";
 
-function getRepoDir(repoName: string): string {
+export function getRepoDir(repoName: string): string {
   const config = getConfig();
   return join(config.gitWorkDir, repoName);
 }
 
+/**
+ * 动态仓库注册表：工作空间级别的仓库在运行时注册 URL，
+ * 这样 ensureRepo / listTree / searchFiles 等函数也能找到它们。
+ */
+const dynamicRepoUrls = new Map<string, string>();
+
+export function registerRepoUrl(repoName: string, url: string): void {
+  dynamicRepoUrls.set(repoName, url);
+}
+
 function getRepoUrl(repoName: string): string {
+  // 优先查动态注册表（工作空间级仓库）
+  const dynamic = dynamicRepoUrls.get(repoName);
+  if (dynamic) return dynamic;
+
   const config = getConfig();
   const repoMap: Record<string, string> = {
     docs: config.docsGitRepo,
@@ -47,10 +61,19 @@ async function getDefaultBranch(git: SimpleGit): Promise<string> {
 export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   const repoDir = getRepoDir(repoName);
   const repoUrl = getRepoUrl(repoName);
+  return ensureRepoByUrl(repoDir, repoUrl);
+}
 
+/**
+ * 通过指定目录和 URL 确保仓库就绪（支持工作空间级别的独立仓库）
+ */
+export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
-    // Wiki.js 同步可能留下未提交变更，先 stash 再 pull
+    // 确保 git user 配置存在
+    await git.addConfig("user.email", "gateway@arcflow.local", false, "local");
+    await git.addConfig("user.name", "ArcFlow Gateway", false, "local");
+    // 外部同步可能留下未提交变更，先 stash 再 pull
     const status = await git.status();
     if (!status.isClean()) {
       await git.stash();
@@ -64,7 +87,10 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   mkdirSync(repoDir, { recursive: true });
   const git = simpleGit();
   await git.clone(repoUrl, repoDir);
-  return simpleGit(repoDir);
+  const cloned = simpleGit(repoDir);
+  await cloned.addConfig("user.email", "gateway@arcflow.local");
+  await cloned.addConfig("user.name", "ArcFlow Gateway");
+  return cloned;
 }
 
 export async function readFile(repoName: string, filePath: string): Promise<string> {

@@ -1,11 +1,12 @@
 import { getConfig } from "../config";
+import { readdirSync, readFileSync, statSync } from "fs";
+import { join, relative } from "path";
 
-interface WikiPage {
-  id: number;
-  title: string;
+interface GitDocPage {
   path: string;
-  updatedAt: string;
-  content?: string;
+  name: string;
+  content: string;
+  updatedAt: Date;
 }
 
 interface DifyDocument {
@@ -22,42 +23,46 @@ interface SyncResult {
   errors: string[];
 }
 
-/** List all pages from Wiki.js via GraphQL */
-async function listWikiPages(): Promise<WikiPage[]> {
-  const config = getConfig();
-  const res = await fetch(`${config.wikijsBaseUrl}/graphql`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.wikijsApiKey}`,
-    },
-    body: JSON.stringify({
-      query: `{ pages { list(orderBy: UPDATED, limit: 1000) { id title path updatedAt } } }`,
-    }),
-  });
+/**
+ * 递归扫描 Git 仓库目录，收集所有 .md 文件
+ */
+function listGitDocs(repoDir: string, since?: Date): GitDocPage[] {
+  const pages: GitDocPage[] = [];
 
-  if (!res.ok) throw new Error(`Wiki.js API error: ${res.status}`);
-  const json = (await res.json()) as { data: { pages: { list: WikiPage[] } } };
-  return json.data.pages.list;
-}
+  function walk(dir: string): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry === ".git" || entry === "node_modules") continue;
+      const fullPath = join(dir, entry);
+      const stat = statSync(fullPath);
 
-/** Get a single page's content from Wiki.js */
-async function getWikiPageContent(pageId: number): Promise<string> {
-  const config = getConfig();
-  const res = await fetch(`${config.wikijsBaseUrl}/graphql`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.wikijsApiKey}`,
-    },
-    body: JSON.stringify({
-      query: `{ pages { single(id: ${pageId}) { content } } }`,
-    }),
-  });
+      if (stat.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.endsWith(".md")) {
+        const updatedAt = stat.mtime;
+        if (since && updatedAt <= since) continue;
 
-  if (!res.ok) throw new Error(`Wiki.js API error: ${res.status}`);
-  const json = (await res.json()) as { data: { pages: { single: { content: string } | null } } };
-  return json.data.pages.single?.content ?? "";
+        const relPath = relative(repoDir, fullPath);
+        const content = readFileSync(fullPath, "utf-8");
+        if (!content.trim()) continue;
+
+        pages.push({
+          path: relPath,
+          name: entry,
+          content,
+          updatedAt,
+        });
+      }
+    }
+  }
+
+  walk(repoDir);
+  return pages;
 }
 
 /** List all documents in a Dify dataset */
@@ -161,9 +166,14 @@ async function deleteDifyDocument(
 /** Track last sync time for incremental sync */
 let lastSyncTime: Date | null = null;
 
+/** Reset sync state (for testing) */
+export function resetSyncState(): void {
+  lastSyncTime = null;
+}
+
 /**
- * Incremental sync: only sync pages updated since last sync.
- * Much faster than full sync for periodic polling.
+ * Incremental sync: only sync .md files updated since last sync.
+ * 直接从 Git 仓库读文件，不再依赖 Wiki.js。
  */
 export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> {
   const config = getConfig();
@@ -176,9 +186,30 @@ export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> 
   const result: SyncResult = { created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] };
   const since = lastSyncTime ?? new Date(Date.now() - sinceMinutes * 60 * 1000);
 
-  // Get all Wiki.js pages and filter recently updated ones
-  const allPages = await listWikiPages();
-  const recentPages = allPages.filter((p) => new Date(p.updatedAt) > since);
+  // 扫描全局 docs 仓库（回退兼容）和所有工作空间 docs 仓库
+  const repoDir = join(config.gitWorkDir, "docs");
+  const allDirs = [repoDir];
+
+  // 扫描 ws-*-docs 目录
+  try {
+    const entries = readdirSync(config.gitWorkDir);
+    for (const entry of entries) {
+      if (entry.startsWith("ws-") && entry.endsWith("-docs")) {
+        allDirs.push(join(config.gitWorkDir, entry));
+      }
+    }
+  } catch {
+    // gitWorkDir 不存在时忽略
+  }
+
+  const recentPages: GitDocPage[] = [];
+  for (const dir of allDirs) {
+    try {
+      recentPages.push(...listGitDocs(dir, since));
+    } catch {
+      // 目录不存在时跳过
+    }
+  }
 
   if (recentPages.length === 0) {
     lastSyncTime = new Date();
@@ -193,22 +224,22 @@ export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> 
   }
 
   for (const page of recentPages) {
-    const fileName = `${page.path.replace(/\//g, "-")}.md`;
+    const fileName = `${page.path.replace(/\//g, "-")}`;
 
     try {
-      const content = await getWikiPageContent(page.id);
-      if (!content.trim()) {
-        result.skipped++;
-        continue;
-      }
-
       const existingDoc = difyDocMap.get(fileName);
       if (existingDoc) {
-        const ok = await updateDifyDocument(datasetId, apiKey, existingDoc.id, fileName, content);
+        const ok = await updateDifyDocument(
+          datasetId,
+          apiKey,
+          existingDoc.id,
+          fileName,
+          page.content,
+        );
         if (ok) result.updated++;
         else result.errors.push(`Update failed: ${fileName}`);
       } else {
-        const ok = await createDifyDocument(datasetId, apiKey, fileName, content);
+        const ok = await createDifyDocument(datasetId, apiKey, fileName, page.content);
         if (ok) result.created++;
         else result.errors.push(`Create failed: ${fileName}`);
       }
@@ -224,14 +255,12 @@ export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> 
 }
 
 /**
- * Full sync: compare all Wiki.js pages with Dify knowledge base.
- * - New pages → create in Dify
- * - Existing pages → update in Dify
- * - Pages removed from Wiki.js → delete from Dify
- *
- * @param targetDatasetId - 指定同步到哪个 dataset（不传则使用默认）
+ * Full sync: compare all Git docs with Dify knowledge base.
+ * - New docs → create in Dify
+ * - Existing docs → update in Dify
+ * - Docs removed from Git → delete from Dify
  */
-export async function syncWikiToDify(targetDatasetId?: string): Promise<SyncResult> {
+export async function syncGitToDify(targetDatasetId?: string): Promise<SyncResult> {
   const config = getConfig();
   const apiKey = config.difyDatasetApiKey;
   const datasetId = targetDatasetId ?? config.difyDatasetId;
@@ -242,53 +271,64 @@ export async function syncWikiToDify(targetDatasetId?: string): Promise<SyncResu
 
   const result: SyncResult = { created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] };
 
-  // 1. Get all Wiki.js pages
-  const wikiPages = await listWikiPages();
+  // 收集所有 docs 仓库的 .md 文件
+  const allPages: GitDocPage[] = [];
+  try {
+    const entries = readdirSync(config.gitWorkDir);
+    for (const entry of entries) {
+      if (entry === "docs" || (entry.startsWith("ws-") && entry.endsWith("-docs"))) {
+        try {
+          allPages.push(...listGitDocs(join(config.gitWorkDir, entry)));
+        } catch {
+          // skip
+        }
+      }
+    }
+  } catch {
+    // gitWorkDir 不存在
+  }
 
-  // 2. Get all Dify documents
+  // Get all Dify documents
   const difyDocs = await listDifyDocuments(datasetId, apiKey);
   const difyDocMap = new Map<string, DifyDocument>();
   for (const doc of difyDocs) {
     difyDocMap.set(doc.name, doc);
   }
 
-  // 3. Sync each Wiki.js page to Dify
-  const wikiFileNames = new Set<string>();
+  // Sync each Git doc to Dify
+  const gitFileNames = new Set<string>();
 
-  for (const page of wikiPages) {
-    const fileName = `${page.path.replace(/\//g, "-")}.md`;
-    wikiFileNames.add(fileName);
+  for (const page of allPages) {
+    const fileName = `${page.path.replace(/\//g, "-")}`;
+    gitFileNames.add(fileName);
 
     try {
-      const content = await getWikiPageContent(page.id);
-      if (!content.trim()) {
-        result.skipped++;
-        continue;
-      }
-
       const existingDoc = difyDocMap.get(fileName);
       if (existingDoc) {
-        // Update existing document
-        const ok = await updateDifyDocument(datasetId, apiKey, existingDoc.id, fileName, content);
+        const ok = await updateDifyDocument(
+          datasetId,
+          apiKey,
+          existingDoc.id,
+          fileName,
+          page.content,
+        );
         if (ok) result.updated++;
         else result.errors.push(`Update failed: ${fileName}`);
       } else {
-        // Create new document
-        const ok = await createDifyDocument(datasetId, apiKey, fileName, content);
+        const ok = await createDifyDocument(datasetId, apiKey, fileName, page.content);
         if (ok) result.created++;
         else result.errors.push(`Create failed: ${fileName}`);
       }
 
-      // Rate limit
       await new Promise((r) => setTimeout(r, 200));
     } catch (err) {
       result.errors.push(`${fileName}: ${err instanceof Error ? err.message : "unknown error"}`);
     }
   }
 
-  // 4. Delete Dify documents not in Wiki.js
+  // Delete Dify documents not in Git
   for (const [name, doc] of difyDocMap) {
-    if (!wikiFileNames.has(name)) {
+    if (!gitFileNames.has(name)) {
       try {
         const ok = await deleteDifyDocument(datasetId, apiKey, doc.id);
         if (ok) result.deleted++;
@@ -306,16 +346,14 @@ export async function syncWikiToDify(targetDatasetId?: string): Promise<SyncResu
 
 /**
  * Sync all configured datasets (default + multi-project).
- * Returns aggregated results per dataset.
  */
 export async function syncAllDatasets(): Promise<Record<string, SyncResult>> {
   const config = getConfig();
   const results: Record<string, SyncResult> = {};
 
-  // Sync default dataset
   if (config.difyDatasetApiKey && config.difyDatasetId) {
     try {
-      results["default"] = await syncWikiToDify();
+      results["default"] = await syncGitToDify();
     } catch (err) {
       results["default"] = {
         created: 0,
@@ -327,10 +365,9 @@ export async function syncAllDatasets(): Promise<Record<string, SyncResult>> {
     }
   }
 
-  // Sync project-specific datasets
   for (const [projectId, dataset] of Object.entries(config.difyDatasetMap)) {
     try {
-      results[projectId] = await syncWikiToDify(dataset.datasetId);
+      results[projectId] = await syncGitToDify(dataset.datasetId);
     } catch (err) {
       results[projectId] = {
         created: 0,
