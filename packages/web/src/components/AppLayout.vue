@@ -2,11 +2,13 @@
   <div class="flex min-h-screen" style="background-color: var(--color-bg-primary)">
     <!-- Sidebar -->
     <nav
-      class="w-56 shrink-0 flex flex-col"
-      style="
-        background-color: var(--color-bg-panel);
-        border-right: 1px solid var(--color-border-subtle);
-      "
+      class="shrink-0 flex flex-col transition-all duration-150"
+      :style="{
+        width: sidebarCollapsed ? '0px' : '224px',
+        overflow: sidebarCollapsed ? 'hidden' : 'visible',
+        backgroundColor: 'var(--color-bg-panel)',
+        borderRight: sidebarCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
+      }"
     >
       <!-- Workspace Switcher -->
       <div class="px-3 py-3 relative" style="border-bottom: 1px solid var(--color-border-subtle)">
@@ -203,18 +205,33 @@
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Header -->
       <header
-        class="h-12 flex items-center justify-between px-6 shrink-0"
+        class="h-12 flex items-center justify-between px-4 shrink-0"
         style="border-bottom: 1px solid var(--color-border-subtle)"
       >
-        <div class="text-xs" style="color: var(--color-text-tertiary); font-weight: 510">
-          <span style="color: var(--color-text-quaternary)">ArcFlow /</span>
-          {{ currentPageTitle }}
+        <div class="flex items-center gap-2">
+          <button
+            class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 cursor-pointer"
+            style="
+              background: none;
+              border: none;
+              color: var(--color-text-quaternary);
+              transition: all 120ms ease;
+            "
+            title="折叠侧边栏"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <PanelLeft :size="16" />
+          </button>
+          <div class="text-xs" style="color: var(--color-text-tertiary); font-weight: 510">
+            <span style="color: var(--color-text-quaternary)">ArcFlow /</span>
+            {{ currentPageTitle }}
+          </div>
         </div>
       </header>
 
       <!-- Content -->
-      <main class="flex-1 overflow-y-auto p-8">
-        <div class="max-w-5xl mx-auto">
+      <main class="flex-1 overflow-y-auto" :class="isFullWidthPage ? '' : 'p-8'">
+        <div :class="isFullWidthPage ? 'h-full' : 'max-w-5xl mx-auto'">
           <router-view />
         </div>
       </main>
@@ -236,6 +253,7 @@ import {
   FileText,
   Sun,
   Moon,
+  PanelLeft,
 } from "lucide-vue-next";
 import { useThemeStore } from "../stores/theme";
 import UiDialog from "./ui/AppDialog.vue";
@@ -244,6 +262,7 @@ const route = useRoute();
 const auth = useAuthStore();
 const wsStore = useWorkspaceStore();
 const themeStore = useThemeStore();
+const sidebarCollapsed = ref(false);
 const wsDropdownOpen = ref(false);
 const showCreateWsDialog = ref(false);
 const newWsName = ref("");
@@ -269,6 +288,8 @@ const currentPageTitle = computed(() => {
   if (route.path.startsWith("/workspace")) return "工作空间设置";
   return item?.label ?? "";
 });
+
+const isFullWidthPage = computed(() => route.path.startsWith("/docs"));
 
 function isActive(path: string) {
   return route.path.startsWith(path);
