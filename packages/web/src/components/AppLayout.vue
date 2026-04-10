@@ -108,8 +108,28 @@
 
       <!-- User -->
       <div
-        class="px-3 py-3 flex items-center gap-2.5 cursor-pointer"
-        style="border-top: 1px solid var(--color-border-subtle); transition: all 120ms ease"
+        class="px-3 py-3 flex items-center gap-2.5"
+        style="border-top: 1px solid var(--color-border-subtle)"
+      >
+        <!-- Theme toggle -->
+        <button
+          class="w-7 h-7 rounded-md flex items-center justify-center shrink-0 cursor-pointer"
+          style="
+            background: var(--color-surface-05);
+            border: none;
+            color: var(--color-text-tertiary);
+            transition: all 120ms ease;
+          "
+          title="切换亮/暗模式"
+          @click="themeStore.toggle()"
+        >
+          <Sun v-if="themeStore.theme === 'dark'" :size="14" />
+          <Moon v-else :size="14" />
+        </button>
+      </div>
+      <div
+        class="px-3 pb-3 pt-0 flex items-center gap-2.5 cursor-pointer"
+        style="transition: all 120ms ease"
         @click="$router.push('/profile')"
       >
         <div
@@ -169,11 +189,22 @@ import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useWorkspaceStore } from "../stores/workspace";
-import { LayoutDashboard, MessageSquare, List, Zap, Settings, FileText } from "lucide-vue-next";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  List,
+  Zap,
+  Settings,
+  FileText,
+  Sun,
+  Moon,
+} from "lucide-vue-next";
+import { useThemeStore } from "../stores/theme";
 
 const route = useRoute();
 const auth = useAuthStore();
 const wsStore = useWorkspaceStore();
+const themeStore = useThemeStore();
 const wsDropdownOpen = ref(false);
 
 const navItems = computed(() => {

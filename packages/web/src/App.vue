@@ -15,11 +15,13 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "./stores/auth";
 import { useWorkspaceStore } from "./stores/workspace";
+import { useThemeStore } from "./stores/theme";
 import AppLayout from "./components/AppLayout.vue";
 
 const route = useRoute();
 const auth = useAuthStore();
 const wsStore = useWorkspaceStore();
+useThemeStore();
 const authReady = ref(false);
 
 const isPublicRoute = computed(() => route.meta.public === true);
