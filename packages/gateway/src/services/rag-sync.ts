@@ -166,6 +166,11 @@ async function deleteDifyDocument(
 /** Track last sync time for incremental sync */
 let lastSyncTime: Date | null = null;
 
+/** Reset sync state (for testing) */
+export function resetSyncState(): void {
+  lastSyncTime = null;
+}
+
 /**
  * Incremental sync: only sync .md files updated since last sync.
  * 直接从 Git 仓库读文件，不再依赖 Wiki.js。

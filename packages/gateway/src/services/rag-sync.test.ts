@@ -16,7 +16,8 @@ mock.module("../config", () => ({
   }),
 }));
 
-const { syncRecentChanges, syncGitToDify, syncAllDatasets } = await import("./rag-sync");
+const { syncRecentChanges, syncGitToDify, syncAllDatasets, resetSyncState } =
+  await import("./rag-sync");
 
 const originalFetch = globalThis.fetch;
 
@@ -62,6 +63,7 @@ describe("rag-sync", () => {
   beforeEach(() => {
     rmSync(TEST_GIT_DIR, { recursive: true, force: true });
     mkdirSync(TEST_GIT_DIR, { recursive: true });
+    resetSyncState();
   });
 
   afterEach(() => {
