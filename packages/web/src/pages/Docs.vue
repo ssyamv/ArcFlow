@@ -400,22 +400,13 @@ async function handleDeleteNode(path: string) {
   }
 }
 
-// Warn before leaving with unsaved changes
-function handleBeforeUnload(e: BeforeUnloadEvent) {
-  if (store.isDirty) {
-    e.preventDefault();
-  }
-}
-
 onMounted(() => {
   store.loadTree();
   document.addEventListener("keydown", onKeydown);
-  window.addEventListener("beforeunload", handleBeforeUnload);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKeydown);
-  window.removeEventListener("beforeunload", handleBeforeUnload);
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   if (store.isDirty) store.saveFile();
   editor.value?.destroy();
