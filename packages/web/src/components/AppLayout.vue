@@ -80,6 +80,18 @@
               style="
                 background: none;
                 border: none;
+                color: var(--color-text-secondary);
+                transition: all 120ms ease;
+              "
+              @click="handleCreateWorkspace"
+            >
+              + 新建工作空间
+            </button>
+            <button
+              class="w-full text-left px-3 py-1.5 text-xs cursor-pointer"
+              style="
+                background: none;
+                border: none;
                 color: var(--color-accent-violet);
                 transition: all 120ms ease;
               "
@@ -234,6 +246,14 @@ function isActive(path: string) {
 
 function switchWorkspace(id: number) {
   wsStore.select(id);
+  wsDropdownOpen.value = false;
+  window.location.reload();
+}
+
+async function handleCreateWorkspace() {
+  const name = window.prompt("工作空间名称");
+  if (!name?.trim()) return;
+  await wsStore.create(name.trim());
   wsDropdownOpen.value = false;
   window.location.reload();
 }

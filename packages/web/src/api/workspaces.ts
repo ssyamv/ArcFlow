@@ -48,6 +48,16 @@ export async function updateWorkspaceSettings(
   });
 }
 
+export async function createWorkspace(name: string): Promise<Workspace> {
+  const res = await fetch(`${API_BASE}/api/workspaces`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to create workspace");
+  return res.json();
+}
+
 export async function syncPlaneProjects(): Promise<{ created: number; skipped: number }> {
   const res = await fetch(`${API_BASE}/api/workspaces/sync-plane`, {
     method: "POST",
