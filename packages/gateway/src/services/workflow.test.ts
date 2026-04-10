@@ -57,11 +57,10 @@ mock.module("../config", () => ({
 }));
 
 // --- Use spyOn for modules that have their own test files downstream ---
-// This avoids mock.module pollution that would break claude-code.test.ts, plane.test.ts, wikijs.test.ts
+// This avoids mock.module pollution that would break claude-code.test.ts, plane.test.ts
 const claudeCodeMod = await import("./claude-code");
 const planeMod = await import("./plane");
 const feishuMod = await import("./feishu");
-const wikijsMod = await import("./wikijs");
 
 const runClaudeCode = spyOn(claudeCodeMod, "runClaudeCode").mockResolvedValue({
   success: true,
@@ -71,7 +70,6 @@ const createBugIssue = spyOn(planeMod, "createBugIssue").mockResolvedValue({ id:
 const sendTechReviewCard = spyOn(feishuMod, "sendTechReviewCard").mockResolvedValue(undefined);
 const sendNotification = spyOn(feishuMod, "sendNotification").mockResolvedValue(undefined);
 const sendBugNotification = spyOn(feishuMod, "sendBugNotification").mockResolvedValue(undefined);
-const triggerSync = spyOn(wikijsMod, "triggerSync").mockResolvedValue(undefined);
 
 const { triggerWorkflow } = await import("./workflow");
 
@@ -82,7 +80,6 @@ afterAll(() => {
   sendTechReviewCard.mockRestore();
   sendNotification.mockRestore();
   sendBugNotification.mockRestore();
-  triggerSync.mockRestore();
 });
 
 function clearAllMocks() {
@@ -103,7 +100,6 @@ function clearAllMocks() {
   sendTechReviewCard.mockClear();
   sendNotification.mockClear();
   sendBugNotification.mockClear();
-  triggerSync.mockClear();
   runClaudeCode.mockClear();
 }
 
@@ -182,7 +178,7 @@ describe("flowPrdToTech", () => {
     expect(writeAndPush.mock.calls[1][1]).toContain("feature-login.yaml");
   });
 
-  it("triggers Wiki.js sync after each write", async () => {
+  it("writes tech doc and openapi to git", async () => {
     await triggerWorkflow({
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
@@ -190,7 +186,7 @@ describe("flowPrdToTech", () => {
     });
     await tick();
 
-    expect(triggerSync).toHaveBeenCalledTimes(2);
+    expect(writeAndPush).toHaveBeenCalledTimes(2);
   });
 
   it("sends Feishu review card when chat_id is provided", async () => {
@@ -264,7 +260,6 @@ describe("flowTechToOpenApi", () => {
     expect(generateOpenApi).toHaveBeenCalledWith("file content");
     expect(writeAndPush).toHaveBeenCalledTimes(1);
     expect(writeAndPush.mock.calls[0][1]).toContain("api/");
-    expect(triggerSync).toHaveBeenCalledTimes(1);
   });
 
   it("fails when input_path missing", async () => {

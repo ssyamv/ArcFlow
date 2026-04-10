@@ -70,6 +70,9 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
 export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
     const git = simpleGit(repoDir);
+    // 确保 git user 配置存在
+    await git.addConfig("user.email", "gateway@arcflow.local", false, "local");
+    await git.addConfig("user.name", "ArcFlow Gateway", false, "local");
     // 外部同步可能留下未提交变更，先 stash 再 pull
     const status = await git.status();
     if (!status.isClean()) {
@@ -84,7 +87,10 @@ export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise
   mkdirSync(repoDir, { recursive: true });
   const git = simpleGit();
   await git.clone(repoUrl, repoDir);
-  return simpleGit(repoDir);
+  const cloned = simpleGit(repoDir);
+  await cloned.addConfig("user.email", "gateway@arcflow.local");
+  await cloned.addConfig("user.name", "ArcFlow Gateway");
+  return cloned;
 }
 
 export async function readFile(repoName: string, filePath: string): Promise<string> {
