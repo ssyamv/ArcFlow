@@ -285,6 +285,7 @@ import {
 } from "lucide-vue-next";
 import { useThemeStore } from "../stores/theme";
 import UiDialog from "./ui/AppDialog.vue";
+import { usePlaneUrl } from "../composables/usePlaneUrl";
 
 const route = useRoute();
 const auth = useAuthStore();
@@ -309,19 +310,15 @@ const navItems = computed(() => {
   return items;
 });
 
-const PLANE_BASE = import.meta.env.VITE_PLANE_BASE_URL ?? "http://172.29.230.21:8082";
+const { planeProjectBase, projectPath } = usePlaneUrl();
 
 const planeNavItems = computed(() => {
-  const ws = wsStore.current;
-  if (!ws?.plane_project_id) return [];
-  const slug = "arcflow";
-  const pid = ws.plane_project_id;
-  const base = `${PLANE_BASE}/${slug}/projects/${pid}`;
+  if (!planeProjectBase.value) return [];
   return [
-    { label: "看板", icon: Kanban, url: `${base}/issues/` },
-    { label: "Cycles", icon: CalendarDays, url: `${base}/cycles/` },
-    { label: "Modules", icon: Package, url: `${base}/modules/` },
-    { label: "分析", icon: BarChart3, url: `${base}/analytics/` },
+    { label: "看板", icon: Kanban, url: projectPath("issues/")! },
+    { label: "Cycles", icon: CalendarDays, url: projectPath("cycles/")! },
+    { label: "Modules", icon: Package, url: projectPath("modules/")! },
+    { label: "分析", icon: BarChart3, url: projectPath("analytics/")! },
   ];
 });
 

@@ -97,16 +97,21 @@ export interface IssueSummary {
 }
 
 export async function getIssueSummary(projectId: string): Promise<IssueSummary> {
-  const groups = ["backlog", "unstarted", "started", "completed", "cancelled"];
+  const groups = ["backlog", "unstarted", "started", "completed", "cancelled"] as const;
+
+  const results = await Promise.all(
+    groups.map((group) =>
+      planeRequest(`/projects/${projectId}/issues/?state__group=${group}&per_page=1`, {}, 0).then(
+        (r) => ({ group, count: (r as { total_count: number }).total_count ?? 0 }),
+      ),
+    ),
+  );
+
   const counts: Record<string, number> = {};
   let total = 0;
-
-  for (const group of groups) {
-    const result = (await planeRequest(
-      `/projects/${projectId}/issues/?state__group=${group}&per_page=1`,
-    )) as { total_count: number };
-    counts[group] = result.total_count ?? 0;
-    total += counts[group];
+  for (const { group, count } of results) {
+    counts[group] = count;
+    total += count;
   }
 
   return {

@@ -6,6 +6,7 @@ import { listProjects, getIssueSummary, getActiveCycles } from "../services/plan
 export const planeProxyRoutes = new Hono();
 planeProxyRoutes.use("/*", authMiddleware);
 
+// No workspace auth — Settings needs this before any project is linked
 planeProxyRoutes.get("/projects", async (c) => {
   try {
     const projects = await listProjects();
