@@ -159,7 +159,7 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
   // 3. Create Bug Issue in Plane (only on first failure)
   let bugIssueId = existingRetry?.bug_issue_id;
   if (!existingRetry) {
-    const bugIssue = await createBugIssue(params.project_id, {
+    const bugIssue = await createBugIssue(getConfig().planeWorkspaceSlug, params.project_id, {
       name: `[Bug] CI 失败 - ${sourceIssueId}`,
       description_html: bugReport,
       priority: severity === "P0" ? "urgent" : "high",

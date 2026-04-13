@@ -419,7 +419,7 @@ describe("flowBugAnalysis", () => {
     const severity = sendBugNotification.mock.calls[0][3] as string;
     expect(severity).toBe("P0");
     // Plane issue priority should be urgent for P0
-    const issueParams = createBugIssue.mock.calls[0][1] as Record<string, string>;
+    const issueParams = createBugIssue.mock.calls[0][2] as Record<string, string>;
     expect(issueParams.priority).toBe("urgent");
   });
 

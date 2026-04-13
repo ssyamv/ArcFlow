@@ -10,12 +10,14 @@ interface PlaneIssue {
 }
 
 async function planeRequest(
+  slug: string,
   path: string,
   options: RequestInit = {},
   retries = 2,
 ): Promise<unknown> {
+  if (!slug) throw new Error("Plane workspace slug is required");
   const config = getConfig();
-  const url = `${config.planeBaseUrl}/api/v1/workspaces/${config.planeWorkspaceSlug}${path}`;
+  const url = `${config.planeBaseUrl}/api/v1/workspaces/${slug}${path}`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -46,22 +48,28 @@ async function planeRequest(
   throw new Error("Plane API call failed after all retries");
 }
 
-export async function getIssue(projectId: string, issueId: string): Promise<PlaneIssue> {
-  return planeRequest(`/projects/${projectId}/issues/${issueId}/`) as Promise<PlaneIssue>;
+export async function getIssue(
+  slug: string,
+  projectId: string,
+  issueId: string,
+): Promise<PlaneIssue> {
+  return planeRequest(slug, `/projects/${projectId}/issues/${issueId}/`) as Promise<PlaneIssue>;
 }
 
 export async function updateIssueState(
+  slug: string,
   projectId: string,
   issueId: string,
   stateId: string,
 ): Promise<void> {
-  await planeRequest(`/projects/${projectId}/issues/${issueId}/`, {
+  await planeRequest(slug, `/projects/${projectId}/issues/${issueId}/`, {
     method: "PATCH",
     body: JSON.stringify({ state: stateId }),
   });
 }
 
 export async function createBugIssue(
+  slug: string,
   projectId: string,
   params: {
     name: string;
@@ -70,7 +78,7 @@ export async function createBugIssue(
     parent_issue_id?: string;
   },
 ): Promise<PlaneIssue> {
-  return planeRequest(`/projects/${projectId}/issues/`, {
+  return planeRequest(slug, `/projects/${projectId}/issues/`, {
     method: "POST",
     body: JSON.stringify(params),
   }) as Promise<PlaneIssue>;
@@ -83,8 +91,8 @@ export interface PlaneProject {
   description: string;
 }
 
-export async function listProjects(): Promise<PlaneProject[]> {
-  const result = (await planeRequest("/projects/")) as { results: PlaneProject[] };
+export async function listProjects(slug: string): Promise<PlaneProject[]> {
+  const result = (await planeRequest(slug, "/projects/")) as { results: PlaneProject[] };
   return result.results;
 }
 
@@ -96,14 +104,17 @@ export interface IssueSummary {
   cancelled: number;
 }
 
-export async function getIssueSummary(projectId: string): Promise<IssueSummary> {
+export async function getIssueSummary(slug: string, projectId: string): Promise<IssueSummary> {
   const groups = ["backlog", "unstarted", "started", "completed", "cancelled"] as const;
 
   const results = await Promise.all(
     groups.map((group) =>
-      planeRequest(`/projects/${projectId}/issues/?state__group=${group}&per_page=1`, {}, 0).then(
-        (r) => ({ group, count: (r as { total_count: number }).total_count ?? 0 }),
-      ),
+      planeRequest(
+        slug,
+        `/projects/${projectId}/issues/?state__group=${group}&per_page=1`,
+        {},
+        0,
+      ).then((r) => ({ group, count: (r as { total_count: number }).total_count ?? 0 })),
     ),
   );
 
@@ -132,8 +143,11 @@ export interface PlaneCycle {
   completed_issues: number;
 }
 
-export async function getActiveCycles(projectId: string): Promise<PlaneCycle[]> {
-  const result = (await planeRequest(`/projects/${projectId}/cycles/?cycle_view=current`)) as {
+export async function getActiveCycles(slug: string, projectId: string): Promise<PlaneCycle[]> {
+  const result = (await planeRequest(
+    slug,
+    `/projects/${projectId}/cycles/?cycle_view=current`,
+  )) as {
     results: PlaneCycle[];
   };
   return result.results ?? [];
