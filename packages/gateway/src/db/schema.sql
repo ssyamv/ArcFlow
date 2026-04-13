@@ -95,3 +95,24 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS requirement_drafts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  creator_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'drafting',
+  issue_title TEXT NOT NULL DEFAULT '',
+  issue_description TEXT NOT NULL DEFAULT '',
+  prd_content TEXT NOT NULL DEFAULT '',
+  prd_slug TEXT,
+  dify_conversation_id TEXT,
+  plane_issue_id TEXT,
+  prd_git_path TEXT,
+  feishu_chat_id TEXT,
+  feishu_card_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_requirement_drafts_workspace ON requirement_drafts(workspace_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_requirement_drafts_creator ON requirement_drafts(creator_id, updated_at DESC);

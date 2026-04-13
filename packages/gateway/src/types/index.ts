@@ -165,3 +165,25 @@ export interface WorkspaceMember {
   role: "admin" | "member";
   created_at: string;
 }
+
+// 需求草稿
+export type RequirementDraftStatus = "drafting" | "review" | "approved" | "rejected" | "abandoned";
+
+export interface RequirementDraft {
+  id: number;
+  workspace_id: number;
+  creator_id: number;
+  status: RequirementDraftStatus;
+  issue_title: string;
+  issue_description: string;
+  prd_content: string;
+  prd_slug: string | null;
+  dify_conversation_id: string | null;
+  plane_issue_id: string | null;
+  prd_git_path: string | null;
+  feishu_chat_id: string | null;
+  feishu_card_id: string | null;
+  created_at: string;
+  updated_at: string;
+  approved_at: string | null;
+}

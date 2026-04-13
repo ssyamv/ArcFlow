@@ -17,7 +17,14 @@ import {
 } from "../services/prd";
 import { queryKnowledgeBase } from "../services/dify";
 import { syncGitToDify } from "../services/rag-sync";
-import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
+import { createDraft, chatDraft, patchDraft, getDraft, listDrafts } from "../services/requirement";
+import type {
+  TriggerWorkflowRequest,
+  WorkflowType,
+  WorkflowStatus,
+  WebhookSource,
+  RequirementDraftStatus,
+} from "../types";
 
 export const apiRoutes = new Hono();
 
@@ -226,4 +233,99 @@ apiRoutes.post("/rag/sync", async (c) => {
       500,
     );
   }
+});
+
+// ─── Requirement Draft Routes ──────────────────────────────────────────────────
+
+apiRoutes.post("/requirement/draft", async (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const body = await c.req.json<{ workspace_id: number; feishu_chat_id?: string }>();
+  if (!body.workspace_id) {
+    return c.json({ error: "workspace_id is required" }, 400);
+  }
+  if (!getWorkspace(body.workspace_id)) {
+    return c.json({ error: `workspace ${body.workspace_id} not found` }, 404);
+  }
+
+  const draft = createDraft({
+    workspaceId: body.workspace_id,
+    creatorId: userId,
+    feishuChatId: body.feishu_chat_id,
+  });
+  return c.json(draft, 201);
+});
+
+apiRoutes.get("/requirement/:id", (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+
+  const { draft, error } = getDraft(id, userId);
+  if (error) return c.json({ error }, draft === null ? 404 : 403);
+  return c.json(draft);
+});
+
+apiRoutes.get("/requirement", (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const workspaceId = c.req.query("workspace_id") ? Number(c.req.query("workspace_id")) : undefined;
+  const status = c.req.query("status") as RequirementDraftStatus | undefined;
+  const limit = Number(c.req.query("limit")) || 20;
+
+  const drafts = listDrafts({ workspaceId, userId, status, limit });
+  return c.json({ data: drafts, total: drafts.length });
+});
+
+apiRoutes.patch("/requirement/:id", async (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+
+  const body = await c.req.json<{
+    issue_title?: string;
+    issue_description?: string;
+    prd_content?: string;
+  }>();
+
+  const { ok, error } = patchDraft({ draftId: id, userId, patch: body });
+  if (!ok) {
+    return c.json({ error }, error === "草稿不存在" ? 404 : 403);
+  }
+  return c.json({ ok: true });
+});
+
+apiRoutes.post("/requirement/:id/chat", async (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+
+  const body = await c.req.json<{ message: string }>();
+  if (!body.message?.trim()) {
+    return c.json({ error: "message is required" }, 400);
+  }
+
+  return streamSSE(c, async (stream) => {
+    for await (const { event, data } of chatDraft({ draftId: id, userId, message: body.message })) {
+      await stream.writeSSE({ event, data });
+    }
+  });
 });

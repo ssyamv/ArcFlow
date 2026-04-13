@@ -2,6 +2,12 @@ import { describe, expect, it, mock, beforeEach } from "bun:test";
 import { join } from "path";
 import * as realFs from "fs";
 
+// Capture real fs functions before mock.module("fs") replaces the module bindings.
+// bun updates the live namespace object when mock.module is called, so realFs.readFileSync
+// would point to the mock after mock.module("fs") executes — causing infinite recursion.
+const _realReadFileSync = realFs.readFileSync.bind(realFs);
+const _realExistsSync = realFs.existsSync.bind(realFs);
+
 // --- Mock simple-git ---
 const gitMethods = {
   fetch: mock(() => Promise.resolve()),
@@ -34,13 +40,13 @@ const renameSyncMock = mock(() => undefined);
 mock.module("fs", () => ({
   ...realFs,
   existsSync: (path: string) => {
-    if (typeof path === "string" && path.endsWith(".sql")) return realFs.existsSync(path);
+    if (typeof path === "string" && path.endsWith(".sql")) return _realExistsSync(path);
     return existsSyncReturn;
   },
   mkdirSync: mkdirSyncMock,
   readFileSync: (path: string, ...args: unknown[]) => {
     if (typeof path === "string" && path.endsWith(".sql"))
-      return realFs.readFileSync(path, ...(args as [BufferEncoding]));
+      return _realReadFileSync(path, ...(args as [BufferEncoding]));
     return readFileSyncMock(path, ...args);
   },
   writeFileSync: writeFileSyncMock,
