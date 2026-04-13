@@ -1,5 +1,9 @@
 import { describe, expect, it, mock, beforeEach, afterAll, spyOn } from "bun:test";
 
+// Cache real modules before mock.module replaces them, so we can restore later.
+const realDbQueries = await import("../db/queries");
+const realDify = await import("./dify");
+
 // --- Mock db/queries (safe: queries.test.ts runs before this file) ---
 const createWorkflowExecution = mock(() => 42);
 const updateWorkflowStatus = mock(() => {});
@@ -64,10 +68,15 @@ const generateTechDoc = mock(() => Promise.resolve("tech doc content"));
 const generateOpenApi = mock(() => Promise.resolve("openapi content"));
 const analyzeBug = mock(() => Promise.resolve("bug report"));
 
+// Stub `streamRequirementChatflow` too so requirement.ts (loaded by sibling tests
+// running in the same Bun worker) can resolve its named import.
+const streamRequirementChatflow = mock(() => (async function* () {})());
+
 mock.module("./dify", () => ({
   generateTechDoc,
   generateOpenApi,
   analyzeBug,
+  streamRequirementChatflow,
 }));
 
 // --- Mock config ---
@@ -103,6 +112,10 @@ afterAll(() => {
   sendTechReviewCard.mockRestore();
   sendNotification.mockRestore();
   sendBugNotification.mockRestore();
+  // Restore db/queries and dify so downstream test files (e.g. requirement.test.ts)
+  // that run in the same worker get the real module implementations.
+  mock.module("../db/queries", () => realDbQueries);
+  mock.module("./dify", () => realDify);
 });
 
 function clearAllMocks() {

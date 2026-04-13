@@ -68,6 +68,23 @@ export async function updateIssueState(
   });
 }
 
+export async function createIssue(
+  slug: string,
+  projectId: string,
+  params: {
+    name: string;
+    description_html?: string;
+    priority?: "urgent" | "high" | "medium" | "low" | "none";
+    parent_issue_id?: string | null;
+    state_id?: string;
+  },
+): Promise<{ id: string; sequence_id?: number }> {
+  return planeRequest(slug, `/projects/${projectId}/issues/`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  }) as Promise<{ id: string; sequence_id?: number }>;
+}
+
 export async function createBugIssue(
   slug: string,
   projectId: string,

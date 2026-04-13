@@ -24,6 +24,7 @@ import {
   getDraft,
   listDrafts,
   finalizeDraft,
+  approveDraft,
 } from "../services/requirement";
 import type {
   TriggerWorkflowRequest,
@@ -357,4 +358,31 @@ apiRoutes.post("/requirement/:id/finalize", async (c) => {
   }
 
   return c.json({ draft: result.draft, feishu_sent: result.feishu_sent });
+});
+
+apiRoutes.post("/requirement/:id/approve", async (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+
+  const result = await approveDraft({ draftId: id, userId, source: "web" });
+  if (!result.ok) {
+    const status = result.error?.includes("不存在")
+      ? 404
+      : result.error?.includes("无权限")
+        ? 403
+        : 400;
+    return c.json({ error: result.error, step: result.step }, status);
+  }
+
+  return c.json({
+    draft: result.draft,
+    plane_issue_id: result.draft.plane_issue_id,
+    prd_git_path: result.draft.prd_git_path,
+    warning: result.warning,
+  });
 });

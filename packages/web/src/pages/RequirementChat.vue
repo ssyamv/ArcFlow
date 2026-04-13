@@ -32,7 +32,24 @@
           >
             {{ statusLabel(store.currentDraft?.status) }}
           </span>
+          <!-- 提交审批按钮：仅 review 状态显示 -->
           <button
+            v-if="store.currentDraft?.status === 'review'"
+            class="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+            :disabled="store.loading"
+            :style="{
+              backgroundColor: store.loading ? 'var(--color-surface-05)' : 'var(--color-accent)',
+              color: store.loading ? 'var(--color-text-quaternary)' : '#fff',
+              border: 'none',
+              cursor: store.loading ? 'not-allowed' : 'pointer',
+            }"
+            @click="handleApprove"
+          >
+            {{ store.loading ? "处理中..." : "提交审批" }}
+          </button>
+          <!-- 完成草稿按钮：仅 drafting 状态显示 -->
+          <button
+            v-else-if="store.currentDraft?.status === 'drafting'"
             class="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
             :disabled="!canFinalize"
             :style="{
@@ -43,7 +60,7 @@
             }"
             @click="handleFinalize"
           >
-            {{ store.currentDraft?.status === "review" ? "已提交 Review" : "完成草稿" }}
+            完成草稿
           </button>
         </div>
       </div>
@@ -182,22 +199,60 @@
       <!-- 内容区 -->
       <div class="flex-1 overflow-y-auto">
         <!-- PRD Tab -->
-        <div v-if="activeTab === 'prd'" class="h-full">
+        <div v-if="activeTab === 'prd'" class="h-full flex flex-col">
+          <!-- approved 状态：显示 Plane Issue 和 PRD 路径信息 -->
           <div
-            v-if="!store.currentDraft?.prd_content"
-            class="flex flex-col items-center justify-center h-full"
+            v-if="store.currentDraft?.status === 'approved'"
+            class="px-8 py-4 shrink-0"
+            style="
+              border-bottom: 1px solid var(--color-border-subtle);
+              background-color: rgba(34, 197, 94, 0.05);
+            "
           >
-            <FileText :size="40" style="color: var(--color-border-default); margin-bottom: 12px" />
-            <p class="text-sm text-center px-8" style="color: var(--color-text-quaternary)">
-              AI 正在生成中，先在左侧对话吧
+            <p class="text-xs mb-2" style="color: var(--color-text-quaternary); font-weight: 510">
+              ✅ 已通过审批，技术设计生成中
             </p>
+            <div v-if="store.currentDraft.plane_issue_id" class="text-xs mb-1">
+              <span style="color: var(--color-text-quaternary)">Plane Issue：</span>
+              <a
+                v-if="planeIssueUrl"
+                :href="planeIssueUrl"
+                target="_blank"
+                rel="noopener"
+                style="color: var(--color-accent)"
+                >{{ store.currentDraft.plane_issue_id }}</a
+              >
+              <span v-else style="color: var(--color-text-secondary)">{{
+                store.currentDraft.plane_issue_id
+              }}</span>
+            </div>
+            <div v-if="store.currentDraft.prd_git_path" class="text-xs">
+              <span style="color: var(--color-text-quaternary)">PRD 路径：</span>
+              <code style="color: var(--color-text-secondary)">{{
+                store.currentDraft.prd_git_path
+              }}</code>
+            </div>
           </div>
-          <!-- eslint-disable-next-line vue/no-v-html -->
-          <div
-            v-else
-            class="prose px-8 py-6 max-w-none text-sm"
-            v-html="renderMd(store.currentDraft.prd_content)"
-          />
+          <div class="flex-1 overflow-y-auto">
+            <div
+              v-if="!store.currentDraft?.prd_content"
+              class="flex flex-col items-center justify-center h-full"
+            >
+              <FileText
+                :size="40"
+                style="color: var(--color-border-default); margin-bottom: 12px"
+              />
+              <p class="text-sm text-center px-8" style="color: var(--color-text-quaternary)">
+                AI 正在生成中，先在左侧对话吧
+              </p>
+            </div>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div
+              v-else
+              class="prose px-8 py-6 max-w-none text-sm"
+              v-html="renderMd(store.currentDraft.prd_content)"
+            />
+          </div>
         </div>
 
         <!-- Issue 预览 Tab -->
@@ -327,6 +382,7 @@ import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useRequirementStore } from "../stores/requirement";
 import { useWorkspaceStore } from "../stores/workspace";
+import { usePlaneUrl } from "../composables/usePlaneUrl";
 import { marked } from "marked";
 import { ChevronLeft, MessageSquare, FileText } from "lucide-vue-next";
 
@@ -355,6 +411,13 @@ const editIssueDesc = ref("");
 const editPrdContent = ref("");
 
 const messages = computed(() => store.messages);
+
+const { issueUrl } = usePlaneUrl();
+const planeIssueUrl = computed(() => {
+  const draft = store.currentDraft;
+  if (!draft?.plane_issue_id) return null;
+  return issueUrl(draft.plane_issue_id);
+});
 
 const isReadonly = computed(() => {
   const s = store.currentDraft?.status;
@@ -450,6 +513,16 @@ async function handleFinalize() {
     } else {
       showToast("草稿已提交 Review");
     }
+  }
+}
+
+async function handleApprove() {
+  if (store.loading) return;
+  const result = await store.approve();
+  if (result.ok) {
+    showToast("✅ 已通过，技术设计生成中");
+  } else {
+    showToast(`审批失败：${result.error ?? "未知错误"}`);
   }
 }
 

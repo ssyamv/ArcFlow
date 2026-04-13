@@ -438,9 +438,18 @@ describe("feishu webhook - requirement callbacks", () => {
   });
 
   async function seedDraftInReview() {
-    const { createWorkspace, upsertUser, createRequirementDraft, updateRequirementDraft } =
-      await import("../db/queries");
+    const {
+      createWorkspace,
+      upsertUser,
+      createRequirementDraft,
+      updateRequirementDraft,
+      updateWorkspaceSettings,
+    } = await import("../db/queries");
     const ws = createWorkspace({ name: "ReqWS", slug: `req-ws-${Date.now()}` });
+    updateWorkspaceSettings(ws.id, {
+      plane_project_id: "proj-req-1",
+      plane_workspace_slug: "req-slug",
+    });
     const user = upsertUser({ feishu_user_id: `req-user-${Date.now()}`, name: "PM" });
     const draft = createRequirementDraft({
       workspace_id: ws.id,
@@ -455,9 +464,19 @@ describe("feishu webhook - requirement callbacks", () => {
     return { draft, ws, user };
   }
 
+  async function mockStageD() {
+    const gitService = await import("../services/git");
+    const planeService = await import("../services/plane");
+    spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    spyOn(gitService, "writeAndPush").mockResolvedValue(undefined);
+    spyOn(planeService, "createIssue").mockResolvedValue({ id: "plane-issue-webhook" });
+    spyOn(planeService, "updateIssueState").mockResolvedValue(undefined);
+  }
+
   it("POST /webhook/feishu requirement_approve updates status to approved", async () => {
     const feishuService = await import("../services/feishu");
     spyOn(feishuService, "updateCard").mockResolvedValue();
+    await mockStageD();
 
     const { draft } = await seedDraftInReview();
 
@@ -472,6 +491,9 @@ describe("feishu webhook - requirement callbacks", () => {
       body: JSON.stringify({ action: { value: actionValue } }),
     });
     expect(res.status).toBe(200);
+
+    // approveDraft is async (fire-and-forget), flush microtask queue
+    await Bun.sleep(10);
 
     const { getRequirementDraft } = await import("../db/queries");
     const updated = getRequirementDraft(draft.id);
@@ -504,6 +526,7 @@ describe("feishu webhook - requirement callbacks", () => {
   it("POST /webhook/feishu requirement_approve calls updateCard when feishu_card_id present", async () => {
     const feishuService = await import("../services/feishu");
     const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue();
+    await mockStageD();
 
     const { draft } = await seedDraftInReview();
 
@@ -518,7 +541,7 @@ describe("feishu webhook - requirement callbacks", () => {
       body: JSON.stringify({ action: { value: actionValue } }),
     });
 
-    await Bun.sleep(0); // flush promise queue for async updateCard
+    await Bun.sleep(10); // flush promise queue for async approveDraft + updateCard
 
     expect(updateCardSpy).toHaveBeenCalledWith(
       "msg-card-001",
@@ -557,5 +580,69 @@ describe("feishu webhook - requirement callbacks", () => {
         }),
       }),
     );
+  });
+
+  it("POST /webhook/feishu requirement_approve shows error card when approveDraft fails (prereq)", async () => {
+    const feishuService = await import("../services/feishu");
+    const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    // seedDraftInReview sets up workspace WITHOUT plane config to force prereq error
+    const { createWorkspace, upsertUser, createRequirementDraft, updateRequirementDraft } =
+      await import("../db/queries");
+    const ws = createWorkspace({ name: "NoPlaneWS", slug: `no-plane-${Date.now()}` });
+    // intentionally NOT setting plane_project_id
+    const user = upsertUser({ feishu_user_id: `np-user-${Date.now()}`, name: "NP" });
+    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: user.id });
+    updateRequirementDraft(draft.id, {
+      status: "review",
+      issue_title: "测试失败",
+      feishu_card_id: "msg-card-fail",
+    });
+
+    const actionValue = JSON.stringify({ type: "requirement_approve", draft_id: draft.id });
+    await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+
+    await Bun.sleep(10); // flush async approveDraft promise
+
+    // Should show error card (yellow template)
+    expect(updateCardSpy).toHaveBeenCalledWith(
+      "msg-card-fail",
+      expect.objectContaining({
+        header: expect.objectContaining({ template: "yellow" }),
+      }),
+    );
+
+    // Status should remain "review" since approveDraft failed
+    const { getRequirementDraft } = await import("../db/queries");
+    const dbDraft = getRequirementDraft(draft.id);
+    expect(dbDraft?.status).toBe("review");
+  });
+
+  it("POST /webhook/feishu requirement_approve does nothing when draft not in review status", async () => {
+    await mockStageD();
+    const feishuService = await import("../services/feishu");
+    const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    const { createWorkspace, upsertUser, createRequirementDraft } = await import("../db/queries");
+    const ws = createWorkspace({ name: "WS2", slug: `ws2-${Date.now()}` });
+    const user = upsertUser({ feishu_user_id: `user2-${Date.now()}`, name: "U2" });
+    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: user.id });
+    // status stays "drafting" (not "review")
+
+    const actionValue = JSON.stringify({ type: "requirement_approve", draft_id: draft.id });
+    const res = await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+    expect(res.status).toBe(200);
+
+    // webhook skips non-review drafts in the outer `if (draft && draft.status === "review")` check
+    await Bun.sleep(0);
+    expect(updateCardSpy).not.toHaveBeenCalled();
   });
 });
