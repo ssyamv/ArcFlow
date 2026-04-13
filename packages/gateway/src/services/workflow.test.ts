@@ -7,6 +7,24 @@ const createBugFixRetry = mock(() => {});
 const getBugFixRetry = mock(() => ({ issue_id: "bug-1", retry_count: 0, status: "open" }));
 const incrementBugFixRetry = mock(() => {});
 const updateBugFixStatus = mock(() => {});
+const getWorkspace = mock(() => ({
+  id: 1,
+  name: "Test WS",
+  slug: "test-ws",
+  plane_project_id: "proj-1",
+  plane_workspace_slug: "plane-ws",
+  dify_dataset_id: null,
+  dify_rag_api_key: null,
+  wiki_path_prefix: null,
+  git_repos: JSON.stringify({
+    docs: "git@ex:docs.git",
+    backend: "git@ex:be.git",
+    vue3: "git@ex:vue3.git",
+  }),
+  feishu_chat_id: null,
+  created_at: "",
+  updated_at: "",
+}));
 
 mock.module("../db/queries", () => ({
   createWorkflowExecution,
@@ -15,6 +33,7 @@ mock.module("../db/queries", () => ({
   getBugFixRetry,
   incrementBugFixRetry,
   updateBugFixStatus,
+  getWorkspace,
   // Include all exports to avoid missing export errors for other importers
   recordWebhookEvent: mock(() => {}),
   isEventProcessed: mock(() => false),
@@ -30,12 +49,14 @@ const ensureRepo = mock(() => Promise.resolve());
 const readFileMock = mock(() => Promise.resolve("file content"));
 const writeAndPush = mock(() => Promise.resolve());
 const createBranchAndPush = mock(() => Promise.resolve());
+const registerRepoUrl = mock(() => {});
 
 mock.module("./git", () => ({
   ensureRepo,
   readFile: readFileMock,
   writeAndPush,
   createBranchAndPush,
+  registerRepoUrl,
 }));
 
 // --- Mock dify (safe: dify.test.ts runs before this file) ---
@@ -116,6 +137,7 @@ describe("triggerWorkflow", () => {
 
   it("returns execution ID immediately", async () => {
     const id = await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -125,6 +147,7 @@ describe("triggerWorkflow", () => {
 
   it("creates workflow execution record with correct params", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "api",
       plane_issue_id: "ISS-1",
@@ -141,6 +164,7 @@ describe("triggerWorkflow", () => {
 
   it("sets status to running", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -158,21 +182,22 @@ describe("flowPrdToTech", () => {
 
   it("reads PRD, generates tech doc and OpenAPI, writes both to git", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-login.md",
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledWith("docs");
-    expect(readFileMock).toHaveBeenCalledWith("docs", "prd/feature-login.md");
+    expect(ensureRepo).toHaveBeenCalledWith("ws-1-docs");
+    expect(readFileMock).toHaveBeenCalledWith("ws-1-docs", "prd/feature-login.md");
     expect(generateTechDoc).toHaveBeenCalledWith("file content");
     expect(generateOpenApi).toHaveBeenCalledWith("tech doc content");
 
     // Two writes: tech doc + openapi
     expect(writeAndPush).toHaveBeenCalledTimes(2);
     // First write is tech doc
-    expect(writeAndPush.mock.calls[0][0]).toBe("docs");
+    expect(writeAndPush.mock.calls[0][0]).toBe("ws-1-docs");
     expect(writeAndPush.mock.calls[0][1]).toContain("tech-design/");
     expect(writeAndPush.mock.calls[0][1]).toContain("feature-login.md");
     // Second write is openapi
@@ -182,6 +207,7 @@ describe("flowPrdToTech", () => {
 
   it("writes tech doc and openapi to git", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -193,6 +219,7 @@ describe("flowPrdToTech", () => {
 
   it("sends Feishu review card when chat_id is provided", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -208,6 +235,7 @@ describe("flowPrdToTech", () => {
 
   it("does not send Feishu card when no chat_id", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -219,6 +247,7 @@ describe("flowPrdToTech", () => {
 
   it("fails with error when input_path is missing", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
     });
@@ -233,6 +262,7 @@ describe("flowPrdToTech", () => {
 
   it("sets status to success on completion", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -251,14 +281,15 @@ describe("flowTechToOpenApi", () => {
 
   it("reads tech doc and generates OpenAPI", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "tech_to_openapi",
       trigger_source: "api",
       input_path: "tech-design/2026-04/feature-x.md",
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledWith("docs");
-    expect(readFileMock).toHaveBeenCalledWith("docs", "tech-design/2026-04/feature-x.md");
+    expect(ensureRepo).toHaveBeenCalledWith("ws-1-docs");
+    expect(readFileMock).toHaveBeenCalledWith("ws-1-docs", "tech-design/2026-04/feature-x.md");
     expect(generateOpenApi).toHaveBeenCalledWith("file content");
     expect(writeAndPush).toHaveBeenCalledTimes(1);
     expect(writeAndPush.mock.calls[0][1]).toContain("api/");
@@ -266,6 +297,7 @@ describe("flowTechToOpenApi", () => {
 
   it("fails when input_path missing", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "tech_to_openapi",
       trigger_source: "api",
     });
@@ -291,6 +323,7 @@ describe("flowBugAnalysis", () => {
 
   it("first failure: analyzes bug, creates Plane issue, and attempts auto-fix", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log content here",
@@ -310,6 +343,7 @@ describe("flowBugAnalysis", () => {
 
   it("first failure: sends bug notification + success notification", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -336,6 +370,7 @@ describe("flowBugAnalysis", () => {
     });
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -356,6 +391,7 @@ describe("flowBugAnalysis", () => {
     );
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -380,6 +416,7 @@ describe("flowBugAnalysis", () => {
     });
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -401,6 +438,7 @@ describe("flowBugAnalysis", () => {
     analyzeBug.mockReturnValue(Promise.resolve(p0Report));
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -427,6 +465,7 @@ describe("flowBugAnalysis", () => {
     analyzeBug.mockReturnValue(Promise.resolve("some bug report without severity"));
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
@@ -442,6 +481,7 @@ describe("flowBugAnalysis", () => {
 
   it("fails when input_path missing", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       project_id: "proj-1",
@@ -451,15 +491,34 @@ describe("flowBugAnalysis", () => {
     expect(updateWorkflowStatus).toHaveBeenCalledWith(3, "failed", "CI log content is required");
   });
 
-  it("fails when project_id missing", async () => {
+  it("fails when workspace has no plane_project_id", async () => {
+    getWorkspace.mockReturnValueOnce({
+      id: 1,
+      name: "NoPlane",
+      slug: "noplane",
+      plane_project_id: null,
+      plane_workspace_slug: "plane-ws",
+      dify_dataset_id: null,
+      dify_rag_api_key: null,
+      wiki_path_prefix: null,
+      git_repos: "{}",
+      feishu_chat_id: null,
+      created_at: "",
+      updated_at: "",
+    });
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "bug_analysis",
       trigger_source: "cicd_webhook",
       input_path: "CI log",
     });
     await tick();
 
-    expect(updateWorkflowStatus).toHaveBeenCalledWith(3, "failed", "project_id is required");
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(
+      3,
+      "failed",
+      "workspace 1 missing plane_project_id",
+    );
   });
 });
 
@@ -472,13 +531,14 @@ describe("flowCodeGen", () => {
 
   it("generates code for default backend repo", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       plane_issue_id: "ISS-10",
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledWith("backend");
+    expect(ensureRepo).toHaveBeenCalledWith("ws-1-backend");
     expect(runClaudeCode).toHaveBeenCalledTimes(1);
     expect(createBranchAndPush).toHaveBeenCalledTimes(1);
     expect(createBranchAndPush.mock.calls[0][1]).toContain("feature/ISS-10-backend");
@@ -486,6 +546,7 @@ describe("flowCodeGen", () => {
 
   it("generates code for multiple repos", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       target_repos: ["backend", "vue3"],
@@ -500,6 +561,7 @@ describe("flowCodeGen", () => {
 
   it("reads tech design doc when input_path provided", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       input_path: "tech-design/2026-04/feature-x.md",
@@ -507,12 +569,13 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledWith("docs");
-    expect(readFileMock).toHaveBeenCalledWith("docs", "tech-design/2026-04/feature-x.md");
+    expect(ensureRepo).toHaveBeenCalledWith("ws-1-docs");
+    expect(readFileMock).toHaveBeenCalledWith("ws-1-docs", "tech-design/2026-04/feature-x.md");
   });
 
   it("passes figma_url to runClaudeCode", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       figma_url: "https://figma.com/file/abc",
@@ -526,6 +589,7 @@ describe("flowCodeGen", () => {
 
   it("sends notification on success when chat_id provided", async () => {
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       chat_id: "chat-99",
@@ -542,6 +606,7 @@ describe("flowCodeGen", () => {
     runClaudeCode.mockReturnValue(Promise.resolve({ success: false, error: "syntax error" }));
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "api",
       plane_issue_id: "ISS-15",
@@ -566,6 +631,7 @@ describe("error handling", () => {
     generateTechDoc.mockReturnValue(Promise.reject(new Error("Dify timeout")));
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
@@ -582,6 +648,7 @@ describe("error handling", () => {
     generateTechDoc.mockReturnValue(Promise.reject(new Error("fail")));
 
     await triggerWorkflow({
+      workspace_id: 1,
       workflow_type: "prd_to_tech",
       trigger_source: "webhook",
       input_path: "prd/feature-x.md",
