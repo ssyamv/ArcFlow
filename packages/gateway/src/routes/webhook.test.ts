@@ -52,6 +52,10 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/plane triggers prd_to_tech when issue state matches approved", async () => {
+    const { createWorkspace, updateWorkspaceSettings } = await import("../db/queries");
+    const ws = createWorkspace({ name: "WS", slug: "ws-plane-1", plane_project_id: "proj-1" });
+    updateWorkspaceSettings(ws.id, { feishu_chat_id: "oc_ws_chat" });
+
     const res = await app.request("/webhook/plane", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -69,14 +73,16 @@ describe("webhook routes", () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect(triggerSpy).toHaveBeenCalledWith({
-      workflow_type: "prd_to_tech",
-      trigger_source: "plane_webhook",
-      plane_issue_id: "issue-42",
-      input_path: "prd/2026-04/login.md",
-      project_id: "proj-1",
-      chat_id: "oc_test_chat",
-    });
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "prd_to_tech",
+        trigger_source: "plane_webhook",
+        plane_issue_id: "issue-42",
+        input_path: "prd/2026-04/login.md",
+        chat_id: "oc_ws_chat",
+      }),
+    );
   });
 
   it("POST /webhook/plane does not trigger workflow for non-Approved state", async () => {
@@ -153,6 +159,9 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/cicd triggers bug_analysis on failure", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "CI", slug: "ci-ws", plane_project_id: "proj-2" });
+
     const res = await app.request("/webhook/cicd", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -165,14 +174,16 @@ describe("webhook routes", () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect(triggerSpy).toHaveBeenCalledWith({
-      workflow_type: "bug_analysis",
-      trigger_source: "cicd_webhook",
-      plane_issue_id: "ISS-99",
-      input_path: "Error: test assertion failed at line 42",
-      project_id: "proj-2",
-      target_repos: ["backend"],
-    });
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "bug_analysis",
+        trigger_source: "cicd_webhook",
+        plane_issue_id: "ISS-99",
+        input_path: "Error: test assertion failed at line 42",
+        target_repos: ["backend"],
+      }),
+    );
   });
 
   it("POST /webhook/cicd does not trigger on success status", async () => {
@@ -200,6 +211,7 @@ describe("webhook routes", () => {
       action: "approve",
       issue_id: "ISS-50",
       doc_path: "tech-design/2026-04/login.md",
+      workspace_id: 7,
     });
 
     await app.request("/webhook/feishu", {
@@ -210,13 +222,16 @@ describe("webhook routes", () => {
       }),
     });
 
-    expect(triggerSpy).toHaveBeenCalledWith({
-      workflow_type: "code_gen",
-      trigger_source: "manual",
-      plane_issue_id: "ISS-50",
-      input_path: "tech-design/2026-04/login.md",
-      target_repos: ["backend"],
-    });
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: 7,
+        workflow_type: "code_gen",
+        trigger_source: "manual",
+        plane_issue_id: "ISS-50",
+        input_path: "tech-design/2026-04/login.md",
+        target_repos: ["backend"],
+      }),
+    );
   });
 
   it("POST /webhook/feishu does not trigger on reject action", async () => {
@@ -249,6 +264,16 @@ describe("webhook routes", () => {
   });
 
   // iBuild tests
+  async function seedIbuildWorkspace() {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "iBuild WS", slug: "ibuild-ws", plane_project_id: "p-ib" });
+    configOverrides = { ibuildAppWorkspaceMap: { DZHCS: "ibuild-ws" } };
+    // re-build app with new config
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes());
+    return ws;
+  }
+
   function ibuildPayload(overrides: Record<string, string> = {}): string {
     const defaults: Record<string, string> = {
       status: "FAIL",
@@ -267,6 +292,7 @@ describe("webhook routes", () => {
   }
 
   it("POST /webhook/ibuild returns received with triggered=true on FAIL", async () => {
+    await seedIbuildWorkspace();
     const res = await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -312,6 +338,7 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/ibuild triggers on ABORT status", async () => {
+    await seedIbuildWorkspace();
     const res = await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -349,6 +376,7 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/ibuild extracts issue ID from branch and maps repo", async () => {
+    await seedIbuildWorkspace();
     await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -372,6 +400,7 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/ibuild handles unrecognized branch gracefully", async () => {
+    await seedIbuildWorkspace();
     await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

@@ -5,6 +5,7 @@ import {
   listWorkflowExecutions,
   listWebhookLogs,
   createMessage,
+  getWorkspace,
 } from "../db/queries";
 import { triggerWorkflow } from "../services/workflow";
 import {
@@ -23,14 +24,21 @@ export const apiRoutes = new Hono();
 apiRoutes.post("/workflow/trigger", async (c) => {
   const body = await c.req.json<TriggerWorkflowRequest>();
 
+  if (!body.workspace_id) {
+    return c.json({ error: "workspace_id is required" }, 400);
+  }
+  if (!getWorkspace(body.workspace_id)) {
+    return c.json({ error: `workspace ${body.workspace_id} not found` }, 404);
+  }
+
   const id = await triggerWorkflow({
+    workspace_id: body.workspace_id,
     workflow_type: body.workflow_type,
     trigger_source: "manual",
     plane_issue_id: body.plane_issue_id,
     input_path: body.params?.input_path,
     target_repos: body.params?.target_repos,
     figma_url: body.params?.figma_url,
-    project_id: body.params?.project_id,
     chat_id: body.params?.chat_id,
   });
 

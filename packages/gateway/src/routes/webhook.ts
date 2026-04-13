@@ -3,7 +3,13 @@ import { getConfig } from "../config";
 import { createWebhookVerifier } from "../middleware/verify";
 import { createDedup } from "../middleware/dedup";
 import { triggerWorkflow } from "../services/workflow";
-import { isEventProcessed, recordWebhookEvent, recordWebhookLog } from "../db/queries";
+import {
+  isEventProcessed,
+  recordWebhookEvent,
+  recordWebhookLog,
+  getWorkspaceByPlaneProject,
+  getWorkspaceBySlug,
+} from "../db/queries";
 import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
@@ -27,15 +33,22 @@ export function createWebhookRoutes(): Hono {
 
       if (shouldTriggerWorkflow(body, config.planeApprovedStateId)) {
         const prdPath = extractPrdPath(body.data);
-        const projectId = body.data.project_id ?? body.data.project;
+        const projectId = (body.data.project_id ?? body.data.project) as string | undefined;
+        const ws = projectId ? getWorkspaceByPlaneProject(projectId) : null;
+        if (!ws) {
+          return c.json(
+            { received: true, source: "plane", error: "workspace not linked for plane project" },
+            200,
+          );
+        }
 
         triggerWorkflow({
+          workspace_id: ws.id,
           workflow_type: "prd_to_tech",
           trigger_source: "plane_webhook",
           plane_issue_id: body.data.id,
           input_path: prdPath,
-          project_id: projectId as string | undefined,
-          chat_id: config.feishuDefaultChatId || undefined,
+          chat_id: ws.feishu_chat_id || undefined,
         });
       }
 
@@ -80,12 +93,16 @@ export function createWebhookRoutes(): Hono {
       const repo = body.repository ?? body.repo;
 
       if (status === "failed" || status === "failure") {
+        const ws = projectId ? getWorkspaceByPlaneProject(projectId) : null;
+        if (!ws) {
+          return c.json({ received: true, source: "cicd", error: "workspace not linked" }, 200);
+        }
         triggerWorkflow({
+          workspace_id: ws.id,
           workflow_type: "bug_analysis",
           trigger_source: "cicd_webhook",
           plane_issue_id: issueId,
           input_path: logs,
-          project_id: projectId,
           target_repos: repo ? [repo] : undefined,
         });
       }
@@ -111,9 +128,10 @@ export function createWebhookRoutes(): Hono {
         const actionType = value.action; // "approve" or "reject"
         const issueId = value.issue_id;
 
-        if (actionType === "approve" && issueId) {
+        if (actionType === "approve" && issueId && value.workspace_id) {
           // Trigger code generation
           triggerWorkflow({
+            workspace_id: Number(value.workspace_id),
             workflow_type: "code_gen",
             trigger_source: "manual",
             plane_issue_id: issueId,
@@ -160,10 +178,13 @@ export function createWebhookRoutes(): Hono {
       return c.json({ received: true, triggered: false, source: "ibuild" });
     }
 
-    // 5. planeDefaultProjectId 校验
-    if (!config.planeDefaultProjectId) {
-      console.error("PLANE_DEFAULT_PROJECT_ID is not configured, skipping iBuild bug analysis");
-      return c.json({ received: true, triggered: false, error: "missing config" }, 200);
+    // 5. 根据 appKey 查 workspace
+    const workspaceSlug =
+      config.ibuildAppWorkspaceMap[appKey] ?? config.ibuildAppWorkspaceMap.default;
+    const ws = workspaceSlug ? getWorkspaceBySlug(workspaceSlug) : null;
+    if (!ws) {
+      console.error(`iBuild appKey "${appKey}" not mapped to any workspace`);
+      return c.json({ received: true, triggered: false, error: "workspace not mapped" }, 200);
     }
 
     // 6. 提取 Plane Issue ID + 映射仓库
@@ -174,22 +195,22 @@ export function createWebhookRoutes(): Hono {
     fetchBuildLogWithContext(projectId, appId, buildId)
       .then((logContent) => {
         triggerWorkflow({
+          workspace_id: ws.id,
           workflow_type: "bug_analysis",
           trigger_source: "ibuild_webhook",
           plane_issue_id: planeIssueId,
           input_path: logContent,
-          project_id: config.planeDefaultProjectId,
           target_repos: [targetRepo],
         });
       })
       .catch((error) => {
         console.error(`iBuild log fetch failed for build ${buildId}:`, error);
         triggerWorkflow({
+          workspace_id: ws.id,
           workflow_type: "bug_analysis",
           trigger_source: "ibuild_webhook",
           plane_issue_id: planeIssueId,
           input_path: `iBuild 构建失败 (buildId: ${buildId}, branch: ${gitBranch})，日志拉取失败`,
-          project_id: config.planeDefaultProjectId,
           target_repos: [targetRepo],
         });
       });

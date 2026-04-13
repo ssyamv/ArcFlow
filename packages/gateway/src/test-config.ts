@@ -47,6 +47,7 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     ibuildUser: "test-user",
     ibuildWebhookSecret: "",
     ibuildAppRepoMap: { default: "backend" },
+    ibuildAppWorkspaceMap: {},
     jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
     jwtExpiresIn: "7d",
     oauthRedirectUri: "http://localhost:5173/auth/callback",
