@@ -6,6 +6,7 @@ import {
   addWorkspaceMember,
   updateRequirementDraft,
   getRequirementDraft,
+  updateWorkspaceSettings,
 } from "../db/queries";
 import {
   extractRequirementDraft,
@@ -15,7 +16,22 @@ import {
   getDraft,
   listDrafts,
   finalizeDraft,
+  approveDraft,
 } from "./requirement";
+import { createTestConfig } from "../test-config";
+
+// Stable config mock to prevent other files' mock.module("../config") from leaking.
+mock.module("../config", () => ({
+  getConfig: () => createTestConfig(),
+}));
+
+// Re-import real modules at file top level so they're available before any other
+// test file's mock.module pollution (e.g. workflow.test.ts) takes effect.
+// requirement.test.ts loads alphabetically before workflow.test.ts, so these are real.
+const realDbQueries = await import("../db/queries");
+const realPlaneModule = await import("./plane");
+const realGitModule = await import("./git");
+mock.module("../db/queries", () => realDbQueries);
 
 // Pre-initialize DB before any git.test.ts fs mock can interfere with schema reads.
 // This ensures schema.sql is loaded using the real fs, not the mocked version.
@@ -351,5 +367,232 @@ describe("finalizeDraft", () => {
     expect(result.ok).toBe(true);
     expect(result.feishu_sent).toBe(false);
     expect(result.draft?.status).toBe("review");
+  });
+});
+
+describe("approveDraft", () => {
+  let workspaceId: number;
+  let userId: number;
+  let userId2: number;
+
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+    // Restore real modules using file-top captures (which were taken before
+    // workflow.test.ts loaded and installed its mocks).
+    mock.module("../db/queries", () => realDbQueries);
+    mock.module("./plane", () => realPlaneModule);
+    mock.module("./git", () => realGitModule);
+
+    const ws = createWorkspace({ name: "ApproveWS", slug: `approve-ws-${Date.now()}` });
+    workspaceId = ws.id;
+    updateWorkspaceSettings(ws.id, {
+      plane_project_id: "proj-approve-1",
+      plane_workspace_slug: "test-slug",
+    });
+    const user = upsertUser({ feishu_user_id: `approve-user-${Date.now()}`, name: "PM" });
+    userId = user.id;
+    const user2 = upsertUser({ feishu_user_id: `approve-user2-${Date.now()}`, name: "Other" });
+    userId2 = user2.id;
+    addWorkspaceMember(workspaceId, userId);
+  });
+
+  afterEach(() => {
+    closeDb();
+    mock.restore();
+  });
+
+  async function seedReviewDraft(opts?: { feishu_card_id?: string }) {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, {
+      status: "review",
+      issue_title: "用户登录",
+      issue_description: "支持手机验证码登录",
+      prd_content: "# PRD\n\n## 功能\n\n用户登录",
+      feishu_card_id: opts?.feishu_card_id,
+    });
+    return getRequirementDraft(draft.id)!;
+  }
+
+  async function mockGitAndPlane() {
+    const gitService = await import("./git");
+    const planeService = await import("./plane");
+    const ensureRepoSpy = spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    const writeAndPushSpy = spyOn(gitService, "writeAndPush").mockResolvedValue(undefined);
+    const createIssueSpy = spyOn(planeService, "createIssue").mockResolvedValue({
+      id: "plane-issue-xyz",
+      sequence_id: 42,
+    });
+    const updateIssueStateSpy = spyOn(planeService, "updateIssueState").mockResolvedValue(
+      undefined,
+    );
+    return { ensureRepoSpy, writeAndPushSpy, createIssueSpy, updateIssueStateSpy };
+  }
+
+  it("approveDraft succeeds: review → approved with plane issue and git path set", async () => {
+    const { createIssueSpy, writeAndPushSpy } = await mockGitAndPlane();
+    const draft = await seedReviewDraft();
+
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.draft.status).toBe("approved");
+    expect(result.draft.plane_issue_id).toBe("plane-issue-xyz");
+    expect(result.draft.prd_git_path).toMatch(/^prd\/\d{4}-\d{2}\//);
+    expect(result.draft.approved_at).toBeTruthy();
+
+    expect(writeAndPushSpy).toHaveBeenCalledTimes(1);
+    expect(createIssueSpy).toHaveBeenCalled();
+    // Slug / projectId may come from a polluted workspace lookup when other test
+    // files mock ../db/queries at module level; only assert the issue title is
+    // forwarded since that comes from the in-memory draft, not workspace lookup.
+    const lastCall = createIssueSpy.mock.calls[createIssueSpy.mock.calls.length - 1];
+    expect(lastCall?.[2]).toEqual(expect.objectContaining({ name: "用户登录" }));
+  });
+
+  it("approveDraft returns error for non-review status (drafting)", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    // status is drafting by default
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("state_check");
+    expect(result.error).toContain("drafting");
+  });
+
+  it("approveDraft returns error for non-review status (approved)", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, { status: "approved" });
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("state_check");
+  });
+
+  it("approveDraft returns error for non-review status (rejected)", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, { status: "rejected" });
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("state_check");
+  });
+
+  it("approveDraft returns error for non-existent draft", async () => {
+    const result = await approveDraft({ draftId: 999999, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("load");
+    expect(result.error).toContain("不存在");
+  });
+
+  it("approveDraft returns error for non-member (web source)", async () => {
+    const draft = await seedReviewDraft();
+    const result = await approveDraft({ draftId: draft.id, userId: userId2, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("auth");
+    expect(result.error).toContain("无权限");
+  });
+
+  it("approveDraft skips auth check for feishu source", async () => {
+    await mockGitAndPlane();
+    const draft = await seedReviewDraft();
+    // userId2 is not a member, but source=feishu bypasses auth
+    const result = await approveDraft({ draftId: draft.id, source: "feishu" });
+    expect(result.ok).toBe(true);
+  });
+
+  it("approveDraft returns git_commit error when writeAndPush fails", async () => {
+    const gitService = await import("./git");
+    spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    spyOn(gitService, "writeAndPush").mockRejectedValue(new Error("git push failed"));
+
+    const draft = await seedReviewDraft();
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("git_commit");
+    expect(result.error).toContain("git push failed");
+    // status should NOT have changed to approved
+    const dbDraft = getRequirementDraft(draft.id);
+    expect(dbDraft?.status).toBe("review");
+  });
+
+  it("approveDraft returns create_issue error when Plane API fails", async () => {
+    const gitService = await import("./git");
+    const planeService = await import("./plane");
+    spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    spyOn(gitService, "writeAndPush").mockResolvedValue(undefined);
+    spyOn(planeService, "createIssue").mockRejectedValue(new Error("Plane 503"));
+
+    const draft = await seedReviewDraft();
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.step).toBe("create_issue");
+    expect(result.error).toContain("Plane 503");
+  });
+
+  it("approveDraft succeeds with ok:true regardless of PLANE_APPROVED_STATE_ID (step4 non-fatal)", async () => {
+    // Whether step4 runs or is skipped, the result must always be ok:true and no thrown error.
+    // updateIssueState is mocked to succeed, so no warning regardless of config.
+    const { updateIssueStateSpy } = await mockGitAndPlane();
+    const draft = await seedReviewDraft();
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.draft.status).toBe("approved");
+    expect(result.draft.plane_issue_id).toBeTruthy();
+    // If updateIssueState was called (config has planeApprovedStateId), it succeeded (no warning)
+    if (updateIssueStateSpy.mock.calls.length > 0) {
+      expect(result.warning).toBeUndefined();
+    }
+  });
+
+  it("approveDraft succeeds with warning when updateIssueState fails", async () => {
+    const gitService = await import("./git");
+    const planeService = await import("./plane");
+    const feishuService = await import("./feishu");
+    spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    spyOn(gitService, "writeAndPush").mockResolvedValue(undefined);
+    spyOn(planeService, "createIssue").mockResolvedValue({ id: "issue-p4" });
+    spyOn(planeService, "updateIssueState").mockRejectedValue(new Error("Plane state error"));
+    spyOn(feishuService, "updateCard").mockResolvedValue(undefined);
+
+    const draft = await seedReviewDraft();
+    // Set planeApprovedStateId via env temporarily
+    process.env.PLANE_APPROVED_STATE_ID = "state-approved-id";
+    const result = await approveDraft({ draftId: draft.id, userId, source: "web" });
+    delete process.env.PLANE_APPROVED_STATE_ID;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.warning).toContain("Plane 状态更新失败");
+    expect(result.draft.status).toBe("approved");
+  });
+
+  it("approveDraft calls updateCard when feishu_card_id present", async () => {
+    const gitService = await import("./git");
+    const planeService = await import("./plane");
+    const feishuService = await import("./feishu");
+    spyOn(gitService, "ensureRepo").mockResolvedValue({} as never);
+    spyOn(gitService, "writeAndPush").mockResolvedValue(undefined);
+    spyOn(planeService, "createIssue").mockResolvedValue({ id: "issue-card-test" });
+    spyOn(planeService, "updateIssueState").mockResolvedValue(undefined);
+    const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue(undefined);
+
+    const draft = await seedReviewDraft({ feishu_card_id: "msg-card-approve" });
+    const result = await approveDraft({ draftId: draft.id, userId, source: "feishu" });
+
+    await Bun.sleep(0); // flush async updateCard call
+    expect(result.ok).toBe(true);
+    expect(updateCardSpy).toHaveBeenCalledWith(
+      "msg-card-approve",
+      expect.objectContaining({
+        header: expect.objectContaining({ template: "green" }),
+      }),
+    );
   });
 });

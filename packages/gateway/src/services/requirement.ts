@@ -1,15 +1,20 @@
 import { getConfig } from "../config";
-import {
-  createRequirementDraft,
-  getRequirementDraft,
-  getUserById,
-  listRequirementDrafts,
-  updateRequirementDraft,
-  getWorkspaceMemberRole,
-} from "../db/queries";
 import { streamRequirementChatflow } from "./dify";
-import { sendRequirementReviewCard } from "./feishu";
+import { sendRequirementReviewCard, updateCard } from "./feishu";
+import * as gitSvc from "./git";
+import * as planeSvc from "./plane";
 import type { RequirementDraft, RequirementDraftStatus } from "../types";
+
+// Use a lazy getter resolved at call time to avoid binding issues.
+// Uses __dirname-based absolute path so Bun test's mock.module("../db/queries")
+// (which registers a relative-path key) does NOT intercept this require —
+// tests that need to override individual functions should use spyOn on the
+// module object returned by `await import("../db/queries")`.
+const _dbQueriesPath = `${__dirname}/../db/queries`;
+function getDb() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require(_dbQueriesPath) as typeof import("../db/queries");
+}
 
 // ─── Parser ────────────────────────────────────────────────────────────────────
 
@@ -57,7 +62,7 @@ export function createDraft(params: {
   creatorId: number;
   feishuChatId?: string;
 }): RequirementDraft {
-  return createRequirementDraft({
+  return getDb().createRequirementDraft({
     workspace_id: params.workspaceId,
     creator_id: params.creatorId,
     feishu_chat_id: params.feishuChatId,
@@ -69,7 +74,7 @@ export async function* chatDraft(params: {
   userId: number;
   message: string;
 }): AsyncGenerator<{ event: string; data: string }> {
-  const draft = getRequirementDraft(params.draftId);
+  const draft = getDb().getRequirementDraft(params.draftId);
   if (!draft) {
     yield { event: "error", data: JSON.stringify({ message: "草稿不存在" }) };
     return;
@@ -117,7 +122,7 @@ export async function* chatDraft(params: {
 
       if (chunk.event === "message_end") {
         const parsed = extractRequirementDraft(fullAnswer);
-        const updatePatch: Parameters<typeof updateRequirementDraft>[1] = {};
+        const updatePatch: Parameters<typeof db.updateRequirementDraft>[1] = {};
 
         if (convId) {
           updatePatch.dify_conversation_id = convId;
@@ -133,7 +138,7 @@ export async function* chatDraft(params: {
         }
 
         if (Object.keys(updatePatch).length > 0) {
-          updateRequirementDraft(params.draftId, updatePatch);
+          getDb().updateRequirementDraft(params.draftId, updatePatch);
         }
 
         yield {
@@ -165,7 +170,7 @@ export function patchDraft(params: {
     prd_content?: string;
   };
 }): { ok: boolean; error?: string } {
-  const draft = getRequirementDraft(params.draftId);
+  const draft = getDb().getRequirementDraft(params.draftId);
   if (!draft) {
     return { ok: false, error: "草稿不存在" };
   }
@@ -174,14 +179,14 @@ export function patchDraft(params: {
     return { ok: false, error: "当前状态不允许编辑" };
   }
 
-  const memberRole = getWorkspaceMemberRole(draft.workspace_id, params.userId);
+  const memberRole = getDb().getWorkspaceMemberRole(draft.workspace_id, params.userId);
   const isCreator = draft.creator_id === params.userId;
 
   if (!isCreator && !memberRole) {
     return { ok: false, error: "无权限编辑此草稿" };
   }
 
-  updateRequirementDraft(params.draftId, params.patch);
+  getDb().updateRequirementDraft(params.draftId, params.patch);
   return { ok: true };
 }
 
@@ -189,10 +194,10 @@ export function getDraft(
   draftId: number,
   userId: number,
 ): { draft: RequirementDraft | null; error?: string } {
-  const draft = getRequirementDraft(draftId);
+  const draft = getDb().getRequirementDraft(draftId);
   if (!draft) return { draft: null, error: "草稿不存在" };
 
-  const memberRole = getWorkspaceMemberRole(draft.workspace_id, userId);
+  const memberRole = getDb().getWorkspaceMemberRole(draft.workspace_id, userId);
   const isCreator = draft.creator_id === userId;
 
   if (!isCreator && !memberRole) {
@@ -208,7 +213,7 @@ export function listDrafts(params: {
   status?: RequirementDraftStatus;
   limit?: number;
 }): RequirementDraft[] {
-  return listRequirementDrafts({
+  return getDb().listRequirementDrafts({
     workspace_id: params.workspaceId,
     creator_id: params.userId,
     status: params.status,
@@ -220,7 +225,7 @@ export async function finalizeDraft(params: {
   draftId: number;
   userId: number;
 }): Promise<{ ok: boolean; error?: string; draft?: RequirementDraft; feishu_sent?: boolean }> {
-  const draft = getRequirementDraft(params.draftId);
+  const draft = getDb().getRequirementDraft(params.draftId);
   if (!draft) {
     return { ok: false, error: "草稿不存在" };
   }
@@ -232,7 +237,7 @@ export async function finalizeDraft(params: {
     };
   }
 
-  const memberRole = getWorkspaceMemberRole(draft.workspace_id, params.userId);
+  const memberRole = getDb().getWorkspaceMemberRole(draft.workspace_id, params.userId);
   const isCreator = draft.creator_id === params.userId;
   if (!isCreator && !memberRole) {
     return { ok: false, error: "无权限操作此草稿" };
@@ -252,8 +257,8 @@ export async function finalizeDraft(params: {
   }
 
   // 状态切换到 review
-  updateRequirementDraft(params.draftId, { status: "review" });
-  const updated = getRequirementDraft(params.draftId)!;
+  getDb().updateRequirementDraft(params.draftId, { status: "review" });
+  const updated = getDb().getRequirementDraft(params.draftId)!;
 
   // 发飞书卡片（失败不阻塞）
   let feishu_sent = false;
@@ -262,7 +267,7 @@ export async function finalizeDraft(params: {
 
   if (chatId) {
     try {
-      const creator = getUserById(draft.creator_id);
+      const creator = getDb().getUserById(draft.creator_id);
       const creatorName = creator?.name || `用户 ${draft.creator_id}`;
       const summary = (draft.prd_content || draft.issue_description || "")
         .slice(0, 100)
@@ -279,7 +284,7 @@ export async function finalizeDraft(params: {
 
       if (result.ok) {
         feishu_sent = true;
-        updateRequirementDraft(params.draftId, { feishu_card_id: result.card_id });
+        getDb().updateRequirementDraft(params.draftId, { feishu_card_id: result.card_id });
       } else {
         console.warn(`[finalizeDraft] 飞书卡片发送失败: ${result.error}`);
       }
@@ -291,4 +296,203 @@ export async function finalizeDraft(params: {
   }
 
   return { ok: true, draft: updated, feishu_sent };
+}
+
+// ─── Stage D: Approve Draft ────────────────────────────────────────────────────
+
+function safeParseRepos(raw: string): Record<string, string> {
+  try {
+    return JSON.parse(raw || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function wsRepoName(workspaceId: number, repo: string): string {
+  return `ws-${workspaceId}-${repo}`;
+}
+
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
+}
+
+export async function approveDraft(params: {
+  draftId: number;
+  userId?: number;
+  source: "web" | "feishu";
+}): Promise<
+  | { ok: true; draft: RequirementDraft; warning?: string }
+  | { ok: false; error: string; step?: string }
+> {
+  const draft = getDb().getRequirementDraft(params.draftId);
+  if (!draft) {
+    return { ok: false, error: "草稿不存在", step: "load" };
+  }
+
+  // 状态机：只允许 review → approved
+  if (draft.status !== "review") {
+    return {
+      ok: false,
+      error: `当前状态 "${draft.status}" 不允许审批，仅 review 状态可审批`,
+      step: "state_check",
+    };
+  }
+
+  // 权限校验（飞书回调信任，跳过）
+  if (params.source === "web" && params.userId) {
+    const memberRole = getDb().getWorkspaceMemberRole(draft.workspace_id, params.userId);
+    const isCreator = draft.creator_id === params.userId;
+    if (!isCreator && !memberRole) {
+      return { ok: false, error: "无权限审批此草稿", step: "auth" };
+    }
+  }
+
+  // 加载工作空间
+  const ws = getDb().getWorkspace(draft.workspace_id);
+  if (!ws) {
+    return { ok: false, error: `工作空间 ${draft.workspace_id} 不存在`, step: "prereq" };
+  }
+
+  if (!ws.plane_project_id || !ws.plane_workspace_slug) {
+    return {
+      ok: false,
+      error:
+        "工作空间未配置 Plane 项目（plane_project_id / plane_workspace_slug），请先在工作空间设置中完善",
+      step: "prereq",
+    };
+  }
+
+  const planeSlug = ws.plane_workspace_slug;
+  const planeProjectId = ws.plane_project_id;
+
+  // 注册工作空间仓库
+  const repos = safeParseRepos(ws.git_repos ?? "{}");
+  for (const [name, url] of Object.entries(repos)) {
+    if (url) gitSvc.registerRepoUrl(wsRepoName(ws.id, name), url);
+  }
+
+  const config = getConfig();
+  const now = new Date();
+  const monthDir = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // 生成 prd slug
+  const prdSlug =
+    draft.prd_slug || (draft.issue_title ? slugify(draft.issue_title) : `prd-${draft.id}`);
+  const prdGitPath = `prd/${monthDir}/${prdSlug}.md`;
+  const prdContent =
+    draft.prd_content || `# ${draft.issue_title || "PRD"}\n\n${draft.issue_description || ""}`;
+
+  // Step 1: Commit PRD to docs git
+  const docsRepo = wsRepoName(ws.id, "docs");
+  try {
+    await gitSvc.ensureRepo(docsRepo);
+    await gitSvc.writeAndPush(
+      docsRepo,
+      prdGitPath,
+      prdContent,
+      `docs: AI 生成 PRD - ${draft.issue_title || prdSlug}`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[approveDraft] Step1 git commit failed: ${msg}`);
+    return { ok: false, error: `Git 写入失败: ${msg}`, step: "git_commit" };
+  }
+
+  // Step 2: Create Plane Issue
+  let planeIssueId: string;
+  try {
+    const issue = await planeSvc.createIssue(planeSlug, planeProjectId, {
+      name: draft.issue_title || prdSlug,
+      description_html: draft.issue_description
+        ? `<p>${draft.issue_description.replace(/\n/g, "</p><p>")}</p>`
+        : undefined,
+      priority: "medium",
+    });
+    planeIssueId = issue.id;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[approveDraft] Step2 createIssue failed: ${msg}`);
+    return { ok: false, error: `创建 Plane Issue 失败: ${msg}`, step: "create_issue" };
+  }
+
+  // Step 3: Update draft in DB
+  getDb().updateRequirementDraft(params.draftId, {
+    plane_issue_id: planeIssueId,
+    prd_git_path: prdGitPath,
+    status: "approved",
+  });
+
+  const updatedDraft = getDb().getRequirementDraft(params.draftId)!;
+  let warning: string | undefined;
+
+  // Step 4: Update Plane issue state to Approved (optional)
+  if (config.planeApprovedStateId) {
+    try {
+      await planeSvc.updateIssueState(
+        planeSlug,
+        planeProjectId,
+        planeIssueId,
+        config.planeApprovedStateId,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[approveDraft] Step4 updateIssueState failed (non-fatal): ${msg}`);
+      warning = `Plane 状态更新失败（不影响审批结果）: ${msg}`;
+    }
+  } else {
+    console.warn("[approveDraft] Step4 skipped: PLANE_APPROVED_STATE_ID not configured");
+  }
+
+  // Step 5: Update Feishu card
+  if (draft.feishu_card_id) {
+    const planeIssueUrl = config.planeExternalUrl
+      ? `${config.planeExternalUrl.replace(/\/$/, "")}/workspaces/${planeSlug}/projects/${planeProjectId}/issues/${planeIssueId}/`
+      : null;
+
+    const cardElements: unknown[] = [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n✅ 已通过，技术设计生成中…\n\n**PRD 路径：** \`${prdGitPath}\``,
+        },
+      },
+    ];
+
+    if (planeIssueUrl) {
+      cardElements.push({
+        tag: "action",
+        actions: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "查看 Plane Issue" },
+            type: "primary",
+            url: planeIssueUrl,
+          },
+        ],
+      });
+    }
+
+    const approvedCard = {
+      config: { wide_screen_mode: true },
+      header: {
+        title: { tag: "plain_text", content: "✅ 需求 PRD 已通过审批" },
+        template: "green",
+      },
+      elements: cardElements,
+    };
+
+    updateCard(draft.feishu_card_id, approvedCard).catch((err) => {
+      console.warn(
+        `[approveDraft] Step5 updateCard failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      );
+    });
+  }
+
+  return { ok: true, draft: updatedDraft, warning };
 }

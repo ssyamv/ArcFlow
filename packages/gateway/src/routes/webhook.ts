@@ -18,6 +18,7 @@ import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
 import { syncRecentChanges } from "../services/rag-sync";
 import { updateCard } from "../services/feishu";
+import { approveDraft } from "../services/requirement";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -139,39 +140,51 @@ export function createWebhookRoutes(): Hono {
             const draft = getRequirementDraft(draftId);
             if (draft && draft.status === "review") {
               if (callbackType === "requirement_approve") {
-                // P3：仅变更状态为 approved，Stage D（Plane/Git 落地）留给 P4 实现
-                // TODO(P4): 触发 Stage D 原子操作（创建 Plane Issue + 写入 Git）
-                updateRequirementDraft(draftId, { status: "approved" });
-                console.log(
-                  `[feishu webhook] requirement draft ${draftId} approved (P4 Stage D pending)`,
-                );
-
-                if (draft.feishu_card_id) {
-                  const approvedCard = {
-                    config: { wide_screen_mode: true },
-                    header: {
-                      title: {
-                        tag: "plain_text",
-                        content: "✅ 需求 PRD 已通过，待落地（P4 实现）",
-                      },
-                      template: "green",
-                    },
-                    elements: [
-                      {
-                        tag: "div",
-                        text: {
-                          tag: "lark_md",
-                          content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n已通过审批，正式落地（创建 Plane Issue + Git 归档）将在 P4 阶段实现。`,
-                        },
-                      },
-                    ],
-                  };
-                  updateCard(draft.feishu_card_id, approvedCard).catch((err) => {
-                    console.warn(
-                      `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
+                // P4: Stage D — 执行五步原子操作
+                approveDraft({ draftId, source: "feishu" })
+                  .then((result) => {
+                    if (!result.ok) {
+                      console.error(
+                        `[feishu webhook] approveDraft failed (draftId=${draftId}, step=${result.step}): ${result.error}`,
+                      );
+                      // 审批失败时更新卡片显示错误
+                      if (draft.feishu_card_id) {
+                        const errorCard = {
+                          config: { wide_screen_mode: true },
+                          header: {
+                            title: { tag: "plain_text", content: "⚠️ 需求 PRD 审批落地失败" },
+                            template: "yellow",
+                          },
+                          elements: [
+                            {
+                              tag: "div",
+                              text: {
+                                tag: "lark_md",
+                                content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n审批操作失败（步骤: ${result.step ?? "unknown"}）：${result.error}\n\n请联系管理员检查配置后重试。`,
+                              },
+                            },
+                          ],
+                        };
+                        updateCard(draft.feishu_card_id, errorCard).catch((err) => {
+                          console.warn(
+                            `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
+                          );
+                        });
+                      }
+                    } else {
+                      console.log(
+                        `[feishu webhook] requirement draft ${draftId} approved via Stage D`,
+                      );
+                      if (result.warning) {
+                        console.warn(`[feishu webhook] approveDraft warning: ${result.warning}`);
+                      }
+                    }
+                  })
+                  .catch((err) => {
+                    console.error(
+                      `[feishu webhook] approveDraft threw (draftId=${draftId}): ${err instanceof Error ? err.message : err}`,
                     );
                   });
-                }
               } else {
                 // requirement_reject
                 updateRequirementDraft(draftId, { status: "rejected" });

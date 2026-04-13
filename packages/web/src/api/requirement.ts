@@ -101,6 +101,18 @@ export function finalizeRequirementDraft(id: number): Promise<FinalizeResult> {
   });
 }
 
+export interface ApproveResult {
+  draft: RequirementDraft;
+  plane_issue_id: string;
+  prd_git_path: string;
+}
+
+export function approveRequirementDraft(id: number): Promise<ApproveResult> {
+  return request<ApproveResult>(`/api/requirement/${id}/approve`, {
+    method: "POST",
+  });
+}
+
 export type SSEChatEvent =
   | { type: "text"; content: string }
   | {

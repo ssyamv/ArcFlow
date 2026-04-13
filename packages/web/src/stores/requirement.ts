@@ -6,6 +6,7 @@ import {
   listRequirementDrafts,
   patchRequirementDraft,
   finalizeRequirementDraft,
+  approveRequirementDraft,
   streamRequirementChat,
   type RequirementDraft,
   type RequirementDraftListResponse,
@@ -152,6 +153,28 @@ export const useRequirementStore = defineStore("requirement", () => {
     }
   }
 
+  async function approve(): Promise<{
+    ok: boolean;
+    plane_issue_id?: string;
+    prd_git_path?: string;
+    error?: string;
+  }> {
+    if (!currentDraft.value) return { ok: false, error: "无草稿" };
+    loading.value = true;
+    error.value = null;
+    try {
+      const result = await approveRequirementDraft(currentDraft.value.id);
+      currentDraft.value = result.draft;
+      return { ok: true, plane_issue_id: result.plane_issue_id, prd_git_path: result.prd_git_path };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "审批失败";
+      error.value = msg;
+      return { ok: false, error: msg };
+    } finally {
+      loading.value = false;
+    }
+  }
+
   function reset() {
     currentDraft.value = null;
     messages.value = [];
@@ -173,6 +196,7 @@ export const useRequirementStore = defineStore("requirement", () => {
     sendMessage,
     saveEdit,
     finalize,
+    approve,
     reset,
   };
 });
