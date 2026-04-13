@@ -42,6 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
       - run: bun install
       - run: bun run lint
         working-directory: packages/gateway
@@ -54,6 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
       - run: bun install
       - run: bun run lint
         working-directory: packages/web
@@ -66,6 +70,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
       - run: bun install
       - run: bunx markdownlint-cli2 "docs/**/*.md"
 
@@ -73,12 +79,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.gateway == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
       - run: bun install
-      - run: bun run test
+      - name: Run tests
+        run: bun run test
         working-directory: packages/gateway
+        timeout-minutes: 3
       - name: Install lcov
         run: sudo apt-get install -y lcov
       - name: Check coverage
@@ -97,6 +108,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.17
       - run: bun install
       - run: bunx vitest run --coverage --coverage.reporter=lcov
         working-directory: packages/web
