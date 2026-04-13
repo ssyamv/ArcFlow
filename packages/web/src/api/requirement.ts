@@ -90,6 +90,17 @@ export function patchRequirementDraft(
   });
 }
 
+export interface FinalizeResult {
+  draft: RequirementDraft;
+  feishu_sent: boolean;
+}
+
+export function finalizeRequirementDraft(id: number): Promise<FinalizeResult> {
+  return request<FinalizeResult>(`/api/requirement/${id}/finalize`, {
+    method: "POST",
+  });
+}
+
 export type SSEChatEvent =
   | { type: "text"; content: string }
   | {

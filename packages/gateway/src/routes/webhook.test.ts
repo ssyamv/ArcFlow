@@ -417,3 +417,145 @@ describe("webhook routes", () => {
     );
   });
 });
+
+describe("feishu webhook - requirement callbacks", () => {
+  let app: Hono;
+
+  beforeEach(async () => {
+    process.env.NODE_ENV = "test";
+    configOverrides = {};
+    getDb();
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes());
+    spyOn(workflowService, "triggerWorkflow").mockResolvedValue(1);
+    spyOn(ibuildLogFetcher, "fetchBuildLogWithContext").mockResolvedValue("mocked build log");
+  });
+
+  afterEach(() => {
+    closeDb();
+    mock.restore();
+    configOverrides = {};
+  });
+
+  async function seedDraftInReview() {
+    const { createWorkspace, upsertUser, createRequirementDraft, updateRequirementDraft } =
+      await import("../db/queries");
+    const ws = createWorkspace({ name: "ReqWS", slug: `req-ws-${Date.now()}` });
+    const user = upsertUser({ feishu_user_id: `req-user-${Date.now()}`, name: "PM" });
+    const draft = createRequirementDraft({
+      workspace_id: ws.id,
+      creator_id: user.id,
+      feishu_chat_id: "chat-req-test",
+    });
+    updateRequirementDraft(draft.id, {
+      status: "review",
+      issue_title: "用户登录",
+      feishu_card_id: "msg-card-001",
+    });
+    return { draft, ws, user };
+  }
+
+  it("POST /webhook/feishu requirement_approve updates status to approved", async () => {
+    const feishuService = await import("../services/feishu");
+    spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    const { draft } = await seedDraftInReview();
+
+    const actionValue = JSON.stringify({
+      type: "requirement_approve",
+      draft_id: draft.id,
+    });
+
+    const res = await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+    expect(res.status).toBe(200);
+
+    const { getRequirementDraft } = await import("../db/queries");
+    const updated = getRequirementDraft(draft.id);
+    expect(updated?.status).toBe("approved");
+  });
+
+  it("POST /webhook/feishu requirement_reject updates status to rejected", async () => {
+    const feishuService = await import("../services/feishu");
+    spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    const { draft } = await seedDraftInReview();
+
+    const actionValue = JSON.stringify({
+      type: "requirement_reject",
+      draft_id: draft.id,
+    });
+
+    const res = await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+    expect(res.status).toBe(200);
+
+    const { getRequirementDraft } = await import("../db/queries");
+    const updated = getRequirementDraft(draft.id);
+    expect(updated?.status).toBe("rejected");
+  });
+
+  it("POST /webhook/feishu requirement_approve calls updateCard when feishu_card_id present", async () => {
+    const feishuService = await import("../services/feishu");
+    const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    const { draft } = await seedDraftInReview();
+
+    const actionValue = JSON.stringify({
+      type: "requirement_approve",
+      draft_id: draft.id,
+    });
+
+    await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+
+    await Bun.sleep(0); // flush promise queue for async updateCard
+
+    expect(updateCardSpy).toHaveBeenCalledWith(
+      "msg-card-001",
+      expect.objectContaining({
+        header: expect.objectContaining({
+          template: "green",
+        }),
+      }),
+    );
+  });
+
+  it("POST /webhook/feishu requirement_reject calls updateCard when feishu_card_id present", async () => {
+    const feishuService = await import("../services/feishu");
+    const updateCardSpy = spyOn(feishuService, "updateCard").mockResolvedValue();
+
+    const { draft } = await seedDraftInReview();
+
+    const actionValue = JSON.stringify({
+      type: "requirement_reject",
+      draft_id: draft.id,
+    });
+
+    await app.request("/webhook/feishu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: { value: actionValue } }),
+    });
+
+    await Bun.sleep(0);
+
+    expect(updateCardSpy).toHaveBeenCalledWith(
+      "msg-card-001",
+      expect.objectContaining({
+        header: expect.objectContaining({
+          template: "red",
+        }),
+      }),
+    );
+  });
+});

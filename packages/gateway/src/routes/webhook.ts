@@ -7,6 +7,8 @@ import {
   isEventProcessed,
   recordWebhookEvent,
   recordWebhookLog,
+  getRequirementDraft,
+  updateRequirementDraft,
   getWorkspaceByPlaneProject,
   getWorkspaceBySlug,
 } from "../db/queries";
@@ -15,6 +17,7 @@ import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
 import { syncRecentChanges } from "../services/rag-sync";
+import { updateCard } from "../services/feishu";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -125,9 +128,84 @@ export function createWebhookRoutes(): Hono {
     if (action?.value) {
       try {
         const value = JSON.parse(action.value);
-        const actionType = value.action; // "approve" or "reject"
+        const actionType = value.action; // "approve" or "reject" (tech review)
+        const callbackType = value.type; // "requirement_approve" or "requirement_reject"
         const issueId = value.issue_id;
 
+        // ── 需求 PRD Review 回调 ──────────────────────────────────────────
+        if (callbackType === "requirement_approve" || callbackType === "requirement_reject") {
+          const draftId = Number(value.draft_id);
+          if (draftId) {
+            const draft = getRequirementDraft(draftId);
+            if (draft && draft.status === "review") {
+              if (callbackType === "requirement_approve") {
+                // P3：仅变更状态为 approved，Stage D（Plane/Git 落地）留给 P4 实现
+                // TODO(P4): 触发 Stage D 原子操作（创建 Plane Issue + 写入 Git）
+                updateRequirementDraft(draftId, { status: "approved" });
+                console.log(
+                  `[feishu webhook] requirement draft ${draftId} approved (P4 Stage D pending)`,
+                );
+
+                if (draft.feishu_card_id) {
+                  const approvedCard = {
+                    config: { wide_screen_mode: true },
+                    header: {
+                      title: {
+                        tag: "plain_text",
+                        content: "✅ 需求 PRD 已通过，待落地（P4 实现）",
+                      },
+                      template: "green",
+                    },
+                    elements: [
+                      {
+                        tag: "div",
+                        text: {
+                          tag: "lark_md",
+                          content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n已通过审批，正式落地（创建 Plane Issue + Git 归档）将在 P4 阶段实现。`,
+                        },
+                      },
+                    ],
+                  };
+                  updateCard(draft.feishu_card_id, approvedCard).catch((err) => {
+                    console.warn(
+                      `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
+                    );
+                  });
+                }
+              } else {
+                // requirement_reject
+                updateRequirementDraft(draftId, { status: "rejected" });
+                console.log(`[feishu webhook] requirement draft ${draftId} rejected`);
+
+                if (draft.feishu_card_id) {
+                  const rejectedCard = {
+                    config: { wide_screen_mode: true },
+                    header: {
+                      title: { tag: "plain_text", content: "❌ 需求 PRD 已驳回" },
+                      template: "red",
+                    },
+                    elements: [
+                      {
+                        tag: "div",
+                        text: {
+                          tag: "lark_md",
+                          content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n已驳回，请 PM 修改后重新提交。`,
+                        },
+                      },
+                    ],
+                  };
+                  updateCard(draft.feishu_card_id, rejectedCard).catch((err) => {
+                    console.warn(
+                      `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
+                    );
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // ── 技术文档 Review 回调（原有逻辑） ────────────────────────────
         if (actionType === "approve" && issueId && value.workspace_id) {
           // Trigger code generation
           triggerWorkflow({

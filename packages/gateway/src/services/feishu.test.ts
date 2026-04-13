@@ -9,8 +9,13 @@ mock.module("../config", () => ({
     }),
 }));
 
-const { sendNotification, sendBugNotification, sendTechReviewCard, updateCard } =
-  await import("./feishu");
+const {
+  sendNotification,
+  sendBugNotification,
+  sendTechReviewCard,
+  updateCard,
+  sendRequirementReviewCard,
+} = await import("./feishu");
 
 describe("feishu service", () => {
   const originalFetch = globalThis.fetch;
@@ -201,6 +206,109 @@ describe("feishu service", () => {
       const body = JSON.parse(patchCall!.init.body as string);
       expect(body.msg_type).toBe("interactive");
       expect(JSON.parse(body.content)).toEqual(updatedCard);
+    });
+  });
+
+  describe("sendRequirementReviewCard", () => {
+    it("should send card with correct title and three action buttons", async () => {
+      // Mock returns message_id in data field
+      mockFetchFn = mock(async (url: string, init: RequestInit) => {
+        fetchCalls.push({ url, init });
+        if (typeof url === "string" && url.includes("tenant_access_token")) {
+          return new Response(
+            JSON.stringify({ code: 0, tenant_access_token: "test-token-123", expire: 7200 }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ code: 0, data: { message_id: "msg-req-001" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const result = await sendRequirementReviewCard({
+        chatId: "chat-req-001",
+        draftId: 42,
+        title: "用户登录功能",
+        summary: "支持手机号验证码登录",
+        creatorName: "张三",
+        webBaseUrl: "http://localhost:5173",
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.card_id).toBe("msg-req-001");
+      }
+
+      const msgCall = fetchCalls.find((c) => c.url.includes("/im/v1/messages"));
+      expect(msgCall).toBeDefined();
+
+      const body = JSON.parse(msgCall!.init.body as string);
+      expect(body.receive_id).toBe("chat-req-001");
+
+      const card = JSON.parse(body.content);
+      expect(card.header.title.content).toBe("📋 需求 PRD 草稿就绪");
+      expect(card.header.template).toBe("green");
+
+      // 验证三行信息
+      const divWithFields = card.elements.find(
+        (el: Record<string, unknown>) => el.tag === "div" && el.fields,
+      );
+      expect(divWithFields).toBeDefined();
+      const fieldTexts = (divWithFields.fields as Array<{ text: { content: string } }>).map(
+        (f) => f.text.content,
+      );
+      expect(fieldTexts.some((t) => t.includes("用户登录功能"))).toBe(true);
+      expect(fieldTexts.some((t) => t.includes("张三"))).toBe(true);
+
+      // 验证三个按钮
+      const actionEl = card.elements.find((el: Record<string, unknown>) => el.tag === "action");
+      expect(actionEl).toBeDefined();
+      expect(actionEl.actions.length).toBe(3);
+
+      const btnTexts = (actionEl.actions as Array<{ text: { content: string } }>).map(
+        (a) => a.text.content,
+      );
+      expect(btnTexts.some((t) => t.includes("查看详情"))).toBe(true);
+      expect(btnTexts.some((t) => t.includes("快速通过"))).toBe(true);
+      expect(btnTexts.some((t) => t.includes("驳回"))).toBe(true);
+
+      // 验证详情链接
+      const detailBtn = actionEl.actions.find((a: { text: { content: string }; url?: string }) =>
+        a.text.content.includes("查看详情"),
+      );
+      expect(detailBtn?.url).toBe("http://localhost:5173/requirements/42");
+    });
+
+    it("should return ok=false when feishu returns no message_id", async () => {
+      // 飞书成功但没有 message_id
+      mockFetchFn = mock(async (url: string, init: RequestInit) => {
+        fetchCalls.push({ url, init });
+        if (typeof url === "string" && url.includes("tenant_access_token")) {
+          return new Response(
+            JSON.stringify({ code: 0, tenant_access_token: "test-token-123", expire: 7200 }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // 无 message_id
+        return new Response(JSON.stringify({ code: 0, data: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const result = await sendRequirementReviewCard({
+        chatId: "chat-req-002",
+        draftId: 99,
+        title: "测试",
+        summary: "测试摘要",
+        creatorName: "李四",
+        webBaseUrl: "http://localhost:5173",
+      });
+
+      expect(result.ok).toBe(false);
     });
   });
 });
