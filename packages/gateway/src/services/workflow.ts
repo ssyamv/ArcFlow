@@ -103,11 +103,13 @@ async function flowPrdToTech(executionId: number, params: TriggerParams): Promis
     sendTechReviewCard({
       chatId: params.chat_id,
       featureName,
-      prdLink: params.input_path,
-      techDocLink: techDocPath,
-      openApiLink: openApiPath,
+      prdPath: params.input_path,
+      techDocPath,
+      openApiPath,
       issueId: params.plane_issue_id ?? "",
-      docPath: techDocPath,
+      workspaceSlug: getConfig().planeWorkspaceSlug,
+      planeWorkspaceSlug: getConfig().planeWorkspaceSlug,
+      planeProjectId: params.project_id,
     }).catch(() => {});
   }
 }
