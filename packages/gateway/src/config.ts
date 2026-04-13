@@ -69,6 +69,9 @@ export interface Config {
   jwtSecret: string;
   jwtExpiresIn: string;
   oauthRedirectUri: string;
+
+  // Web 前端
+  webBaseUrl: string;
 }
 
 export function getConfig(): Config {
@@ -128,5 +131,7 @@ export function getConfig(): Config {
     jwtSecret: process.env.JWT_SECRET ?? "arcflow-dev-secret",
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
     oauthRedirectUri: process.env.OAUTH_REDIRECT_URI ?? "http://localhost:5173/auth/callback",
+
+    webBaseUrl: process.env.WEB_BASE_URL ?? "http://localhost:5173",
   };
 }
