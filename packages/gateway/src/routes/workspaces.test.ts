@@ -1,13 +1,5 @@
-import { describe, expect, it, afterEach, beforeEach, mock } from "bun:test";
+import { describe, expect, it, afterEach, beforeEach } from "bun:test";
 import { closeDb, getDb } from "../db";
-import { createTestConfig } from "../test-config";
-
-mock.module("../config", () => ({
-  getConfig: () =>
-    createTestConfig({
-      planeWorkspaceSlug: "arcflow",
-    }),
-}));
 
 import { workspaceRoutes } from "./workspaces";
 import { signJwt } from "../services/auth";
@@ -101,35 +93,5 @@ describe("workspace routes", () => {
       body: JSON.stringify({ dify_dataset_id: "ds-hack" }),
     });
     expect(res.status).toBe(403);
-  });
-
-  it("POST /sync-plane syncs Plane projects", async () => {
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          results: [{ id: "proj-100", name: "Gamma", identifier: "GAM" }],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )) as typeof fetch;
-
-    const res = await workspaceRoutes.request("/sync-plane", {
-      method: "POST",
-      headers: headers(adminToken),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.created).toBe(1);
-  });
-
-  it("POST /sync-plane returns 500 on error", async () => {
-    globalThis.fetch = (async () => new Response("Unauthorized", { status: 401 })) as typeof fetch;
-
-    const res = await workspaceRoutes.request("/sync-plane", {
-      method: "POST",
-      headers: headers(adminToken),
-    });
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toContain("Plane API error");
   });
 });

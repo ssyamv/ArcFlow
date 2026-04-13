@@ -58,12 +58,3 @@ export async function createWorkspace(name: string): Promise<Workspace> {
   if (!res.ok) throw new Error("Failed to create workspace");
   return res.json();
 }
-
-export async function syncPlaneProjects(): Promise<{ created: number; skipped: number }> {
-  const res = await fetch(`${API_BASE}/api/workspaces/sync-plane`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error("Sync failed");
-  return res.json();
-}

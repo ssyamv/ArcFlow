@@ -9,7 +9,6 @@ import {
   createWorkspace,
   addWorkspaceMember,
 } from "../db/queries";
-import { syncPlaneProjects } from "../services/workspace-sync";
 
 export const workspaceRoutes = new Hono();
 workspaceRoutes.use("/*", authMiddleware);
@@ -52,14 +51,4 @@ workspaceRoutes.patch("/:id/settings", async (c) => {
   const body = await c.req.json();
   updateWorkspaceSettings(id, body);
   return c.json({ ok: true });
-});
-
-workspaceRoutes.post("/sync-plane", async (c) => {
-  const userId = c.get("userId") as number;
-  try {
-    const result = await syncPlaneProjects(userId);
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Sync failed" }, 500);
-  }
 });
