@@ -19,7 +19,6 @@ export interface DocsRouteDeps {
   getWorkspace: typeof queries.getWorkspace;
   authMiddleware: MiddlewareHandler;
   workspaceMiddleware: MiddlewareHandler;
-  getDocsGitRepo: () => string | undefined;
   getGitWorkDir: () => string;
 }
 
@@ -37,7 +36,6 @@ function defaultDeps(): DocsRouteDeps {
     getWorkspace: queries.getWorkspace,
     authMiddleware: defaultAuthMiddleware,
     workspaceMiddleware: defaultWorkspaceMiddleware,
-    getDocsGitRepo: () => getConfig().docsGitRepo,
     getGitWorkDir: () => getConfig().gitWorkDir,
   };
 }
@@ -49,30 +47,26 @@ export function createDocsRoutes(overrides?: Partial<DocsRouteDeps>): Hono {
   router.use("/*", deps.authMiddleware, deps.workspaceMiddleware);
 
   /**
-   * 获取当前工作空间的 docs 仓库名称。
-   * 工作空间各自独立：目录名为 ws-{id}-docs，仓库 URL 从 workspace.git_repos.docs 读取。
-   * 如果工作空间未配置 docs 仓库，回退到全局 DOCS_GIT_REPO（旧的 "docs" 仓库）。
+   * 获取当前工作空间的 docs 仓库名称和 URL。
+   * 目录名：ws-{id}-docs；仓库 URL 从 workspace.git_repos.docs 读取。
    */
   function getDocsRepoInfo(c: { get: (key: string) => unknown }): {
     repoName: string;
     repoUrl: string | null;
   } {
     const workspaceId = c.get("workspaceId") as number | null;
-    if (workspaceId) {
-      const ws = deps.getWorkspace(workspaceId);
-      if (ws) {
-        try {
-          const repos = JSON.parse(ws.git_repos || "{}");
-          if (repos.docs) {
-            return { repoName: `ws-${workspaceId}-docs`, repoUrl: repos.docs };
-          }
-        } catch {
-          // ignore parse errors
-        }
+    if (!workspaceId) return { repoName: "", repoUrl: null };
+    const ws = deps.getWorkspace(workspaceId);
+    if (!ws) return { repoName: "", repoUrl: null };
+    try {
+      const repos = JSON.parse(ws.git_repos || "{}");
+      if (repos.docs) {
+        return { repoName: `ws-${workspaceId}-docs`, repoUrl: repos.docs };
       }
+    } catch {
+      // ignore parse errors
     }
-    // 回退到全局配置
-    return { repoName: "docs", repoUrl: deps.getDocsGitRepo() || null };
+    return { repoName: "", repoUrl: null };
   }
 
   async function ensureWorkspaceDocs(repoName: string, repoUrl: string | null): Promise<void> {

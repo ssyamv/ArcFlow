@@ -49,13 +49,13 @@ export interface WebhookEvent {
 
 // API 请求/响应类型
 export interface TriggerWorkflowRequest {
+  workspace_id: number;
   workflow_type: WorkflowType;
   plane_issue_id: string;
   params?: {
     input_path?: string;
     target_repos?: string[];
     figma_url?: string;
-    project_id?: string;
     chat_id?: string;
   };
 }
@@ -153,6 +153,7 @@ export interface Workspace {
   dify_rag_api_key: string | null;
   wiki_path_prefix: string | null;
   git_repos: string;
+  feishu_chat_id: string | null;
   created_at: string;
   updated_at: string;
 }

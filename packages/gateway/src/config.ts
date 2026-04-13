@@ -12,11 +12,8 @@ export interface Config {
   planeBaseUrl: string;
   planeExternalUrl: string;
   planeApiToken: string;
-  planeWorkspaceSlug: string;
-  planeDefaultProjectId: string;
 
   // Git
-  docsGitRepo: string;
   backendGitRepo: string;
   vue3GitRepo: string;
   flutterGitRepo: string;
@@ -64,11 +61,15 @@ export interface Config {
   ibuildUser: string;
   ibuildWebhookSecret: string;
   ibuildAppRepoMap: Record<string, string>;
+  ibuildAppWorkspaceMap: Record<string, string>;
 
   // JWT / OAuth
   jwtSecret: string;
   jwtExpiresIn: string;
   oauthRedirectUri: string;
+
+  // Web 前端
+  webBaseUrl: string;
 }
 
 export function getConfig(): Config {
@@ -84,10 +85,7 @@ export function getConfig(): Config {
     planeBaseUrl: process.env.PLANE_BASE_URL ?? "",
     planeExternalUrl: process.env.PLANE_EXTERNAL_URL || process.env.PLANE_BASE_URL || "",
     planeApiToken: process.env.PLANE_API_TOKEN ?? "",
-    planeWorkspaceSlug: process.env.PLANE_WORKSPACE_SLUG ?? "",
-    planeDefaultProjectId: process.env.PLANE_DEFAULT_PROJECT_ID ?? "",
 
-    docsGitRepo: process.env.DOCS_GIT_REPO ?? "",
     backendGitRepo: process.env.BACKEND_GIT_REPO ?? "",
     vue3GitRepo: process.env.VUE3_GIT_REPO ?? "",
     flutterGitRepo: process.env.FLUTTER_GIT_REPO ?? "",
@@ -124,9 +122,12 @@ export function getConfig(): Config {
     ibuildUser: process.env.IBUILD_USER ?? "",
     ibuildWebhookSecret: process.env.IBUILD_WEBHOOK_SECRET ?? "",
     ibuildAppRepoMap: JSON.parse(process.env.IBUILD_APP_REPO_MAP || '{"default":"backend"}'),
+    ibuildAppWorkspaceMap: JSON.parse(process.env.IBUILD_APP_WORKSPACE_MAP || "{}"),
 
     jwtSecret: process.env.JWT_SECRET ?? "arcflow-dev-secret",
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
     oauthRedirectUri: process.env.OAUTH_REDIRECT_URI ?? "http://localhost:5173/auth/callback",
+
+    webBaseUrl: process.env.WEB_BASE_URL ?? "http://localhost:5173",
   };
 }

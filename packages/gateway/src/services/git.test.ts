@@ -58,7 +58,6 @@ mock.module("../config", () => ({
   getConfig: () =>
     createTestConfig({
       gitWorkDir: "/tmp/test-git",
-      docsGitRepo: "git@example.com:org/docs.git",
       backendGitRepo: "git@example.com:org/backend.git",
       vue3GitRepo: "git@example.com:org/vue3.git",
       flutterGitRepo: "git@example.com:org/flutter.git",
@@ -76,7 +75,11 @@ const {
   deleteFile,
   renameFile,
   searchFiles,
+  registerRepoUrl,
 } = await import("./git");
+
+// "docs" 仓库已从全局 config 移除，测试用动态注册
+registerRepoUrl("docs", "git@example.com:org/docs.git");
 
 function clearAllMocks() {
   Object.values(gitMethods).forEach((m) => m.mockClear());

@@ -64,22 +64,25 @@ async function sendMessage(chatId: string, msgType: string, content: string): Pr
 export interface TechReviewCardParams {
   chatId: string;
   featureName: string;
-  prdLink: string;
-  techDocLink: string;
-  openApiLink: string;
+  prdPath: string;
+  techDocPath: string;
+  openApiPath: string;
   issueId: string;
-  docPath: string;
+  workspaceSlug: string;
+  planeWorkspaceSlug: string;
+  planeProjectId: string;
   planeBaseUrl?: string;
-  planeWorkspaceSlug?: string;
-  planeProjectId?: string;
 }
 
 export async function sendTechReviewCard(params: TechReviewCardParams): Promise<void> {
   const config = getConfig();
   const planeBase = params.planeBaseUrl || config.planeExternalUrl;
-  const workspace = params.planeWorkspaceSlug || config.planeWorkspaceSlug;
-  const projectId = params.planeProjectId || config.planeDefaultProjectId;
-  const planeIssueUrl = `${planeBase}/${workspace}/projects/${projectId}/issues/${params.issueId}`;
+  const planeIssueUrl = `${planeBase}/${params.planeWorkspaceSlug}/projects/${params.planeProjectId}/issues/${params.issueId}`;
+  const docUrl = (path: string) =>
+    `${config.webBaseUrl}/docs?ws=${encodeURIComponent(params.workspaceSlug)}&path=${encodeURIComponent(path)}`;
+  const prdLink = docUrl(params.prdPath);
+  const techDocLink = docUrl(params.techDocPath);
+  const openApiLink = docUrl(params.openApiPath);
 
   const card = {
     config: { wide_screen_mode: true },
@@ -93,15 +96,15 @@ export async function sendTechReviewCard(params: TechReviewCardParams): Promise<
         fields: [
           {
             is_short: true,
-            text: { tag: "lark_md", content: `**PRD:** [查看](${params.prdLink})` },
+            text: { tag: "lark_md", content: `**PRD:** [查看](${prdLink})` },
           },
           {
             is_short: true,
-            text: { tag: "lark_md", content: `**技术文档:** [查看](${params.techDocLink})` },
+            text: { tag: "lark_md", content: `**技术文档:** [查看](${techDocLink})` },
           },
           {
             is_short: true,
-            text: { tag: "lark_md", content: `**OpenAPI:** [查看](${params.openApiLink})` },
+            text: { tag: "lark_md", content: `**OpenAPI:** [查看](${openApiLink})` },
           },
         ],
       },

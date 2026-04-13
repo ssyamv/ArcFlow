@@ -71,6 +71,23 @@
             </div>
           </div>
           <div>
+            <label class="block text-xs mb-1" style="color: var(--color-text-tertiary)">
+              飞书通知群 chat_id
+            </label>
+            <input
+              v-model="form.feishu_chat_id"
+              type="text"
+              class="w-full px-3 py-2 rounded-lg text-sm"
+              style="
+                background-color: var(--color-bg-primary);
+                border: 1px solid var(--color-border-default);
+                color: var(--color-text-primary);
+                outline: none;
+              "
+              placeholder="例如: oc_xxxxxxxx"
+            />
+          </div>
+          <div>
             <label class="block text-xs mb-1" style="color: var(--color-text-tertiary)"
               >你的角色</label
             >
@@ -337,7 +354,8 @@ const loadingProjects = ref(false);
 async function loadPlaneProjects() {
   loadingProjects.value = true;
   try {
-    planeProjects.value = await fetchPlaneProjects();
+    if (!form.plane_workspace_slug) return;
+    planeProjects.value = await fetchPlaneProjects(form.plane_workspace_slug);
   } catch {
     // Plane 不可用时静默失败
   } finally {
@@ -351,6 +369,7 @@ const form = reactive({
   wiki_path_prefix: "",
   plane_project_id: "",
   plane_workspace_slug: "",
+  feishu_chat_id: "",
 });
 
 const gitRepos = reactive({
@@ -368,6 +387,7 @@ function loadForm() {
   form.wiki_path_prefix = detail.value.wiki_path_prefix ?? "";
   form.plane_project_id = detail.value.plane_project_id ?? "";
   form.plane_workspace_slug = detail.value.plane_workspace_slug ?? "";
+  form.feishu_chat_id = detail.value.feishu_chat_id ?? "";
 
   try {
     const repos = JSON.parse(detail.value.git_repos || "{}");
@@ -402,6 +422,7 @@ async function handleSave() {
       wiki_path_prefix: form.wiki_path_prefix || null,
       plane_project_id: form.plane_project_id || null,
       plane_workspace_slug: form.plane_workspace_slug || null,
+      feishu_chat_id: form.feishu_chat_id || null,
       git_repos: JSON.stringify({
         docs: gitRepos.docs || undefined,
         backend: gitRepos.backend || undefined,

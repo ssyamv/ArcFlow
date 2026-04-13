@@ -3,10 +3,7 @@ import { closeDb, getDb } from "../db";
 import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () =>
-    createTestConfig({
-      planeWorkspaceSlug: "arcflow",
-    }),
+  getConfig: () => createTestConfig(),
 }));
 
 import { planeProxyRoutes } from "./plane-proxy";
@@ -52,7 +49,7 @@ describe("plane proxy routes", () => {
       ),
     ) as typeof fetch;
 
-    const res = await planeProxyRoutes.request("/projects", {
+    const res = await planeProxyRoutes.request("/projects?slug=test-ws", {
       headers: authHeaders(token),
     });
     expect(res.status).toBe(200);

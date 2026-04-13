@@ -89,18 +89,6 @@
             >
               + 新建工作空间
             </button>
-            <button
-              class="w-full text-left px-3 py-1.5 text-xs cursor-pointer"
-              style="
-                background: none;
-                border: none;
-                color: var(--color-accent-violet);
-                transition: all 120ms ease;
-              "
-              @click="handleSyncPlane"
-            >
-              同步 Plane 项目
-            </button>
           </div>
         </div>
       </div>
@@ -355,11 +343,6 @@ async function confirmCreateWorkspace() {
   await wsStore.create(newWsName.value.trim());
   showCreateWsDialog.value = false;
   window.location.reload();
-}
-
-async function handleSyncPlane() {
-  await wsStore.sync();
-  wsDropdownOpen.value = false;
 }
 </script>
 

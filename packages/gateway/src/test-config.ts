@@ -16,9 +16,6 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     planeBaseUrl: "http://plane-test:8080",
     planeExternalUrl: "http://plane-test:8080",
     planeApiToken: "test-plane-token",
-    planeWorkspaceSlug: "test-ws",
-    planeDefaultProjectId: "test-plane-proj",
-    docsGitRepo: "git@example.com:org/docs.git",
     backendGitRepo: "git@example.com:org/backend.git",
     vue3GitRepo: "",
     flutterGitRepo: "",
@@ -47,9 +44,11 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     ibuildUser: "test-user",
     ibuildWebhookSecret: "",
     ibuildAppRepoMap: { default: "backend" },
+    ibuildAppWorkspaceMap: {},
     jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
     jwtExpiresIn: "7d",
     oauthRedirectUri: "http://localhost:5173/auth/callback",
+    webBaseUrl: "http://localhost:5173",
     ...overrides,
   };
 }

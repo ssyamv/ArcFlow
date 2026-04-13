@@ -230,6 +230,8 @@ import UiDialog from "../components/ui/AppDialog.vue";
 import { PanelLeft } from "lucide-vue-next";
 import TurndownService from "turndown";
 import { useDocsStore } from "../stores/docs";
+import { useWorkspaceStore } from "../stores/workspace";
+import { useRoute } from "vue-router";
 import TreeItem from "../components/DocTreeItem.vue";
 
 defineOptions({ name: "DocsPage" });
@@ -437,8 +439,26 @@ async function handleDeleteNode(path: string) {
   }
 }
 
-onMounted(() => {
-  store.loadTree();
+const route = useRoute();
+const wsStore = useWorkspaceStore();
+
+onMounted(async () => {
+  const qWs = typeof route.query.ws === "string" ? route.query.ws : "";
+  const qPath = typeof route.query.path === "string" ? route.query.path : "";
+
+  if (qWs) {
+    // 确保 workspaces 已加载，按 slug 查找并切换
+    if (wsStore.workspaces.length === 0) await wsStore.load();
+    const target = wsStore.workspaces.find((w) => w.slug === qWs);
+    if (target && target.id !== wsStore.currentId) {
+      await wsStore.select(target.id);
+    }
+  }
+
+  await store.loadTree();
+  if (qPath) {
+    store.openFile(qPath);
+  }
   document.addEventListener("keydown", onKeydown);
 });
 

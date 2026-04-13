@@ -120,11 +120,13 @@ describe("feishu service", () => {
       await sendTechReviewCard({
         chatId: "chat-review-001",
         featureName: "用户登录",
-        prdLink: "https://wiki.example.com/prd/login",
-        techDocLink: "https://wiki.example.com/tech/login",
-        openApiLink: "https://wiki.example.com/api/login",
+        prdPath: "prd/login.md",
+        techDocPath: "tech-design/login.md",
+        openApiPath: "api/login.yaml",
         issueId: "ISSUE-300",
-        docPath: "tech-design/login.md",
+        workspaceSlug: "ws-1",
+        planeWorkspaceSlug: "plane-ws",
+        planeProjectId: "proj-1",
       });
 
       const msgCall = fetchCalls.find((c) => c.url.includes("/im/v1/messages"));
@@ -155,11 +157,13 @@ describe("feishu service", () => {
       await sendTechReviewCard({
         chatId: "chat-review-002",
         featureName: "订单管理",
-        prdLink: "https://wiki.example.com/prd/order",
-        techDocLink: "https://wiki.example.com/tech/order",
-        openApiLink: "https://wiki.example.com/api/order",
+        prdPath: "prd/order.md",
+        techDocPath: "tech-design/order.md",
+        openApiPath: "api/order.yaml",
         issueId: "ISSUE-400",
-        docPath: "tech-design/order.md",
+        workspaceSlug: "ws-1",
+        planeWorkspaceSlug: "plane-ws",
+        planeProjectId: "proj-1",
       });
 
       const msgCall = fetchCalls.find((c) => c.url.includes("/im/v1/messages"));
@@ -174,9 +178,10 @@ describe("feishu service", () => {
       const fieldTexts = divElement.fields.map(
         (f: Record<string, Record<string, string>>) => f.text.content,
       );
-      expect(fieldTexts.some((t: string) => t.includes("prd/order"))).toBe(true);
-      expect(fieldTexts.some((t: string) => t.includes("tech/order"))).toBe(true);
-      expect(fieldTexts.some((t: string) => t.includes("api/order"))).toBe(true);
+      expect(fieldTexts.some((t: string) => t.includes("ws=ws-1"))).toBe(true);
+      expect(fieldTexts.some((t: string) => t.includes("prd%2Forder.md"))).toBe(true);
+      expect(fieldTexts.some((t: string) => t.includes("tech-design%2Forder.md"))).toBe(true);
+      expect(fieldTexts.some((t: string) => t.includes("api%2Forder.yaml"))).toBe(true);
     });
   });
 

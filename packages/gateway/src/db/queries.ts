@@ -294,6 +294,9 @@ export function updateWorkspaceSettings(
     dify_rag_api_key?: string;
     wiki_path_prefix?: string;
     git_repos?: string;
+    plane_project_id?: string;
+    plane_workspace_slug?: string;
+    feishu_chat_id?: string;
   },
 ): boolean {
   const db = getDb();
@@ -314,6 +317,18 @@ export function updateWorkspaceSettings(
   if (patch.git_repos !== undefined) {
     sets.push("git_repos = ?");
     values.push(patch.git_repos);
+  }
+  if (patch.plane_project_id !== undefined) {
+    sets.push("plane_project_id = ?");
+    values.push(patch.plane_project_id);
+  }
+  if (patch.plane_workspace_slug !== undefined) {
+    sets.push("plane_workspace_slug = ?");
+    values.push(patch.plane_workspace_slug);
+  }
+  if (patch.feishu_chat_id !== undefined) {
+    sets.push("feishu_chat_id = ?");
+    values.push(patch.feishu_chat_id);
   }
   if (sets.length === 0) return false;
   sets.push("updated_at = datetime('now')");

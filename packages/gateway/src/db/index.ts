@@ -19,6 +19,9 @@ export function getDb(): Database {
     if (!colNames.has("plane_workspace_slug")) {
       db.exec("ALTER TABLE workspaces ADD COLUMN plane_workspace_slug TEXT");
     }
+    if (!colNames.has("feishu_chat_id")) {
+      db.exec("ALTER TABLE workspaces ADD COLUMN feishu_chat_id TEXT");
+    }
   }
   return db;
 }

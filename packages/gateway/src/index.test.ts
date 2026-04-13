@@ -39,10 +39,13 @@ describe("gateway app", () => {
   });
 
   it("POST /api/workflow/trigger is routed", async () => {
+    const { createWorkspace } = await import("./db/queries");
+    const ws = createWorkspace({ name: "R", slug: "r-ws" });
     const res = await app.request("/api/workflow/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        workspace_id: ws.id,
         workflow_type: "prd_to_tech",
         plane_issue_id: "TEST-1",
       }),

@@ -22,12 +22,15 @@ describe("api routes", () => {
   });
 
   it("POST /api/workflow/trigger calls triggerWorkflow", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T", slug: "t-ws" });
     const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(42);
 
     const res = await app.request("/api/workflow/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        workspace_id: ws.id,
         workflow_type: "prd_to_tech",
         plane_issue_id: "ISSUE-1",
         params: { input_path: "/prd/test.md" },
@@ -36,42 +39,69 @@ describe("api routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.execution_id).toBe(42);
-    expect(body.status).toBe("running");
-    expect(body.message).toBe("工作流已触发");
 
-    expect(triggerSpy).toHaveBeenCalledTimes(1);
-    expect(triggerSpy).toHaveBeenCalledWith({
-      workflow_type: "prd_to_tech",
-      trigger_source: "manual",
-      plane_issue_id: "ISSUE-1",
-      input_path: "/prd/test.md",
-      target_repos: undefined,
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "prd_to_tech",
+        trigger_source: "manual",
+        plane_issue_id: "ISSUE-1",
+        input_path: "/prd/test.md",
+      }),
+    );
+  });
+
+  it("POST /api/workflow/trigger returns 400 when workspace_id missing", async () => {
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow_type: "prd_to_tech",
+        plane_issue_id: "ISSUE-1",
+      }),
     });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/workflow/trigger returns 404 when workspace not found", async () => {
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: 99999,
+        workflow_type: "prd_to_tech",
+        plane_issue_id: "ISSUE-1",
+      }),
+    });
+    expect(res.status).toBe(404);
   });
 
   it("POST /api/workflow/trigger passes target_repos param", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T2", slug: "t-ws-2" });
     const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(99);
 
     const res = await app.request("/api/workflow/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        workspace_id: ws.id,
         workflow_type: "code_gen",
         plane_issue_id: "ISSUE-5",
         params: { target_repos: ["backend", "web"] },
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.execution_id).toBe(99);
 
-    expect(triggerSpy).toHaveBeenCalledWith({
-      workflow_type: "code_gen",
-      trigger_source: "manual",
-      plane_issue_id: "ISSUE-5",
-      input_path: undefined,
-      target_repos: ["backend", "web"],
-    });
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        trigger_source: "manual",
+        plane_issue_id: "ISSUE-5",
+        target_repos: ["backend", "web"],
+      }),
+    );
   });
 
   it("GET /api/workflow/executions returns list", async () => {

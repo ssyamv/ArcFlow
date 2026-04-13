@@ -34,18 +34,10 @@ function getRepoUrl(repoName: string): string {
 
   const config = getConfig();
   const repoMap: Record<string, string> = {
-    docs: config.docsGitRepo,
     backend: config.backendGitRepo,
     vue3: config.vue3GitRepo,
     flutter: config.flutterGitRepo,
     android: config.androidGitRepo,
-    // Aliases: CI systems may use full repo names
-    "arcflow-docs": config.docsGitRepo,
-    "arcflow-backend": config.backendGitRepo,
-    "arcflow-backend-test": config.backendGitRepo,
-    "arcflow-vue3": config.vue3GitRepo,
-    "arcflow-flutter": config.flutterGitRepo,
-    "arcflow-android": config.androidGitRepo,
   };
   const url = repoMap[repoName];
   if (!url) throw new Error(`Unknown repo: ${repoName}`);

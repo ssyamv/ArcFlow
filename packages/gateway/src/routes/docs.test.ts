@@ -48,7 +48,6 @@ const deps: DocsRouteDeps = {
   getWorkspace: mockGetWorkspace as unknown as DocsRouteDeps["getWorkspace"],
   authMiddleware: fakeAuth,
   workspaceMiddleware: fakeWorkspace,
-  getDocsGitRepo: () => "https://example.com/fallback-docs.git",
   getGitWorkDir: () => "/tmp/gateway-git",
 };
 

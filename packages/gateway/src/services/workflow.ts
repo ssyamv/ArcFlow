@@ -5,10 +5,11 @@ import {
   getBugFixRetry,
   incrementBugFixRetry,
   updateBugFixStatus,
+  getWorkspace,
 } from "../db/queries";
-import type { WorkflowType, TriggerSource } from "../types";
+import type { WorkflowType, TriggerSource, Workspace } from "../types";
 import { getConfig } from "../config";
-import { ensureRepo, readFile, writeAndPush, createBranchAndPush } from "./git";
+import { ensureRepo, readFile, writeAndPush, createBranchAndPush, registerRepoUrl } from "./git";
 import { generateTechDoc, generateOpenApi, analyzeBug } from "./dify";
 import { createBugIssue } from "./plane";
 import { sendTechReviewCard, sendNotification, sendBugNotification } from "./feishu";
@@ -16,14 +17,46 @@ import { runClaudeCode } from "./claude-code";
 import { join } from "path";
 
 interface TriggerParams {
+  workspace_id: number;
   workflow_type: WorkflowType;
   trigger_source: TriggerSource;
   plane_issue_id?: string;
   input_path?: string;
   target_repos?: string[];
   figma_url?: string;
-  project_id?: string;
   chat_id?: string;
+}
+
+/** 加载 workspace 并注册其 git 仓库到动态注册表 */
+function loadWorkspace(workspaceId: number): Workspace {
+  const ws = getWorkspace(workspaceId);
+  if (!ws) throw new Error(`workspace ${workspaceId} not found`);
+  const repos = safeParseRepos(ws.git_repos);
+  for (const [name, url] of Object.entries(repos)) {
+    if (url) registerRepoUrl(wsRepoName(ws.id, name), url);
+  }
+  return ws;
+}
+
+function safeParseRepos(raw: string): Record<string, string> {
+  try {
+    return JSON.parse(raw || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function wsRepoName(workspaceId: number, repo: string): string {
+  return `ws-${workspaceId}-${repo}`;
+}
+
+function requirePlaneContext(ws: Workspace): {
+  planeSlug: string;
+  planeProjectId: string;
+} {
+  if (!ws.plane_workspace_slug) throw new Error(`workspace ${ws.id} missing plane_workspace_slug`);
+  if (!ws.plane_project_id) throw new Error(`workspace ${ws.id} missing plane_project_id`);
+  return { planeSlug: ws.plane_workspace_slug, planeProjectId: ws.plane_project_id };
 }
 
 export async function triggerWorkflow(params: TriggerParams): Promise<number> {
@@ -46,18 +79,21 @@ export async function triggerWorkflow(params: TriggerParams): Promise<number> {
 
 async function executeWorkflow(executionId: number, params: TriggerParams): Promise<void> {
   try {
+    if (!params.workspace_id) throw new Error("workspace_id is required");
+    const ws = loadWorkspace(params.workspace_id);
+
     switch (params.workflow_type) {
       case "prd_to_tech":
-        await flowPrdToTech(executionId, params);
+        await flowPrdToTech(executionId, params, ws);
         break;
       case "tech_to_openapi":
-        await flowTechToOpenApi(executionId, params);
+        await flowTechToOpenApi(executionId, params, ws);
         break;
       case "bug_analysis":
-        await flowBugAnalysis(executionId, params);
+        await flowBugAnalysis(executionId, params, ws);
         break;
       case "code_gen":
-        await flowCodeGen(executionId, params);
+        await flowCodeGen(executionId, params, ws);
         break;
     }
     updateWorkflowStatus(executionId, "success");
@@ -77,69 +113,78 @@ async function executeWorkflow(executionId: number, params: TriggerParams): Prom
 }
 
 // Flow A: PRD Approved → Tech Doc + OpenAPI
-async function flowPrdToTech(executionId: number, params: TriggerParams): Promise<void> {
+async function flowPrdToTech(
+  _executionId: number,
+  params: TriggerParams,
+  ws: Workspace,
+): Promise<void> {
   if (!params.input_path) throw new Error("input_path is required for prd_to_tech");
 
   const now = new Date();
   const monthDir = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const featureName = params.input_path.split("/").pop()?.replace(".md", "") ?? "unknown";
+  const docsRepo = wsRepoName(ws.id, "docs");
 
-  // 1. Pull docs repo and read PRD
-  await ensureRepo("docs");
-  const prdContent = await readFile("docs", params.input_path);
+  await ensureRepo(docsRepo);
+  const prdContent = await readFile(docsRepo, params.input_path);
 
-  // 2. Call Dify workflow 1: PRD → Tech Doc
   const techDoc = await generateTechDoc(prdContent);
   const techDocPath = `tech-design/${monthDir}/${featureName}.md`;
-  await writeAndPush("docs", techDocPath, techDoc, `docs: AI 生成技术设计文档 - ${featureName}`);
+  await writeAndPush(docsRepo, techDocPath, techDoc, `docs: AI 生成技术设计文档 - ${featureName}`);
 
-  // 3. Call Dify workflow 2: Tech Doc → OpenAPI
   const openApi = await generateOpenApi(techDoc);
   const openApiPath = `api/${monthDir}/${featureName}.yaml`;
-  await writeAndPush("docs", openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
+  await writeAndPush(docsRepo, openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
 
-  // 4. Send Feishu review card (non-blocking)
   if (params.chat_id) {
+    const { planeSlug, planeProjectId } = requirePlaneContext(ws);
     sendTechReviewCard({
       chatId: params.chat_id,
       featureName,
-      prdLink: params.input_path,
-      techDocLink: techDocPath,
-      openApiLink: openApiPath,
+      prdPath: params.input_path,
+      techDocPath,
+      openApiPath,
       issueId: params.plane_issue_id ?? "",
-      docPath: techDocPath,
+      workspaceSlug: ws.slug,
+      planeWorkspaceSlug: planeSlug,
+      planeProjectId,
     }).catch(() => {});
   }
 }
 
-// Flow A (partial): Tech Doc → OpenAPI only
-async function flowTechToOpenApi(_executionId: number, params: TriggerParams): Promise<void> {
+async function flowTechToOpenApi(
+  _executionId: number,
+  params: TriggerParams,
+  ws: Workspace,
+): Promise<void> {
   if (!params.input_path) throw new Error("input_path is required for tech_to_openapi");
 
   const now = new Date();
   const monthDir = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const featureName = params.input_path.split("/").pop()?.replace(".md", "") ?? "unknown";
+  const docsRepo = wsRepoName(ws.id, "docs");
 
-  await ensureRepo("docs");
-  const techDocContent = await readFile("docs", params.input_path);
+  await ensureRepo(docsRepo);
+  const techDocContent = await readFile(docsRepo, params.input_path);
 
   const openApi = await generateOpenApi(techDocContent);
   const openApiPath = `api/${monthDir}/${featureName}.yaml`;
-  await writeAndPush("docs", openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
+  await writeAndPush(docsRepo, openApiPath, openApi, `docs: AI 生成 OpenAPI - ${featureName}`);
 }
 
-// Flow D: CI/CD Failure → Bug Analysis + Auto Fix
-async function flowBugAnalysis(_executionId: number, params: TriggerParams): Promise<void> {
+async function flowBugAnalysis(
+  _executionId: number,
+  params: TriggerParams,
+  ws: Workspace,
+): Promise<void> {
   if (!params.input_path) throw new Error("CI log content is required");
-  if (!params.project_id) throw new Error("project_id is required");
+  const { planeSlug, planeProjectId } = requirePlaneContext(ws);
 
   const sourceIssueId = params.plane_issue_id ?? "unknown";
 
-  // 1. Check if this is a retry for an existing bug
   const existingRetry = getBugFixRetry(sourceIssueId);
 
   if (existingRetry && existingRetry.retry_count >= 2) {
-    // Already exhausted retries → escalate
     updateBugFixStatus(sourceIssueId, "escalated");
     if (params.chat_id) {
       sendBugNotification(
@@ -152,14 +197,12 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
     return;
   }
 
-  // 2. Call Dify workflow 3: CI Log → Bug Report
   const bugReport = await analyzeBug(params.input_path, sourceIssueId);
   const severity = parseSeverity(bugReport);
 
-  // 3. Create Bug Issue in Plane (only on first failure)
   let bugIssueId = existingRetry?.bug_issue_id;
   if (!existingRetry) {
-    const bugIssue = await createBugIssue(params.project_id, {
+    const bugIssue = await createBugIssue(planeSlug, planeProjectId, {
       name: `[Bug] CI 失败 - ${sourceIssueId}`,
       description_html: bugReport,
       priority: severity === "P0" ? "urgent" : "high",
@@ -169,7 +212,6 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
     createBugFixRetry(sourceIssueId, bugIssue.id);
   }
 
-  // 4. Send bug notification
   if (params.chat_id) {
     const retryLabel = existingRetry ? `（第 ${existingRetry.retry_count + 1} 次重试）` : "";
     sendBugNotification(
@@ -180,11 +222,10 @@ async function flowBugAnalysis(_executionId: number, params: TriggerParams): Pro
     ).catch(() => {});
   }
 
-  // 5. Increment retry count
   incrementBugFixRetry(sourceIssueId);
 
-  // 6. Auto-fix with Claude Code
-  const targetRepo = params.target_repos?.[0] ?? "backend";
+  const targetRepoBase = params.target_repos?.[0] ?? "backend";
+  const targetRepo = wsRepoName(ws.id, targetRepoBase);
   await ensureRepo(targetRepo);
   const config = getConfig();
   const repoDir = join(config.gitWorkDir, targetRepo);
@@ -223,24 +264,27 @@ function parseSeverity(bugReport: string): string {
   return match?.[1]?.toUpperCase() ?? "P1";
 }
 
-// Flow C: Code Generation
-async function flowCodeGen(_executionId: number, params: TriggerParams): Promise<void> {
-  const repos = params.target_repos ?? ["backend"];
+async function flowCodeGen(
+  _executionId: number,
+  params: TriggerParams,
+  ws: Workspace,
+): Promise<void> {
+  const repoBases = params.target_repos ?? ["backend"];
   const config = getConfig();
+  const docsRepo = wsRepoName(ws.id, "docs");
 
-  for (const repoName of repos) {
+  for (const repoBase of repoBases) {
+    const repoName = wsRepoName(ws.id, repoBase);
     await ensureRepo(repoName);
 
-    // Read tech design + OpenAPI if available
     let taskContext = "";
     if (params.input_path) {
-      await ensureRepo("docs");
-      const techDoc = await readFile("docs", params.input_path);
+      await ensureRepo(docsRepo);
+      const techDoc = await readFile(docsRepo, params.input_path);
       taskContext += `## 技术设计文档\n\n${techDoc}\n\n`;
     }
 
     const repoDir = join(config.gitWorkDir, repoName);
-
     const taskDescription = `请根据以下上下文生成代码：\n\n${taskContext}`;
 
     const result = await runClaudeCode(repoDir, taskDescription, {
@@ -248,7 +292,7 @@ async function flowCodeGen(_executionId: number, params: TriggerParams): Promise
     });
 
     if (result.success) {
-      const branchName = `feature/${params.plane_issue_id ?? "unknown"}-${repoName}`;
+      const branchName = `feature/${params.plane_issue_id ?? "unknown"}-${repoBase}`;
       await createBranchAndPush(
         repoName,
         branchName,
@@ -259,11 +303,11 @@ async function flowCodeGen(_executionId: number, params: TriggerParams): Promise
         sendNotification(
           params.chat_id,
           "✅ 代码生成完成",
-          `${repoName} 代码已生成，分支 ${branchName} 已推送`,
+          `${repoBase} 代码已生成，分支 ${branchName} 已推送`,
         ).catch(() => {});
       }
     } else {
-      throw new Error(`Code gen failed for ${repoName}: ${result.error}`);
+      throw new Error(`Code gen failed for ${repoBase}: ${result.error}`);
     }
   }
 }

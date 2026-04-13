@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   dify_rag_api_key TEXT,
   wiki_path_prefix TEXT,
   git_repos TEXT NOT NULL DEFAULT '{}',
+  feishu_chat_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -6,7 +6,6 @@ mock.module("../config", () => ({
     createTestConfig({
       planeBaseUrl: "http://localhost:8082",
       planeApiToken: "test-token",
-      planeWorkspaceSlug: "test-workspace",
     }),
 }));
 
@@ -42,7 +41,7 @@ describe("plane service", () => {
 
   describe("getIssue", () => {
     it("should call correct URL with X-API-Key header", async () => {
-      const issue = await getIssue("proj-1", "issue-1");
+      const issue = await getIssue("test-workspace", "proj-1", "issue-1");
 
       expect(fetchCalls.length).toBe(1);
       expect(fetchCalls[0].url).toBe(
@@ -67,7 +66,7 @@ describe("plane service", () => {
         parent_issue_id: "parent-1",
       };
 
-      const result = await createBugIssue("proj-1", params);
+      const result = await createBugIssue("test-workspace", "proj-1", params);
 
       expect(fetchCalls.length).toBe(1);
       expect(fetchCalls[0].url).toBe(
@@ -87,7 +86,7 @@ describe("plane service", () => {
 
   describe("updateIssueState", () => {
     it("should PATCH with state in body", async () => {
-      await updateIssueState("proj-1", "issue-1", "state-done");
+      await updateIssueState("test-workspace", "proj-1", "issue-1", "state-done");
 
       expect(fetchCalls.length).toBe(1);
       expect(fetchCalls[0].url).toBe(
@@ -123,7 +122,9 @@ describe("plane service", () => {
       globalThis.fetch = (async () =>
         new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
 
-      await expect(getIssue("proj-1", "issue-1")).rejects.toThrow("Plane API error: 403");
+      await expect(getIssue("test-workspace", "proj-1", "issue-1")).rejects.toThrow(
+        "Plane API error: 403",
+      );
     });
 
     it("retries on failure before throwing", async () => {
@@ -134,7 +135,9 @@ describe("plane service", () => {
         throw new Error("connection refused");
       }) as unknown as typeof fetch;
 
-      await expect(getIssue("proj-1", "issue-1")).rejects.toThrow("connection refused");
+      await expect(getIssue("test-workspace", "proj-1", "issue-1")).rejects.toThrow(
+        "connection refused",
+      );
       expect(callCount).toBe(3); // initial + 2 retries
     });
 
@@ -157,7 +160,7 @@ describe("plane service", () => {
         );
       }) as unknown as typeof fetch;
 
-      const issue = await getIssue("proj-1", "issue-1");
+      const issue = await getIssue("test-workspace", "proj-1", "issue-1");
       expect(issue.id).toBe("issue-retry");
       expect(callCount).toBe(2);
     });

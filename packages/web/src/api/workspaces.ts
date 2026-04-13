@@ -17,6 +17,7 @@ export interface Workspace {
   dify_rag_api_key: string | null;
   wiki_path_prefix: string | null;
   git_repos: string;
+  feishu_chat_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,14 +57,5 @@ export async function createWorkspace(name: string): Promise<Workspace> {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error("Failed to create workspace");
-  return res.json();
-}
-
-export async function syncPlaneProjects(): Promise<{ created: number; skipped: number }> {
-  const res = await fetch(`${API_BASE}/api/workspaces/sync-plane`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  if (!res.ok) throw new Error("Sync failed");
   return res.json();
 }

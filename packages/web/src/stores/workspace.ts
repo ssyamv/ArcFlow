@@ -3,7 +3,6 @@ import { ref, computed } from "vue";
 import {
   fetchWorkspaces,
   fetchWorkspaceDetail,
-  syncPlaneProjects,
   createWorkspace as apiCreateWorkspace,
   type Workspace,
   type WorkspaceDetail,
@@ -58,12 +57,6 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return ws;
   }
 
-  async function sync() {
-    const result = await syncPlaneProjects();
-    await load();
-    return result;
-  }
-
   return {
     workspaces,
     currentId,
@@ -74,6 +67,5 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     load,
     select,
     create,
-    sync,
   };
 });
