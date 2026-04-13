@@ -12,11 +12,8 @@ export interface Config {
   planeBaseUrl: string;
   planeExternalUrl: string;
   planeApiToken: string;
-  planeWorkspaceSlug: string;
-  planeDefaultProjectId: string;
 
   // Git
-  docsGitRepo: string;
   backendGitRepo: string;
   vue3GitRepo: string;
   flutterGitRepo: string;
@@ -88,10 +85,7 @@ export function getConfig(): Config {
     planeBaseUrl: process.env.PLANE_BASE_URL ?? "",
     planeExternalUrl: process.env.PLANE_EXTERNAL_URL || process.env.PLANE_BASE_URL || "",
     planeApiToken: process.env.PLANE_API_TOKEN ?? "",
-    planeWorkspaceSlug: process.env.PLANE_WORKSPACE_SLUG ?? "",
-    planeDefaultProjectId: process.env.PLANE_DEFAULT_PROJECT_ID ?? "",
 
-    docsGitRepo: process.env.DOCS_GIT_REPO ?? "",
     backendGitRepo: process.env.BACKEND_GIT_REPO ?? "",
     vue3GitRepo: process.env.VUE3_GIT_REPO ?? "",
     flutterGitRepo: process.env.FLUTTER_GIT_REPO ?? "",

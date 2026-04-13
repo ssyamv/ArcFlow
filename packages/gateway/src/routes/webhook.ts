@@ -66,7 +66,7 @@ export function createWebhookRoutes(): Hono {
 
       // 检测 docs 仓库 push 事件，立即触发 RAG 增量同步
       const repoName = body.repository?.full_name ?? body.repository?.name ?? "";
-      const isDocsPush = repoName.includes("docs") || repoName === config.docsGitRepo;
+      const isDocsPush = repoName.includes("docs");
 
       if (isDocsPush && config.difyDatasetApiKey && config.difyDatasetId) {
         syncRecentChanges(10).catch((err) => {

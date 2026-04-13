@@ -6,7 +6,6 @@ mock.module("../config", () => ({
     createTestConfig({
       planeBaseUrl: "http://localhost:8082",
       planeApiToken: "test-token",
-      planeWorkspaceSlug: "test-workspace",
     }),
 }));
 

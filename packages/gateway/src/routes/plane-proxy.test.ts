@@ -3,10 +3,7 @@ import { closeDb, getDb } from "../db";
 import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () =>
-    createTestConfig({
-      planeWorkspaceSlug: "arcflow",
-    }),
+  getConfig: () => createTestConfig(),
 }));
 
 import { planeProxyRoutes } from "./plane-proxy";
