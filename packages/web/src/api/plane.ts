@@ -33,8 +33,10 @@ export interface PlaneCycle {
   completed_issues: number;
 }
 
-export async function fetchPlaneProjects(): Promise<PlaneProject[]> {
-  const res = await fetch(`${API_BASE}/api/plane/projects`, { headers: authHeaders() });
+export async function fetchPlaneProjects(slug: string): Promise<PlaneProject[]> {
+  const res = await fetch(`${API_BASE}/api/plane/projects?slug=${encodeURIComponent(slug)}`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch Plane projects");
   const body = await res.json();
   return body.data;
