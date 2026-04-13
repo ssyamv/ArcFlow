@@ -17,7 +17,14 @@ import {
 } from "../services/prd";
 import { queryKnowledgeBase } from "../services/dify";
 import { syncGitToDify } from "../services/rag-sync";
-import { createDraft, chatDraft, patchDraft, getDraft, listDrafts } from "../services/requirement";
+import {
+  createDraft,
+  chatDraft,
+  patchDraft,
+  getDraft,
+  listDrafts,
+  finalizeDraft,
+} from "../services/requirement";
 import type {
   TriggerWorkflowRequest,
   WorkflowType,
@@ -328,4 +335,26 @@ apiRoutes.post("/requirement/:id/chat", async (c) => {
       await stream.writeSSE({ event, data });
     }
   });
+});
+
+apiRoutes.post("/requirement/:id/finalize", async (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+
+  const result = await finalizeDraft({ draftId: id, userId });
+  if (!result.ok) {
+    const status = result.error?.includes("不存在")
+      ? 404
+      : result.error?.includes("无权限")
+        ? 403
+        : 400;
+    return c.json({ error: result.error }, status);
+  }
+
+  return c.json({ draft: result.draft, feishu_sent: result.feishu_sent });
 });

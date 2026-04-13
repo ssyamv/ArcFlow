@@ -361,7 +361,11 @@ const isReadonly = computed(() => {
   return s === "approved" || s === "rejected" || s === "abandoned";
 });
 
-const canFinalize = computed(() => store.currentDraft?.status === "drafting");
+const canFinalize = computed(() => {
+  const draft = store.currentDraft;
+  if (!draft || draft.status !== "drafting") return false;
+  return !!(draft.prd_content && draft.prd_content.length > 50);
+});
 
 function renderMd(content: string) {
   if (!content) return "";
@@ -439,9 +443,13 @@ async function handleSaveEdit() {
 
 async function handleFinalize() {
   if (!canFinalize.value) return;
-  const ok = await store.finalize();
-  if (ok) {
-    showToast("草稿已提交 Review");
+  const result = await store.finalize();
+  if (result.ok) {
+    if (result.feishu_sent === false) {
+      showToast("已提交，但飞书通知失败");
+    } else {
+      showToast("草稿已提交 Review");
+    }
   }
 }
 

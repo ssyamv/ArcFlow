@@ -34,6 +34,7 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     wikijsBaseUrl: "",
     wikijsApiKey: "",
     difyPrdGenApiKey: "",
+    difyRequirementChatApiKey: "",
     difyRagApiKey: "",
     difyDatasetApiKey: "",
     difyDatasetId: "",

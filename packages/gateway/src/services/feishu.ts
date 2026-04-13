@@ -37,7 +37,11 @@ async function getAccessToken(): Promise<string> {
   return accessToken;
 }
 
-async function sendMessage(chatId: string, msgType: string, content: string): Promise<void> {
+async function sendMessage(
+  chatId: string,
+  msgType: string,
+  content: string,
+): Promise<{ message_id?: string }> {
   const token = await getAccessToken();
 
   const res = await fetch(
@@ -58,6 +62,14 @@ async function sendMessage(chatId: string, msgType: string, content: string): Pr
 
   if (!res.ok) {
     console.error(`Feishu send message failed: ${res.status}`);
+    return {};
+  }
+
+  try {
+    const json = (await res.json()) as { data?: { message_id?: string } };
+    return { message_id: json.data?.message_id };
+  } catch {
+    return {};
   }
 }
 
@@ -130,6 +142,87 @@ export async function sendTechReviewCard(params: TechReviewCardParams): Promise<
   };
 
   await sendMessage(params.chatId, "interactive", JSON.stringify(card));
+}
+
+export interface RequirementReviewCardParams {
+  chatId: string;
+  draftId: number;
+  title: string;
+  summary: string;
+  creatorName: string;
+  webBaseUrl: string;
+}
+
+export async function sendRequirementReviewCard(
+  params: RequirementReviewCardParams,
+): Promise<{ ok: true; card_id: string } | { ok: false; error: string }> {
+  const detailUrl = `${params.webBaseUrl}/requirements/${params.draftId}`;
+
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: "plain_text", content: "📋 需求 PRD 草稿就绪" },
+      template: "green",
+    },
+    elements: [
+      {
+        tag: "div",
+        fields: [
+          {
+            is_short: true,
+            text: { tag: "lark_md", content: `**标题：** ${params.title}` },
+          },
+          {
+            is_short: true,
+            text: { tag: "lark_md", content: `**创建者：** ${params.creatorName}` },
+          },
+        ],
+      },
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `**摘要：** ${params.summary}`,
+        },
+      },
+      {
+        tag: "action",
+        actions: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "📖 查看详情" },
+            type: "default",
+            url: detailUrl,
+          },
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "✅ 快速通过" },
+            type: "primary",
+            action_type: "request",
+            value: JSON.stringify({ type: "requirement_approve", draft_id: params.draftId }),
+          },
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "❌ 驳回" },
+            type: "danger",
+            action_type: "request",
+            value: JSON.stringify({ type: "requirement_reject", draft_id: params.draftId }),
+          },
+        ],
+      },
+    ],
+  };
+
+  try {
+    const result = await sendMessage(params.chatId, "interactive", JSON.stringify(card));
+    if (result.message_id) {
+      return { ok: true, card_id: result.message_id };
+    }
+    return { ok: false, error: "飞书未返回 message_id" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "未知错误";
+    return { ok: false, error: msg };
+  }
 }
 
 export async function sendNotification(

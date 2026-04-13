@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { getDb, closeDb } from "../db";
 import {
   upsertUser,
   createWorkspace,
   addWorkspaceMember,
   updateRequirementDraft,
+  getRequirementDraft,
 } from "../db/queries";
 import {
   extractRequirementDraft,
@@ -13,6 +14,7 @@ import {
   patchDraft,
   getDraft,
   listDrafts,
+  finalizeDraft,
 } from "./requirement";
 
 // Pre-initialize DB before any git.test.ts fs mock can interfere with schema reads.
@@ -243,5 +245,111 @@ describe("requirement service (DB)", () => {
     const reviewing = listDrafts({ workspaceId, status: "review" });
     expect(reviewing.length).toBe(1);
     expect(reviewing[0].id).toBe(d1.id);
+  });
+});
+
+describe("finalizeDraft", () => {
+  let workspaceId: number;
+  let userId: number;
+  let userId2: number;
+
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+    const ws = createWorkspace({ name: "FinalizeWS", slug: `fin-ws-${Date.now()}` });
+    workspaceId = ws.id;
+    const user = upsertUser({ feishu_user_id: `fin-user-${Date.now()}`, name: "PM用户" });
+    userId = user.id;
+    const user2 = upsertUser({ feishu_user_id: `fin-user2-${Date.now()}`, name: "Other" });
+    userId2 = user2.id;
+    addWorkspaceMember(workspaceId, userId);
+  });
+
+  afterEach(() => {
+    closeDb();
+    mock.restore();
+  });
+
+  it("finalizeDraft succeeds for drafting status with sufficient prd_content", async () => {
+    const feishuService = await import("./feishu");
+    spyOn(feishuService, "sendRequirementReviewCard").mockResolvedValue({
+      ok: true,
+      card_id: "msg-test-001",
+    });
+
+    const draft = createDraft({ workspaceId, creatorId: userId, feishuChatId: "chat-test" });
+    updateRequirementDraft(draft.id, {
+      issue_title: "用户登录功能",
+      prd_content:
+        "# PRD\n\n## 功能描述\n\n支持用户通过手机号和验证码完成登录，兼容微信扫码登录。\n\n## 验收标准\n\n1. 支持手机号登录\n2. 支持微信扫码",
+    });
+
+    const result = await finalizeDraft({ draftId: draft.id, userId });
+    expect(result.ok).toBe(true);
+    expect(result.feishu_sent).toBe(true);
+    expect(result.draft?.status).toBe("review");
+
+    const updated = getRequirementDraft(draft.id);
+    expect(updated?.status).toBe("review");
+    expect(updated?.feishu_card_id).toBe("msg-test-001");
+  });
+
+  it("finalizeDraft returns error for non-drafting status", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, { status: "review" });
+
+    const result = await finalizeDraft({ draftId: draft.id, userId });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("review");
+  });
+
+  it("finalizeDraft returns error when prd_content is too short", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, {
+      issue_title: "标题",
+      prd_content: "太短",
+    });
+
+    const result = await finalizeDraft({ draftId: draft.id, userId });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("50");
+  });
+
+  it("finalizeDraft returns error for non-existent draft", async () => {
+    const result = await finalizeDraft({ draftId: 999999, userId });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("不存在");
+  });
+
+  it("finalizeDraft returns error for non-member", async () => {
+    const draft = createDraft({ workspaceId, creatorId: userId });
+    updateRequirementDraft(draft.id, {
+      prd_content:
+        "# PRD\n\n## 功能描述\n\n这是足够长的PRD内容，超过50个字符，用于测试权限校验场景下finalizeDraft的行为。",
+    });
+
+    const result = await finalizeDraft({ draftId: draft.id, userId: userId2 });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("无权限");
+  });
+
+  it("finalizeDraft succeeds even when feishu card send fails", async () => {
+    const feishuService = await import("./feishu");
+    spyOn(feishuService, "sendRequirementReviewCard").mockResolvedValue({
+      ok: false,
+      error: "飞书服务不可用",
+    });
+
+    const draft = createDraft({ workspaceId, creatorId: userId, feishuChatId: "chat-test" });
+    updateRequirementDraft(draft.id, {
+      issue_title: "测试功能",
+      prd_content:
+        "# PRD\n\n## 功能描述\n\n这是测试飞书发送失败时finalizeDraft仍然成功的场景，内容需要超过50个字符。",
+    });
+
+    const result = await finalizeDraft({ draftId: draft.id, userId });
+    expect(result.ok).toBe(true);
+    expect(result.feishu_sent).toBe(false);
+    expect(result.draft?.status).toBe("review");
   });
 });

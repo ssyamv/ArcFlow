@@ -2,11 +2,13 @@ import { getConfig } from "../config";
 import {
   createRequirementDraft,
   getRequirementDraft,
+  getUserById,
   listRequirementDrafts,
   updateRequirementDraft,
   getWorkspaceMemberRole,
 } from "../db/queries";
 import { streamRequirementChatflow } from "./dify";
+import { sendRequirementReviewCard } from "./feishu";
 import type { RequirementDraft, RequirementDraftStatus } from "../types";
 
 // ─── Parser ────────────────────────────────────────────────────────────────────
@@ -212,4 +214,81 @@ export function listDrafts(params: {
     status: params.status,
     limit: params.limit,
   });
+}
+
+export async function finalizeDraft(params: {
+  draftId: number;
+  userId: number;
+}): Promise<{ ok: boolean; error?: string; draft?: RequirementDraft; feishu_sent?: boolean }> {
+  const draft = getRequirementDraft(params.draftId);
+  if (!draft) {
+    return { ok: false, error: "草稿不存在" };
+  }
+
+  if (draft.status !== "drafting") {
+    return {
+      ok: false,
+      error: `当前状态 "${draft.status}" 不允许提交 Review，仅 drafting 状态可提交`,
+    };
+  }
+
+  const memberRole = getWorkspaceMemberRole(draft.workspace_id, params.userId);
+  const isCreator = draft.creator_id === params.userId;
+  if (!isCreator && !memberRole) {
+    return { ok: false, error: "无权限操作此草稿" };
+  }
+
+  // 校验草稿内容非空且 prd_content 长度 > 50
+  const hasPrdContent = draft.prd_content && draft.prd_content.length > 50;
+  const hasBasicInfo = draft.issue_title || draft.issue_description;
+  if (!hasPrdContent && !hasBasicInfo) {
+    return {
+      ok: false,
+      error: "草稿内容不足，请先完成 PRD 内容（至少需要标题、描述或不少于50字的PRD正文）",
+    };
+  }
+  if (!hasPrdContent) {
+    return { ok: false, error: "PRD 正文内容不足（至少需要50个字符），请先完善 PRD 内容" };
+  }
+
+  // 状态切换到 review
+  updateRequirementDraft(params.draftId, { status: "review" });
+  const updated = getRequirementDraft(params.draftId)!;
+
+  // 发飞书卡片（失败不阻塞）
+  let feishu_sent = false;
+  const config = getConfig();
+  const chatId = draft.feishu_chat_id || config.feishuDefaultChatId;
+
+  if (chatId) {
+    try {
+      const creator = getUserById(draft.creator_id);
+      const creatorName = creator?.name || `用户 ${draft.creator_id}`;
+      const summary = (draft.prd_content || draft.issue_description || "")
+        .slice(0, 100)
+        .replace(/\n/g, " ");
+
+      const result = await sendRequirementReviewCard({
+        chatId,
+        draftId: params.draftId,
+        title: draft.issue_title || "（无标题）",
+        summary,
+        creatorName,
+        webBaseUrl: config.webBaseUrl,
+      });
+
+      if (result.ok) {
+        feishu_sent = true;
+        updateRequirementDraft(params.draftId, { feishu_card_id: result.card_id });
+      } else {
+        console.warn(`[finalizeDraft] 飞书卡片发送失败: ${result.error}`);
+      }
+    } catch (err) {
+      console.warn(`[finalizeDraft] 飞书卡片发送异常: ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    console.warn("[finalizeDraft] 无飞书 chat_id，跳过卡片发送");
+  }
+
+  return { ok: true, draft: updated, feishu_sent };
 }

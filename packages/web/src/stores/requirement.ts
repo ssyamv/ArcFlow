@@ -5,6 +5,7 @@ import {
   getRequirementDraft,
   listRequirementDrafts,
   patchRequirementDraft,
+  finalizeRequirementDraft,
   streamRequirementChat,
   type RequirementDraft,
   type RequirementDraftListResponse,
@@ -135,17 +136,17 @@ export const useRequirementStore = defineStore("requirement", () => {
     }
   }
 
-  async function finalize() {
-    if (!currentDraft.value) return false;
+  async function finalize(): Promise<{ ok: boolean; feishu_sent?: boolean }> {
+    if (!currentDraft.value) return { ok: false };
     loading.value = true;
     error.value = null;
     try {
-      const updated = await patchRequirementDraft(currentDraft.value.id, { status: "review" });
-      currentDraft.value = updated;
-      return true;
+      const result = await finalizeRequirementDraft(currentDraft.value.id);
+      currentDraft.value = result.draft;
+      return { ok: true, feishu_sent: result.feishu_sent };
     } catch (e) {
       error.value = e instanceof Error ? e.message : "提交失败";
-      return false;
+      return { ok: false };
     } finally {
       loading.value = false;
     }
