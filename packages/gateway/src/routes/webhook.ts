@@ -9,6 +9,7 @@ import {
   recordWebhookLog,
   getRequirementDraft,
   updateRequirementDraft,
+  findRequirementDraftByPlaneIssue,
   getWorkspaceByPlaneProject,
   getWorkspaceBySlug,
 } from "../db/queries";
@@ -36,7 +37,13 @@ export function createWebhookRoutes(): Hono {
       recordWebhookLog("plane", body);
 
       if (shouldTriggerWorkflow(body, config.planeApprovedStateId)) {
-        const prdPath = extractPrdPath(body.data);
+        // 1. 优先从 issue 描述里抽 prd/ 路径（手动 issue 走这条）
+        let prdPath = extractPrdPath(body.data);
+        // 2. 回落：通过新流程创建的 issue 没有路径在描述里，靠 plane_issue_id 反查 draft
+        if (!prdPath) {
+          const draft = findRequirementDraftByPlaneIssue(body.data.id);
+          if (draft?.prd_git_path) prdPath = draft.prd_git_path;
+        }
         const projectId = (body.data.project_id ?? body.data.project) as string | undefined;
         const ws = projectId ? getWorkspaceByPlaneProject(projectId) : null;
         if (!ws) {
