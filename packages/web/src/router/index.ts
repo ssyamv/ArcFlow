@@ -49,6 +49,21 @@ const router = createRouter({
       redirect: "/chat",
     },
     {
+      path: "/requirements",
+      name: "requirements",
+      component: () => import("../pages/RequirementList.vue"),
+    },
+    {
+      path: "/requirements/new",
+      name: "requirements-new",
+      component: () => import("../pages/RequirementChat.vue"),
+    },
+    {
+      path: "/requirements/:id",
+      name: "requirement-detail",
+      component: () => import("../pages/RequirementChat.vue"),
+    },
+    {
       path: "/workspace/settings",
       name: "workspace-settings",
       component: () => import("../pages/WorkspaceSettings.vue"),
