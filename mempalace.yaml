@@ -1,0 +1,20 @@
+wing: arcflow
+rooms:
+  - name: setup
+    description: Files from setup/
+    keywords:
+      - setup
+      - setup
+  - name: documentation
+    description: Files from docs/
+    keywords:
+      - documentation
+      - docs
+  - name: packages
+    description: Files from packages/
+    keywords:
+      - packages
+      - packages
+  - name: general
+    description: Files that don't fit other rooms
+    keywords: []

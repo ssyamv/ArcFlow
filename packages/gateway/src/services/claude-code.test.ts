@@ -1,24 +1,20 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
-import {
-  readFileSync as realReadFileSync,
-  existsSync as realExistsSync,
-  mkdirSync as realMkdirSync,
-} from "fs";
+import * as realFs from "fs";
 
-// --- Mock fs (passthrough real calls, only intercept writeFileSync) ---
+// --- Mock fs (passthrough all real calls, only intercept writeFileSync) ---
 const writeFileSyncMock = mock(() => undefined);
 mock.module("fs", () => ({
-  readFileSync: realReadFileSync,
-  existsSync: realExistsSync,
-  mkdirSync: realMkdirSync,
+  ...realFs,
   writeFileSync: writeFileSyncMock,
 }));
 
 // --- Mock config ---
+import { createTestConfig } from "../test-config";
 mock.module("../config", () => ({
-  getConfig: () => ({
-    claudeCodeTimeout: 500,
-  }),
+  getConfig: () =>
+    createTestConfig({
+      claudeCodeTimeout: 500,
+    }),
 }));
 
 // Helper: create a mock subprocess

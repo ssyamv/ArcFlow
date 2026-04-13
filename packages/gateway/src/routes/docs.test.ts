@@ -1,76 +1,59 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { Hono } from "hono";
+import { createDocsRoutes } from "./docs";
+import type { DocsRouteDeps } from "./docs";
+import type { MiddlewareHandler } from "hono";
 
-// Mock git service
+// --- Build mock dependencies (no mock.module needed) ---
+
 const mockListTree = mock(() => Promise.resolve([]));
 const mockReadFile = mock(() => Promise.resolve("# Test"));
 const mockWriteAndPush = mock(() => Promise.resolve());
 const mockDeleteFile = mock(() => Promise.resolve());
 const mockRenameFile = mock(() => Promise.resolve());
 const mockSearchFiles = mock(() => Promise.resolve([]));
-const mockEnsureRepo = mock(() => Promise.resolve());
 const mockEnsureRepoByUrl = mock(() => Promise.resolve());
 const mockGetRepoDir = mock((name: string) => `/tmp/gateway-git/${name}`);
-
 const mockRegisterRepoUrl = mock(() => {});
 
-mock.module("../services/git", () => ({
-  listTree: mockListTree,
-  readFile: mockReadFile,
-  writeAndPush: mockWriteAndPush,
-  deleteFile: mockDeleteFile,
-  renameFile: mockRenameFile,
-  searchFiles: mockSearchFiles,
-  ensureRepo: mockEnsureRepo,
-  ensureRepoByUrl: mockEnsureRepoByUrl,
-  getRepoDir: mockGetRepoDir,
-  registerRepoUrl: mockRegisterRepoUrl,
+const mockGetWorkspace = mock(() => ({
+  id: 1,
+  name: "Test",
+  slug: "test",
+  git_repos: JSON.stringify({ docs: "https://example.com/docs.git" }),
 }));
 
-// Mock auth middleware — always pass with userId=1
-mock.module("../middleware/auth", () => ({
-  authMiddleware: mock(async (_c: unknown, next: () => Promise<void>) => {
-    const c = _c as { set: (k: string, v: unknown) => void };
-    c.set("userId", 1);
-    c.set("userRole", "admin");
-    await next();
-  }),
-}));
+// Passthrough auth middleware — sets userId=1, workspaceId=1
+const fakeAuth: MiddlewareHandler = async (c, next) => {
+  c.set("userId", 1);
+  c.set("userRole", "admin");
+  await next();
+};
+const fakeWorkspace: MiddlewareHandler = async (c, next) => {
+  c.set("workspaceId", 1);
+  c.set("workspaceRole", "admin");
+  await next();
+};
 
-// Mock workspace middleware — set workspaceId=1
-mock.module("../middleware/workspace", () => ({
-  workspaceMiddleware: mock(async (_c: unknown, next: () => Promise<void>) => {
-    const c = _c as { set: (k: string, v: unknown) => void };
-    c.set("workspaceId", 1);
-    c.set("workspaceRole", "admin");
-    await next();
-  }),
-}));
-
-// Mock db queries — workspace with docs repo configured
-mock.module("../db/queries", () => ({
-  getWorkspace: mock(() => ({
-    id: 1,
-    name: "Test",
-    slug: "test",
-    git_repos: JSON.stringify({ docs: "https://example.com/docs.git" }),
-  })),
-  getWorkspaceMemberRole: mock(() => "admin"),
-}));
-
-// Mock config
-mock.module("../config", () => ({
-  getConfig: mock(() => ({
-    gitWorkDir: "/tmp/gateway-git",
-    docsGitRepo: "https://example.com/fallback-docs.git",
-  })),
-}));
-
-// Import after mocks
-const { docsRoutes } = await import("./docs");
-import { Hono } from "hono";
+const deps: DocsRouteDeps = {
+  listTree: mockListTree as unknown as DocsRouteDeps["listTree"],
+  readFile: mockReadFile as unknown as DocsRouteDeps["readFile"],
+  writeAndPush: mockWriteAndPush as unknown as DocsRouteDeps["writeAndPush"],
+  deleteFile: mockDeleteFile as unknown as DocsRouteDeps["deleteFile"],
+  renameFile: mockRenameFile as unknown as DocsRouteDeps["renameFile"],
+  searchFiles: mockSearchFiles as unknown as DocsRouteDeps["searchFiles"],
+  ensureRepoByUrl: mockEnsureRepoByUrl as unknown as DocsRouteDeps["ensureRepoByUrl"],
+  getRepoDir: mockGetRepoDir as unknown as DocsRouteDeps["getRepoDir"],
+  registerRepoUrl: mockRegisterRepoUrl as unknown as DocsRouteDeps["registerRepoUrl"],
+  getWorkspace: mockGetWorkspace as unknown as DocsRouteDeps["getWorkspace"],
+  authMiddleware: fakeAuth,
+  workspaceMiddleware: fakeWorkspace,
+  getDocsGitRepo: () => "https://example.com/fallback-docs.git",
+  getGitWorkDir: () => "/tmp/gateway-git",
+};
 
 const app = new Hono();
-app.route("/api/docs", docsRoutes);
+app.route("/api/docs", createDocsRoutes(deps));
 
 function clearAll() {
   mockListTree.mockClear();
@@ -79,8 +62,8 @@ function clearAll() {
   mockDeleteFile.mockClear();
   mockRenameFile.mockClear();
   mockSearchFiles.mockClear();
-  mockEnsureRepo.mockClear();
   mockEnsureRepoByUrl.mockClear();
+  mockGetRepoDir.mockClear();
 }
 
 describe("GET /api/docs/tree", () => {

@@ -5,7 +5,7 @@
       class="shrink-0 flex flex-col transition-all duration-150"
       :style="{
         width: treeCollapsed ? '0px' : '256px',
-        overflow: treeCollapsed ? 'hidden' : 'visible',
+        overflow: 'hidden',
         backgroundColor: 'var(--color-bg-panel)',
         borderRight: treeCollapsed ? 'none' : '1px solid var(--color-border-subtle)',
       }"
@@ -46,6 +46,10 @@
         <!-- File Tree -->
         <template v-else>
           <div class="tree-label">文档目录</div>
+          <div v-if="store.loading && !store.tree.length" class="tree-loading">
+            <div class="loading-dot" />
+            <span>加载文档树...</span>
+          </div>
           <TreeItem
             v-for="node in store.tree"
             :key="node.path"
@@ -129,7 +133,13 @@
 
       <!-- Tiptap Editor -->
       <div v-if="store.currentPath" class="flex-1 overflow-y-auto">
-        <editor-content :editor="editor" class="docs-editor" />
+        <div v-if="store.loading" class="flex-1 flex items-center justify-center py-20">
+          <div class="flex items-center gap-2">
+            <div class="loading-dot" />
+            <span class="text-xs" style="color: var(--color-text-quaternary)">加载文档中...</span>
+          </div>
+        </div>
+        <editor-content v-else :editor="editor" class="docs-editor" />
       </div>
 
       <!-- Empty State -->
@@ -240,6 +250,9 @@ const turndown = new TurndownService({
   codeBlockStyle: "fenced",
 });
 
+/** 标记：正在程序化设置编辑器内容，此时 onUpdate 不应触发自动保存 */
+let settingContent = false;
+
 const editor = useEditor({
   extensions: [
     StarterKit,
@@ -256,6 +269,7 @@ const editor = useEditor({
     },
   },
   onUpdate: ({ editor: e }) => {
+    if (settingContent) return;
     const html = e.getHTML();
     const md = turndown.turndown(html);
     store.setContent(md);
@@ -267,19 +281,35 @@ const autoSaveStatus = ref<"idle" | "saving" | "saved">("idle");
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let savedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 当前正在进行的保存 Promise，用于防止并发保存 */
+let savingPromise: Promise<void> | null = null;
+
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";
-  autoSaveTimer = setTimeout(async () => {
-    if (!store.isDirty) return;
-    autoSaveStatus.value = "saving";
-    await store.saveFile();
-    autoSaveStatus.value = "saved";
-    if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
-    savedFeedbackTimer = setTimeout(() => {
-      autoSaveStatus.value = "idle";
-    }, 2000);
+  autoSaveTimer = setTimeout(() => {
+    fireAutoSave();
   }, 1500);
+}
+
+function fireAutoSave() {
+  if (!store.isDirty || savingPromise) return;
+  autoSaveStatus.value = "saving";
+  savingPromise = store
+    .saveFile()
+    .then(() => {
+      autoSaveStatus.value = "saved";
+      if (savedFeedbackTimer) clearTimeout(savedFeedbackTimer);
+      savedFeedbackTimer = setTimeout(() => {
+        autoSaveStatus.value = "idle";
+      }, 2000);
+    })
+    .catch(() => {
+      autoSaveStatus.value = "idle";
+    })
+    .finally(() => {
+      savingPromise = null;
+    });
 }
 
 const breadcrumbs = computed(() => store.currentPath?.split("/") ?? []);
@@ -292,13 +322,16 @@ function handleSearch() {
   }, 300);
 }
 
-async function handleFileSelect(path: string) {
-  if (store.isDirty) {
-    await store.saveFile();
-  }
+function handleFileSelect(path: string) {
+  // 取消待执行的自动保存
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveStatus.value = "idle";
-  await store.openFile(path);
+  // 脏数据后台保存，不阻塞切换
+  if (store.isDirty) {
+    fireAutoSave();
+  }
+  // openFile 内部立即设 path + loading，不需要 await
+  store.openFile(path);
 }
 
 watch(
@@ -307,8 +340,10 @@ watch(
     if (!editor.value) return;
     // Only set content when file is freshly loaded (not dirty)
     if (!store.isDirty || store.currentContent === store.originalContent) {
+      settingContent = true;
       const html = marked.parse(newContent) as string;
       editor.value.commands.setContent(html);
+      settingContent = false;
     }
   },
   { immediate: false },
@@ -319,8 +354,10 @@ watch(
   () => store.currentPath,
   async () => {
     if (!editor.value || !store.currentPath) return;
+    settingContent = true;
     const html = marked.parse(store.currentContent) as string;
     editor.value.commands.setContent(html);
+    settingContent = false;
   },
 );
 
@@ -414,6 +451,33 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.tree-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  font-size: 11px;
+  color: var(--color-text-quaternary);
+}
+
+.loading-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-text-quaternary);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .tree-label {
   padding: 4px 8px;
   font-size: 10px;

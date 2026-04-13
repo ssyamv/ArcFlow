@@ -1,6 +1,12 @@
 import { getConfig } from "../config";
-import { readdirSync, readFileSync, statSync } from "fs";
 import { join, relative } from "path";
+
+// 使用动态 require 获取 fs 方法，避免 bun 测试中 mock.module("fs") 跨文件污染
+// （ESM live binding 导致其他测试文件的 fs mock 影响已加载模块的绑定）
+function getFs() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("fs") as typeof import("fs");
+}
 
 interface GitDocPage {
   path: string;
@@ -27,19 +33,20 @@ interface SyncResult {
  * 递归扫描 Git 仓库目录，收集所有 .md 文件
  */
 function listGitDocs(repoDir: string, since?: Date): GitDocPage[] {
+  const fs = getFs();
   const pages: GitDocPage[] = [];
 
   function walk(dir: string): void {
     let entries: string[];
     try {
-      entries = readdirSync(dir);
+      entries = fs.readdirSync(dir) as unknown as string[];
     } catch {
       return;
     }
     for (const entry of entries) {
       if (entry === ".git" || entry === "node_modules") continue;
       const fullPath = join(dir, entry);
-      const stat = statSync(fullPath);
+      const stat = fs.statSync(fullPath);
 
       if (stat.isDirectory()) {
         walk(fullPath);
@@ -48,7 +55,7 @@ function listGitDocs(repoDir: string, since?: Date): GitDocPage[] {
         if (since && updatedAt <= since) continue;
 
         const relPath = relative(repoDir, fullPath);
-        const content = readFileSync(fullPath, "utf-8");
+        const content = fs.readFileSync(fullPath, "utf-8");
         if (!content.trim()) continue;
 
         pages.push({
@@ -192,7 +199,8 @@ export async function syncRecentChanges(sinceMinutes = 10): Promise<SyncResult> 
 
   // 扫描 ws-*-docs 目录
   try {
-    const entries = readdirSync(config.gitWorkDir);
+    const fs = getFs();
+    const entries = fs.readdirSync(config.gitWorkDir) as unknown as string[];
     for (const entry of entries) {
       if (entry.startsWith("ws-") && entry.endsWith("-docs")) {
         allDirs.push(join(config.gitWorkDir, entry));
@@ -274,7 +282,8 @@ export async function syncGitToDify(targetDatasetId?: string): Promise<SyncResul
   // 收集所有 docs 仓库的 .md 文件
   const allPages: GitDocPage[] = [];
   try {
-    const entries = readdirSync(config.gitWorkDir);
+    const fs = getFs();
+    const entries = fs.readdirSync(config.gitWorkDir) as unknown as string[];
     for (const entry of entries) {
       if (entry === "docs" || (entry.startsWith("ws-") && entry.endsWith("-docs"))) {
         try {

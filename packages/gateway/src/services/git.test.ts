@@ -1,10 +1,6 @@
 import { describe, expect, it, mock, beforeEach } from "bun:test";
 import { join } from "path";
-
-// Save real fs functions BEFORE mocking
-const realFs = await import("fs");
-const _realReadFileSync = realFs.readFileSync;
-const _realExistsSync = realFs.existsSync;
+import * as realFs from "fs";
 
 // --- Mock simple-git ---
 const gitMethods = {
@@ -25,7 +21,7 @@ mock.module("simple-git", () => ({
   default: () => gitMethods,
 }));
 
-// --- Mock fs (passthrough .sql files for db schema init) ---
+// --- Mock fs (passthrough .sql files for db schema init, spread all real fs for other consumers) ---
 let existsSyncReturn = false;
 const mkdirSyncMock = mock(() => undefined);
 const readFileSyncMock = mock((() => "file content") as (...args: unknown[]) => string);
@@ -36,14 +32,15 @@ const unlinkSyncMock = mock(() => undefined);
 const renameSyncMock = mock(() => undefined);
 
 mock.module("fs", () => ({
+  ...realFs,
   existsSync: (path: string) => {
-    if (typeof path === "string" && path.endsWith(".sql")) return _realExistsSync(path);
+    if (typeof path === "string" && path.endsWith(".sql")) return realFs.existsSync(path);
     return existsSyncReturn;
   },
   mkdirSync: mkdirSyncMock,
   readFileSync: (path: string, ...args: unknown[]) => {
     if (typeof path === "string" && path.endsWith(".sql"))
-      return _realReadFileSync(path, ...(args as [BufferEncoding]));
+      return realFs.readFileSync(path, ...(args as [BufferEncoding]));
     return readFileSyncMock(path, ...args);
   },
   writeFileSync: writeFileSyncMock,
@@ -56,15 +53,17 @@ mock.module("fs", () => ({
 }));
 
 // --- Mock config ---
+import { createTestConfig } from "../test-config";
 mock.module("../config", () => ({
-  getConfig: () => ({
-    gitWorkDir: "/tmp/test-git",
-    docsGitRepo: "git@example.com:org/docs.git",
-    backendGitRepo: "git@example.com:org/backend.git",
-    vue3GitRepo: "git@example.com:org/vue3.git",
-    flutterGitRepo: "git@example.com:org/flutter.git",
-    androidGitRepo: "git@example.com:org/android.git",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      gitWorkDir: "/tmp/test-git",
+      docsGitRepo: "git@example.com:org/docs.git",
+      backendGitRepo: "git@example.com:org/backend.git",
+      vue3GitRepo: "git@example.com:org/vue3.git",
+      flutterGitRepo: "git@example.com:org/flutter.git",
+      androidGitRepo: "git@example.com:org/android.git",
+    }),
 }));
 
 // Import after mocks

@@ -64,14 +64,34 @@ export async function ensureRepo(repoName: string): Promise<SimpleGit> {
   return ensureRepoByUrl(repoDir, repoUrl);
 }
 
+/** per-repo 锁，防止并发 pull/rebase 冲突 */
+const repoLocks = new Map<string, Promise<SimpleGit>>();
+
 /**
  * 通过指定目录和 URL 确保仓库就绪（支持工作空间级别的独立仓库）
+ * 同一仓库的并发调用会复用同一个 Promise，避免并发 git 操作冲突。
  */
-export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
+export function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise<SimpleGit> {
+  const existing = repoLocks.get(repoDir);
+  if (existing) return existing;
+
+  const promise = doEnsureRepo(repoDir, repoUrl).finally(() => {
+    repoLocks.delete(repoDir);
+  });
+  repoLocks.set(repoDir, promise);
+  return promise;
+}
+
+async function doEnsureRepo(repoDir: string, repoUrl: string): Promise<SimpleGit> {
   if (existsSync(join(repoDir, ".git"))) {
+    // 清理残留的 lock 文件（异常退出后可能残留）
+    const lockFile = join(repoDir, ".git", "index.lock");
+    if (existsSync(lockFile)) {
+      unlinkSync(lockFile);
+    }
     const git = simpleGit(repoDir);
     // 确保 git user 配置存在
-    await git.addConfig("user.email", "gateway@arcflow.local", false, "local");
+    await git.addConfig("user.email", "qichen22@iflytek.com", false, "local");
     await git.addConfig("user.name", "ArcFlow Gateway", false, "local");
     // 外部同步可能留下未提交变更，先 stash 再 pull
     const status = await git.status();
@@ -88,7 +108,7 @@ export async function ensureRepoByUrl(repoDir: string, repoUrl: string): Promise
   const git = simpleGit();
   await git.clone(repoUrl, repoDir);
   const cloned = simpleGit(repoDir);
-  await cloned.addConfig("user.email", "gateway@arcflow.local");
+  await cloned.addConfig("user.email", "qichen22@iflytek.com");
   await cloned.addConfig("user.name", "ArcFlow Gateway");
   return cloned;
 }

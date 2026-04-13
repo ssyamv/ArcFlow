@@ -1,19 +1,21 @@
 import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
+import { createTestConfig } from "../test-config";
 
 // Mock config to avoid env var masking in CI
 mock.module("../config", () => ({
-  getConfig: () => ({
-    difyBaseUrl: "http://dify-test:3001",
-    difyApiKey: "dify-shared-val",
-    difyTechDocApiKey: "dify-techdoc-val",
-    difyOpenApiApiKey: "dify-openapi-val",
-    difyBugAnalysisApiKey: "dify-bugfix-val",
-    difyRagApiKey: "dify-rag-val",
-    difyDatasetMap: {
-      "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha-key" },
-      "proj-beta": { datasetId: "ds-beta" },
-    },
-  }),
+  getConfig: () =>
+    createTestConfig({
+      difyBaseUrl: "http://dify-test:3001",
+      difyApiKey: "dify-shared-val",
+      difyTechDocApiKey: "dify-techdoc-val",
+      difyOpenApiApiKey: "dify-openapi-val",
+      difyBugAnalysisApiKey: "dify-bugfix-val",
+      difyRagApiKey: "dify-rag-val",
+      difyDatasetMap: {
+        "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha-key" },
+        "proj-beta": { datasetId: "ds-beta" },
+      },
+    }),
 }));
 
 const { generateTechDoc, generateOpenApi, analyzeBug, queryKnowledgeBase } = await import("./dify");

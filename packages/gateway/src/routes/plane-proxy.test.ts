@@ -1,14 +1,12 @@
 import { describe, expect, it, afterEach, beforeEach, mock } from "bun:test";
 import { closeDb, getDb } from "../db";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    planeBaseUrl: "http://plane-test:8080",
-    planeApiToken: "test-plane-token",
-    planeWorkspaceSlug: "arcflow",
-    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
-    jwtExpiresIn: "7d",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      planeWorkspaceSlug: "arcflow",
+    }),
 }));
 
 import { planeProxyRoutes } from "./plane-proxy";

@@ -1,11 +1,9 @@
 import { describe, expect, it, afterEach, beforeEach, mock } from "bun:test";
 import { closeDb, getDb } from "../db";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
-    jwtExpiresIn: "7d",
-  }),
+  getConfig: () => createTestConfig(),
 }));
 
 import { conversationRoutes } from "./conversations";

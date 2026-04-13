@@ -1,15 +1,12 @@
 import { describe, expect, it, afterEach, mock } from "bun:test";
 import { closeDb } from "../db";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    feishuBaseUrl: "https://xfchat.iflytek.com",
-    feishuAppId: "test-app-id",
-    feishuAppSecret: "test-secret",
-    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
-    jwtExpiresIn: "7d",
-    oauthRedirectUri: "http://localhost:5173/auth/callback",
-  }),
+  getConfig: () =>
+    createTestConfig({
+      feishuAppSecret: "test-secret",
+    }),
 }));
 
 import { generateOAuthUrl, signJwt, verifyJwt } from "./auth";

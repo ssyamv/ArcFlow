@@ -1,19 +1,24 @@
 import { describe, expect, it, mock, afterEach, beforeEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
+import { createTestConfig } from "../test-config";
+
+// 使用 require("fs") 获取真实 fs，避免被其他测试文件的 mock.module("fs") 污染
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { mkdirSync, writeFileSync, rmSync } = require("fs") as typeof import("fs");
 
 const TEST_GIT_DIR = "/tmp/rag-sync-test-git";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    difyBaseUrl: "http://dify-test:3001",
-    difyDatasetApiKey: "dataset-key",
-    difyDatasetId: "ds-default",
-    difyDatasetMap: {
-      "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha" },
-    },
-    gitWorkDir: TEST_GIT_DIR,
-  }),
+  getConfig: () =>
+    createTestConfig({
+      difyBaseUrl: "http://dify-test:3001",
+      difyDatasetApiKey: "dataset-key",
+      difyDatasetId: "ds-default",
+      difyDatasetMap: {
+        "proj-alpha": { datasetId: "ds-alpha", ragApiKey: "rag-alpha" },
+      },
+      gitWorkDir: TEST_GIT_DIR,
+    }),
 }));
 
 const { syncRecentChanges, syncGitToDify, syncAllDatasets, resetSyncState } =

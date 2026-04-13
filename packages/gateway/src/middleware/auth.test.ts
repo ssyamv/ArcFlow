@@ -1,12 +1,10 @@
 import { describe, expect, it, afterEach, mock } from "bun:test";
 import { Hono } from "hono";
 import { closeDb } from "../db";
+import { createTestConfig } from "../test-config";
 
 mock.module("../config", () => ({
-  getConfig: () => ({
-    jwtSecret: "test-jwt-secret-at-least-32-chars-long!!",
-    jwtExpiresIn: "7d",
-  }),
+  getConfig: () => createTestConfig(),
 }));
 
 import { authMiddleware } from "./auth";
