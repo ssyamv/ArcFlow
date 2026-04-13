@@ -43,6 +43,9 @@ export interface Config {
   // PRD 生成
   difyPrdGenApiKey: string;
 
+  // 需求对话草稿
+  difyRequirementChatApiKey: string;
+
   // RAG 知识库问答
   difyRagApiKey: string;
 
@@ -108,6 +111,8 @@ export function getConfig(): Config {
     wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",
 
     difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
+
+    difyRequirementChatApiKey: process.env.DIFY_REQUIREMENT_CHAT_API_KEY ?? "",
 
     difyRagApiKey: process.env.DIFY_RAG_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 

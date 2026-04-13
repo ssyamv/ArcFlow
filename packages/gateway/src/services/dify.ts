@@ -1,4 +1,6 @@
 import { getConfig } from "../config";
+import { parseDifySSEChunk } from "./prd";
+import type { DifySSEChunk } from "./prd";
 
 interface DifyWorkflowResponse {
   data: {
@@ -115,4 +117,63 @@ export async function queryKnowledgeBase(
 
   const json = (await res.json()) as { answer: string; conversation_id: string };
   return { answer: json.answer, conversation_id: json.conversation_id };
+}
+
+export async function* streamRequirementChatflow(params: {
+  query: string;
+  conversationId?: string;
+  userId: string;
+  workspaceId: number;
+  apiKey: string;
+  baseUrl: string;
+}): AsyncGenerator<DifySSEChunk> {
+  const { query, conversationId, userId, apiKey, baseUrl } = params;
+
+  const response = await fetch(`${baseUrl}/v1/chat-messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      query,
+      conversation_id: conversationId ?? "",
+      response_mode: "streaming",
+      user: userId,
+      inputs: {},
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Dify Requirement Chat API error: ${response.status} ${await response.text()}`);
+  }
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const chunk = parseDifySSEChunk(trimmed);
+      if (chunk && chunk.event !== "ping") {
+        yield chunk;
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    const chunk = parseDifySSEChunk(buffer.trim());
+    if (chunk && chunk.event !== "ping") {
+      yield chunk;
+    }
+  }
 }
