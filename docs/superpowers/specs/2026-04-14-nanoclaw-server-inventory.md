@@ -98,8 +98,34 @@ use-native-credential-proxy, x-integration
 5. **开发-1**：新建 Issue 跟踪 arcflow-api skill 从 0 开发（#86 scope 重估）
 6. **清理**：`.env` 的 `DIFY_*` 和 `WIKIJS_*` 键随 #94/#76 收尾一起删
 
-## 7. 影响面判断
+## 7. 影响面判断（更新于 2026-04-14 下午）
 
-- **当前生产 AI 对话链路是通的**（/health ok + gateway 近 2h 无 nanoclaw 相关报错）
-- **但随时可能断**（进程挂了无自动恢复）
-- 建议本周内完成救火-1~3，避免"裸节点 + 无日志"状态继续裸奔
+**原判断已作废。** 经 `/api/chat` 真实验证 + `/proc/<pid>/environ` 检查，发现：
+
+### 真相：服务形式健康、实质 5 天全瘫
+
+- Apr 9 那条 `node dist/index.js` 从普通 ssh shell 直接启，**未加载 `.env`**
+- 进程 env 只有 19 个 SSH login 变量，**0 个应用配置**（无 `ANTHROPIC_API_KEY` / 无 `HTTP_PROXY` / 无飞书 key）
+- `/health` 是静态路由所以通；Agent SDK 调 Anthropic 无 key 且无代理 → 静默挂起 → 消息入列但永远不回
+- POST `/api/chat` 返回 `ok:true` 只表示入列成功，**不等于有人处理**
+
+### 本次救火动作（2026-04-14 执行）
+
+1. ✅ 杀 5 天僵尸 `docker compose build` × 4 进程
+2. ✅ `tar czf nanoclaw-backup-2026-04-14.tar.gz`（8.7M，已在服务器）
+3. ✅ 在 `/data/project/nanoclaw-fork` 建 fork 参照副本（drift 对比：代码完全一致，仅 ArcFlow 运维产物 `Dockerfile/docker-compose.yml/ecosystem.config.cjs` 未推 fork）
+4. ✅ 重启 nanoclaw：`set -a; source .env; set +a; nohup node dist/index.js >> /var/log/nanoclaw.log 2>&1 &`
+5. ✅ 日志已落盘 `/var/log/nanoclaw.log`（原 `| head -30` 截断）
+6. ✅ 新进程 pid 1605631，env 注入确认（ANTHROPIC/PROXY/FEISHU 全部就位）
+
+### 仍存在的 P0 问题
+
+- **飞书 APP ID 无效**：日志 `failed to get access_token {"code":10014,"msg":"app id not exists"}`，`.env` 里 `FEISHU_APP_ID` 错/过期，飞书通道未工作
+- **Agent 对 web channel 消息仍无响应**：SSE 连上、POST 入列、日志有 `Web: SSE client connected`，但 40s 内无 assistant event，`onMessage` 派发无日志痕迹。待进一步排查（可能 Agent SDK 流式请求静默挂起 / mention 判定未命中 / 其他）
+
+## 8. 剩余工作（新 Issue 已开）
+
+- 新 Issue：「飞书 APP ID 10014 错误，通道不工作」
+- 新 Issue：「NanoClaw Web channel：POST 入列 ok 但 Agent 不响应」
+- 新 Issue：「把 Dockerfile/docker-compose.yml/ecosystem.config.cjs 推回 ssyamv/nanoclaw fork」
+- 原 #85 待完成项：切 docker-compose 接管裸 node、`/data/project/nanoclaw` 转 git 仓
