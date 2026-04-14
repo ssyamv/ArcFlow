@@ -76,6 +76,34 @@ export function createDocsRoutes(overrides?: Partial<DocsRouteDeps>): Hono {
     await deps.ensureRepoByUrl(repoDir, repoUrl);
   }
 
+  /**
+   * GET /api/docs?type=<prd|tech-design|api|arch|ops|market>&q=<keyword>
+   *
+   * Unified docs index used by NanoClaw arcflow-knowledge. When `q` is set,
+   * runs a search scoped to the docs repo; when `type` is set, filters
+   * results by path prefix. With neither, returns the root tree.
+   */
+  router.get("/", async (c) => {
+    const type = c.req.query("type");
+    const q = c.req.query("q");
+    const { repoName, repoUrl } = getDocsRepoInfo(c);
+    if (!repoUrl) return c.json({ data: [] });
+    await ensureWorkspaceDocs(repoName, repoUrl);
+
+    if (q?.trim()) {
+      const raw = await deps.searchFiles(repoName, q);
+      const data = type
+        ? (raw as Array<{ path?: string }>).filter((r) => (r.path ?? "").startsWith(`${type}/`))
+        : raw;
+      return c.json({ data });
+    }
+    const tree = await deps.listTree(repoName);
+    const data = type
+      ? (tree as Array<{ path?: string }>).filter((r) => (r.path ?? "").startsWith(`${type}/`))
+      : tree;
+    return c.json({ data });
+  });
+
   router.get("/tree", async (c) => {
     const { repoName, repoUrl } = getDocsRepoInfo(c);
     if (!repoUrl) return c.json({ data: [] });

@@ -43,6 +43,27 @@ workspaceRoutes.get("/:id", (c) => {
   return c.json({ ...workspace, members, user_role: role });
 });
 
+/**
+ * GET /api/workspaces/:id/members/me
+ * Lightweight membership probe called by NanoClaw WebChannel to cache
+ * (user_id, workspace_id) → role. Returns 200 with {role, workspace_slug}
+ * on membership, 403 on non-member.
+ */
+workspaceRoutes.get("/:id/members/me", (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id)) return c.json({ error: "Invalid ID" }, 400);
+  const role = getWorkspaceMemberRole(id, userId);
+  if (!role) return c.json({ error: "not_a_member" }, 403);
+  const workspace = getWorkspace(id);
+  return c.json({
+    user_id: userId,
+    workspace_id: id,
+    role,
+    workspace_slug: workspace?.slug ?? null,
+  });
+});
+
 workspaceRoutes.patch("/:id/settings", async (c) => {
   const userId = c.get("userId") as number;
   const id = Number(c.req.param("id"));

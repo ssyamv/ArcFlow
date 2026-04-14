@@ -614,3 +614,149 @@ export function updateRequirementDraft(
     .run(...values);
   return result.changes > 0;
 }
+
+// ----------------------------------------------------------------------------
+// Batch 2-F: user action log + approval token consumption + memory snapshot
+// ----------------------------------------------------------------------------
+
+export interface UserActionLog {
+  id: number;
+  user_id: number;
+  workspace_id: number | null;
+  action_type: string;
+  payload_json: string;
+  created_at: string;
+}
+
+export function recordUserAction(params: {
+  userId: number;
+  workspaceId?: number | null;
+  actionType: string;
+  payload?: unknown;
+}): void {
+  const db = getDb();
+  db.query(
+    `INSERT INTO user_action_log (user_id, workspace_id, action_type, payload_json)
+     VALUES (?, ?, ?, ?)`,
+  ).run(
+    params.userId,
+    params.workspaceId ?? null,
+    params.actionType,
+    JSON.stringify(params.payload ?? {}),
+  );
+}
+
+export function listRecentUserActions(params: {
+  workspaceId: number;
+  limit?: number;
+}): UserActionLog[] {
+  const db = getDb();
+  const rows = db
+    .query(
+      `SELECT id, user_id, workspace_id, action_type, payload_json, created_at
+       FROM user_action_log
+       WHERE workspace_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+    .all(params.workspaceId, params.limit ?? 20) as UserActionLog[];
+  return rows;
+}
+
+/** Mark an approval token's jti as consumed. Returns false if already consumed. */
+export function markApprovalTokenConsumed(params: {
+  jti: string;
+  userId: number;
+  action: string;
+  resourceId: string;
+}): boolean {
+  const db = getDb();
+  try {
+    db.query(
+      `INSERT INTO approval_token_consumption (jti, user_id, action, resource_id)
+       VALUES (?, ?, ?, ?)`,
+    ).run(params.jti, params.userId, params.action, params.resourceId);
+    return true;
+  } catch {
+    // UNIQUE constraint → already consumed
+    return false;
+  }
+}
+
+export function isApprovalTokenConsumed(jti: string): boolean {
+  const db = getDb();
+  const row = db.query(`SELECT 1 FROM approval_token_consumption WHERE jti = ?`).get(jti);
+  return row !== null;
+}
+
+export interface MemorySnapshot {
+  workspace_id: number;
+  active_drafts: Array<{
+    id: number;
+    status: string;
+    issue_title: string;
+    updated_at: string;
+  }>;
+  running_workflows: Array<{
+    id: number;
+    workflow_type: string;
+    plane_issue_id: string | null;
+    status: string;
+    started_at: string | null;
+  }>;
+  recent_finalized: Array<{
+    id: number;
+    issue_title: string;
+    plane_issue_id: string | null;
+    approved_at: string | null;
+  }>;
+  recent_user_actions: UserActionLog[];
+  generated_at: string;
+}
+
+export function buildMemorySnapshot(workspaceId: number): MemorySnapshot {
+  const db = getDb();
+  const active_drafts = db
+    .query(
+      `SELECT id, status, issue_title, updated_at
+       FROM requirement_drafts
+       WHERE workspace_id = ? AND status IN ('drafting', 'review')
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    )
+    .all(workspaceId) as MemorySnapshot["active_drafts"];
+
+  const running_workflows = db
+    .query(
+      `SELECT id, workflow_type, plane_issue_id, status, started_at
+       FROM workflow_execution
+       WHERE status IN ('queued', 'running', 'pending')
+       ORDER BY created_at DESC
+       LIMIT 20`,
+    )
+    .all() as MemorySnapshot["running_workflows"];
+
+  const recent_finalized = db
+    .query(
+      `SELECT id, issue_title, plane_issue_id, approved_at
+       FROM requirement_drafts
+       WHERE workspace_id = ? AND status IN ('approved', 'review')
+       ORDER BY COALESCE(approved_at, updated_at) DESC
+       LIMIT 5`,
+    )
+    .all(workspaceId) as MemorySnapshot["recent_finalized"];
+
+  const recent_user_actions = listRecentUserActions({
+    workspaceId,
+    limit: 20,
+  });
+
+  return {
+    workspace_id: workspaceId,
+    active_drafts,
+    running_workflows,
+    recent_finalized,
+    recent_user_actions,
+    generated_at: new Date().toISOString(),
+  };
+}

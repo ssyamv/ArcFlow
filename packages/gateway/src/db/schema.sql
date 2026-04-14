@@ -116,3 +116,26 @@ CREATE TABLE IF NOT EXISTS requirement_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_requirement_drafts_workspace ON requirement_drafts(workspace_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_requirement_drafts_creator ON requirement_drafts(creator_id, updated_at DESC);
+
+-- Batch 2-F: Agent memory snapshot support — persists notable user actions so
+-- NanoClaw's memory_workspace_snapshot tool can surface "recent_user_actions".
+CREATE TABLE IF NOT EXISTS user_action_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  workspace_id INTEGER REFERENCES workspaces(id),
+  action_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_action_log_user ON user_action_log(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_action_log_workspace ON user_action_log(workspace_id, created_at DESC);
+
+-- Batch 2-F: one-time approval token consumption guard. Token jti recorded
+-- here becomes invalid for re-use even before its exp.
+CREATE TABLE IF NOT EXISTS approval_token_consumption (
+  jti TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  consumed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
