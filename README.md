@@ -296,8 +296,6 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 
 3. **剩余技术债务**
    - NanoClaw 服务器运维补丁（`container/Dockerfile` CN 镜像等）推回 ssyamv/nanoclaw fork（PR ssyamv/nanoclaw#6）
-   - `setup/wiki-js/` 已 dead，待删
-   - `.env` 中的 `WIKIJS_*` 键待清理
    - Dify RAG Dataset ID 硬编码，需支持多工作空间动态绑定
    - PRD 文件路径从 Issue 描述提取使用正则，需要更健壮的约定
 

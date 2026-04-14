@@ -31,8 +31,6 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     feishuVerificationToken: "",
     feishuEncryptKey: "",
     feishuDefaultChatId: "oc_test_chat",
-    wikijsBaseUrl: "",
-    wikijsApiKey: "",
     difyPrdGenApiKey: "",
     difyRequirementChatApiKey: "",
     difyRagApiKey: "",

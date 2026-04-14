@@ -26,11 +26,10 @@ npm run build
 cp .env.example .env
 # 编辑 .env，填入以下配置：
 # - FEISHU_APP_ID / FEISHU_APP_SECRET（飞书开放平台获取）
-# - FEISHU_WEBHOOK_PORT（默认 3000，如与 Wiki.js 同机部署需改为 3002）
+# - FEISHU_WEBHOOK_PORT（默认 3000）
 # - PLANE_API_TOKEN / PLANE_BASE_URL / PLANE_WORKSPACE_SLUG
 # - GATEWAY_URL（胶水服务地址，如 http://172.29.230.21:8080）
 # - DIFY_URL / DIFY_API_KEY
-# - WIKIJS_URL / WIKIJS_API_KEY
 ```
 
 ### 3. 构建容器镜像

@@ -54,7 +54,7 @@ PM 在 ArcFlow Web / NanoClaw 对话生成 PRD → Gateway Stage D 原子写入 
 - `docs/` — 技术架构方案文档和设计规格文档
 - `docs/superpowers/specs/` — 详细设计规格文档（见下方索引）
 - `docs/superpowers/plans/` — 实施计划文档
-- `setup/` — 第三方服务部署配置（Plane / Dify / NanoClaw；`setup/wiki-js/` 已 dead，待删）
+- `setup/` — 第三方服务部署配置（Plane / Dify / NanoClaw）
 
 docs 仓库（规划中）的目录规范：
 

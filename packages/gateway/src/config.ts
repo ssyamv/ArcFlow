@@ -36,10 +36,6 @@ export interface Config {
   feishuEncryptKey: string;
   feishuDefaultChatId: string;
 
-  // Wiki.js (deprecated — kept for backward compat, will be removed)
-  wikijsBaseUrl: string;
-  wikijsApiKey: string;
-
   // PRD 生成
   difyPrdGenApiKey: string;
 
@@ -106,9 +102,6 @@ export function getConfig(): Config {
     feishuVerificationToken: process.env.FEISHU_VERIFICATION_TOKEN ?? "",
     feishuEncryptKey: process.env.FEISHU_ENCRYPT_KEY ?? "",
     feishuDefaultChatId: process.env.FEISHU_DEFAULT_CHAT_ID ?? "",
-
-    wikijsBaseUrl: process.env.WIKIJS_BASE_URL ?? "",
-    wikijsApiKey: process.env.WIKIJS_API_KEY ?? "",
 
     difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
