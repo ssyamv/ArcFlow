@@ -121,11 +121,33 @@ use-native-credential-proxy, x-integration
 ### 仍存在的 P0 问题
 
 - **飞书 APP ID 无效**：日志 `failed to get access_token {"code":10014,"msg":"app id not exists"}`，`.env` 里 `FEISHU_APP_ID` 错/过期，飞书通道未工作
-- **Agent 对 web channel 消息仍无响应**：SSE 连上、POST 入列、日志有 `Web: SSE client connected`，但 40s 内无 assistant event，`onMessage` 派发无日志痕迹。待进一步排查（可能 Agent SDK 流式请求静默挂起 / mention 判定未命中 / 其他）
 
-## 8. 剩余工作（新 Issue 已开）
+## 8. 救火续（2026-04-14 傍晚）
+
+### 8.1 发现：进程监护被误记
+
+spec §7 "不在 pm2 监护里" 是误判。实际 PM2 有 `arcflow-nanoclaw` app（id 0，exec `start.sh`，start.sh 会 `source .env`）。"裸 node 进程无监护" 的 Gap 1 可撤销。
+
+### 8.2 发现：Agent 不响应根因 = `nanoclaw-agent` 镜像不存在
+
+NanoClaw 架构：每条消息 spawn 一个 `nanoclaw-agent:latest` 容器跑 Agent SDK。但是：
+
+- 本地从未 build 该镜像
+- `/etc/docker/daemon.json` 配了 `docker.1ms.run` + `docker.xuanyuan.me` 两个镜像源，但该镜像不在任何公开 registry
+- 每次 spawn → 拉取 → 429 Too Many Requests → exit 125 → retry backoff → 永远不回
+- 日志表象：POST `/api/chat` ok、SSE connected、`Processing messages`，但 err 日志连环 `Unable to find image 'nanoclaw-agent:latest' locally`
+
+`OneCLI gateway not reachable` 只是 warn，凭证走 env 直接注入，不阻塞容器启动。
+
+### 8.3 修复动作
+
+1. ✅ 在 `container/Dockerfile` 前置换 apt 源到清华镜像（http，node:22-slim 无 ca-certificates 故 https 失败）、npm 源到 npmmirror
+2. ✅ `docker build -f container/Dockerfile -t nanoclaw-agent:latest ./container` 成功，镜像 2.37GB
+3. ✅ 验证：POST `/api/chat` → `Spawning container agent` → 6 秒内 `Agent output: 33 chars`，容器运行中
+
+### 8.4 剩余工作（新 Issue 已开）
 
 - 新 Issue：「飞书 APP ID 10014 错误，通道不工作」
-- 新 Issue：「NanoClaw Web channel：POST 入列 ok 但 Agent 不响应」
-- 新 Issue：「把 Dockerfile/docker-compose.yml/ecosystem.config.cjs 推回 ssyamv/nanoclaw fork」
-- 原 #85 待完成项：切 docker-compose 接管裸 node、`/data/project/nanoclaw` 转 git 仓
+- 新 Issue：「把 Dockerfile/docker-compose.yml/ecosystem.config.cjs + container/Dockerfile 的 CN 镜像补丁推回 ssyamv/nanoclaw fork」
+- 新 Issue：「OneCLI gateway 不可达（warn），如需凭证代理能力需部署 onecli 服务到 `ONECLI_URL`」
+- 原 #85 待完成项：`/data/project/nanoclaw` 转 git 仓、切 docker-compose 接管（可选，PM2 已稳定）
