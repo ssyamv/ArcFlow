@@ -57,10 +57,24 @@ export async function savePrdToGit(result: PrdResult): Promise<{ path: string; w
 }
 
 export interface DifySSEChunk {
-  event: "message" | "message_end" | "message_replace" | "error" | "ping";
+  event:
+    | "message"
+    | "message_end"
+    | "message_replace"
+    | "error"
+    | "ping"
+    | "workflow_started"
+    | "workflow_finished"
+    | "node_started"
+    | "node_finished";
   message_id?: string;
   conversation_id?: string;
   answer?: string;
+  data?: {
+    outputs?: Record<string, unknown>;
+    status?: string;
+    error?: string | null;
+  };
   metadata?: Record<string, unknown>;
 }
 

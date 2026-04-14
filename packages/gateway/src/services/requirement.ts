@@ -55,6 +55,11 @@ export function containsRequirementMarker(text: string): boolean {
   return text.includes(REQUIREMENT_DRAFT_MARKER_START);
 }
 
+export function textBeforeRequirementMarker(text: string): string {
+  const idx = text.indexOf(REQUIREMENT_DRAFT_MARKER_START);
+  return idx >= 0 ? text.slice(0, idx).trimEnd() : text;
+}
+
 // ─── Service ───────────────────────────────────────────────────────────────────
 
 export function createDraft(params: {
@@ -99,6 +104,51 @@ export async function* chatDraft(params: {
       apiKey: config.difyRequirementChatApiKey,
       baseUrl: config.difyBaseUrl,
     })) {
+      // Dify chatflow (advanced-chat) emits workflow_finished with the full answer
+      // in data.outputs.answer; classic chat apps emit message + message_end events.
+      if (chunk.event === "workflow_finished") {
+        const outputs = chunk.data?.outputs;
+        const answerOut = typeof outputs?.answer === "string" ? outputs.answer : "";
+        if (answerOut) {
+          fullAnswer = answerOut;
+          convId = convId || chunk.conversation_id || "";
+          // Stream the visible (pre-marker) text as a single message event for clients.
+          const visible = textBeforeRequirementMarker(answerOut);
+          if (visible) {
+            yield {
+              event: "message",
+              data: JSON.stringify({
+                type: "text",
+                content: visible,
+                conversation_id: convId,
+              }),
+            };
+          }
+        }
+        // Fall through to treat as message_end equivalent.
+        const parsed = extractRequirementDraft(fullAnswer);
+        const updatePatch: Parameters<typeof db.updateRequirementDraft>[1] = {};
+        if (convId) updatePatch.dify_conversation_id = convId;
+        if (parsed?.draft) {
+          updatePatch.issue_title = parsed.draft.issue_title;
+          updatePatch.issue_description = parsed.draft.issue_description;
+          updatePatch.prd_content = parsed.draft.prd_content;
+          if (parsed.draft.prd_slug) updatePatch.prd_slug = parsed.draft.prd_slug;
+        }
+        if (Object.keys(updatePatch).length > 0) {
+          getDb().updateRequirementDraft(params.draftId, updatePatch);
+        }
+        yield {
+          event: "message_end",
+          data: JSON.stringify({
+            conversation_id: convId,
+            ready: parsed?.ready ?? false,
+            draft: parsed?.draft ?? null,
+          }),
+        };
+        continue;
+      }
+
       if (chunk.event === "message" && chunk.answer) {
         convId = convId || chunk.conversation_id || "";
         fullAnswer += chunk.answer;

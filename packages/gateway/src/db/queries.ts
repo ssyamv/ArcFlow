@@ -510,6 +510,13 @@ export function getRequirementDraft(id: number): RequirementDraft | null {
     .get(id) as RequirementDraft | null;
 }
 
+export function findRequirementDraftByPlaneIssue(planeIssueId: string): RequirementDraft | null {
+  const db = getDb();
+  return db
+    .query("SELECT * FROM requirement_drafts WHERE plane_issue_id = ? LIMIT 1")
+    .get(planeIssueId) as RequirementDraft | null;
+}
+
 export function listRequirementDrafts(filters: {
   workspace_id?: number;
   creator_id?: number;

@@ -2,6 +2,13 @@ import type { MiddlewareHandler } from "hono";
 import { verifyJwt } from "../services/auth";
 
 export const authMiddleware: MiddlewareHandler = async (c, next) => {
+  // Pass through if an upstream middleware (e.g. test harness, reverse proxy)
+  // already set userId on the context.
+  if (c.get("userId")) {
+    await next();
+    return;
+  }
+
   const header = c.req.header("Authorization");
   if (!header?.startsWith("Bearer ")) {
     return c.json({ error: "Unauthorized" }, 401);

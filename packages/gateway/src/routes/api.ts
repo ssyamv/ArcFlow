@@ -17,6 +17,7 @@ import {
 } from "../services/prd";
 import { queryKnowledgeBase } from "../services/dify";
 import { syncGitToDify } from "../services/rag-sync";
+import { authMiddleware } from "../middleware/auth";
 import {
   createDraft,
   chatDraft,
@@ -244,6 +245,8 @@ apiRoutes.post("/rag/sync", async (c) => {
 });
 
 // ─── Requirement Draft Routes ──────────────────────────────────────────────────
+
+apiRoutes.use("/requirement/*", authMiddleware);
 
 apiRoutes.post("/requirement/draft", async (c) => {
   const userId = Number(c.get("userId" as never));

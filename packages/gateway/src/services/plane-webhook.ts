@@ -69,11 +69,22 @@ export function shouldTriggerWorkflow(
   if (!payload.data?.id) return false;
   if (!approvedStateId) return false;
 
-  // Issue 创建时如果直接设为 Approved 状态也应触发
-  if (payload.action === "create" && payload.data.state_id === approvedStateId) return true;
+  // Plane CE 实际有两种 action 命名（旧 "create"/"update"，新 "created"/"updated"），都接受
+  const action = payload.action;
+  const isCreate = action === "create" || action === "created";
+  const isUpdate = action === "update" || action === "updated";
+  if (!isCreate && !isUpdate) return false;
 
-  // Issue 更新时状态变为 Approved
-  if (payload.action === "update" && payload.data.state_id === approvedStateId) return true;
+  // state 在 webhook payload 中可能是：
+  //   - 扁平的 data.state_id（旧契约）
+  //   - 嵌套的 data.state.id（Plane CE 实际格式）
+  //   - 活动条目 activity.new_value（state 变更事件）
+  const flatStateId = payload.data.state_id;
+  const nestedState = (payload.data as { state?: { id?: string } }).state;
+  const nestedStateId = nestedState?.id;
+  const activity = (payload as { activity?: { field?: string; new_value?: string } }).activity;
+  const activityNewState = activity?.field === "state" ? activity.new_value : undefined;
 
-  return false;
+  const candidates = [flatStateId, nestedStateId, activityNewState].filter(Boolean);
+  return candidates.includes(approvedStateId);
 }

@@ -1,0 +1,187 @@
+version: "0.6.0"
+kind: app
+app:
+  name: "ArcFlow 需求对话"
+  mode: advanced-chat
+  description: "PM 通过对话与 AI 交互，产出 Plane Issue（标题 + 描述）+ PRD 草稿。流式返回文本回复 + 结构化草稿 JSON。"
+  icon: "💬"
+  icon_type: emoji
+  icon_background: "#DDE7FF"
+  use_icon_as_answer_icon: false
+
+workflow:
+  features:
+    opening_statement: "你好！请用一两句话告诉我你想做的需求，我会帮你整理成 PRD 草稿和 Plane Issue。"
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    file_upload:
+      enabled: false
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+  environment_variables: []
+  conversation_variables: []
+  graph:
+    edges:
+      - source: start
+        sourceHandle: source
+        target: llm-main
+        targetHandle: target
+        id: start-to-llm
+      - source: llm-main
+        sourceHandle: source
+        target: answer-main
+        targetHandle: target
+        id: llm-to-answer
+    nodes:
+      - id: start
+        data:
+          title: 开始
+          type: start
+          variables: []
+        position:
+          x: 50
+          y: 300
+
+      - id: llm-main
+        data:
+          title: 需求对话引导
+          type: llm
+          desc: "brainstorming 引导 + 实时输出 Issue/PRD 草稿 JSON"
+          model:
+            provider: anthropic
+            name: claude-opus-4-6
+            mode: chat
+            completion_params:
+              temperature: 0.6
+              top_p: 0.9
+          context:
+            enabled: false
+            variable_selector: []
+          vision:
+            enabled: false
+          memory:
+            role_prefix:
+              user: ""
+              assistant: ""
+            window:
+              enabled: true
+              size: 20
+          prompt_template:
+            - id: system-prompt
+              role: system
+              text: |
+                你是 ArcFlow 平台的产品需求助手。帮助 PM 把模糊想法澄清成 Plane Issue + PRD 草稿。
+
+                ## 工作模式（brainstorming）
+                - 每轮只问一个问题，优先给 2-4 个选项降低 PM 负担
+                - 信息密度够了就直接产出，别过度追问
+
+                ## 对话阶段
+                ### 阶段 1 — 快速理解（1-2 轮）
+                让 PM 自由描述；已经描述详细就直接跳阶段 3。
+
+                ### 阶段 2 — 定向补全（0-4 轮，按需）
+                只追问缺失项，优先级：
+                1. 功能名称（不明确时）
+                2. 核心业务规则（至少 1 条）
+                3. 涉及端（后端/Vue3 Web/Flutter/Android）
+                4. 用户角色与权限（涉及权限时）
+
+                以下由你自动补充，不问 PM：
+                - 异常处理场景
+                - 验收标准（Given/When/Then）
+                - 非功能需求
+                - frontmatter 字段
+
+                ### 阶段 3 — 定稿
+                信息足够后设 ready=true，产出完整 draft。
+
+                ## ⚠️ 输出格式（严格）
+                每次回复必须是：
+                1. 自然语言回答（Markdown，展示给 PM）
+                2. 回复末尾追加结构化 JSON 块，用如下 marker 包裹（单独放在最后，不要放 markdown 代码块内）：
+
+                <REQUIREMENT_DRAFT>{"reply":"...","ready":false,"draft":{"issue_title":"...","issue_description":"...","prd_content":"...","prd_slug":"..."}}</REQUIREMENT_DRAFT>
+
+                ## 字段规则
+                - `reply`：与自然语言回答一致（前端仅读 JSON 时兜底）
+                - `ready`：issue_title + issue_description + prd_content 都足够完整时才 true；缺信息或还在问阶段设 false
+                - `issue_title`：简短中文标题（15 字内），Plane Issue 标题
+                - `issue_description`：Markdown，3-10 行，作为 Plane Issue 正文摘要
+                - `prd_content`：完整 PRD Markdown，严格按下方模板
+                - `prd_slug`：kebab-case 英文，例：`workflow-status-filter`
+
+                ## JSON 规则（否则解析失败）
+                - 禁止放进 markdown 代码块（不要 ```json ```）
+                - 字符串里换行一律写 `\n`（不要裸换行）
+                - 双引号写 `\"`
+                - 每轮都要带完整最新 draft（不是增量）
+
+                ## PRD 模板（feature 型）
+                ---
+                title: {功能名}
+                type: feature
+                status: draft
+                owner: {PM 名字，取不到留空}
+                created: {今天 YYYY-MM-DD}
+                sprint:
+                related_prd: []
+                ---
+
+                ## 一句话描述
+                让[谁]能够[做什么]以达到[什么目的]。
+
+                ## 背景
+                （2-3 句）
+
+                ## 核心业务规则
+                1. ...
+
+                ## 功能说明
+                - 入口
+                - 主流程
+                - 异常处理
+
+                ## 用户角色与权限
+                | 角色 | 可执行操作 |
+                |------|-----------|
+
+                ## 涉及端
+                - [ ] 后端
+                - [ ] Vue3 Web
+                - [ ] Flutter 移动端
+                - [ ] Android 客户端
+
+                ## 验收标准
+                1. Given ... When ... Then ...
+
+                ## 补充说明（可选）
+
+                ## module 型 PRD
+                如果是多子功能的模块，type 改 module，额外加 `## 功能清单` 表格和 `## 各功能点说明` 章节。
+
+                ## 反例（绝对禁止）
+                ❌ ```json{...}```（放进代码块）
+                ❌ 在 `prd_content` 字段值里写裸换行
+                ❌ 只输出 JSON 不写自然语言
+                ❌ 多轮对话里 draft 字段来回丢失（每轮必须完整）
+        position:
+          x: 350
+          y: 300
+
+      - id: answer-main
+        data:
+          title: 回复
+          type: answer
+          answer: "{{#llm-main.text#}}"
+          variables: []
+        position:
+          x: 650
+          y: 300
