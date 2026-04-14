@@ -234,6 +234,7 @@ describe("feishu service", () => {
         summary: "支持手机号验证码登录",
         creatorName: "张三",
         webBaseUrl: "http://localhost:5173",
+        approverUserId: 7,
       });
 
       expect(result.ok).toBe(true);
@@ -262,7 +263,8 @@ describe("feishu service", () => {
       expect(fieldTexts.some((t) => t.includes("用户登录功能"))).toBe(true);
       expect(fieldTexts.some((t) => t.includes("张三"))).toBe(true);
 
-      // 验证三个按钮
+      // Batch 4-I: 三个按钮全部为 URL 按钮 (详情 + 通过 + 驳回)，
+      // 通过 / 驳回 指向 /approval/<token>。
       const actionEl = card.elements.find((el: Record<string, unknown>) => el.tag === "action");
       expect(actionEl).toBeDefined();
       expect(actionEl.actions.length).toBe(3);
@@ -271,14 +273,27 @@ describe("feishu service", () => {
         (a) => a.text.content,
       );
       expect(btnTexts.some((t) => t.includes("查看详情"))).toBe(true);
-      expect(btnTexts.some((t) => t.includes("快速通过"))).toBe(true);
+      expect(btnTexts.some((t) => t.includes("通过"))).toBe(true);
       expect(btnTexts.some((t) => t.includes("驳回"))).toBe(true);
 
-      // 验证详情链接
       const detailBtn = actionEl.actions.find((a: { text: { content: string }; url?: string }) =>
         a.text.content.includes("查看详情"),
       );
       expect(detailBtn?.url).toBe("http://localhost:5173/requirements/42");
+
+      const approveBtn = actionEl.actions.find(
+        (a: { text: { content: string }; url?: string; action_type?: string }) =>
+          a.text.content === "✅ 通过",
+      );
+      expect(approveBtn?.url).toMatch(/^http:\/\/localhost:5173\/approval\/.+/);
+      expect(approveBtn?.action_type).toBeUndefined();
+
+      const rejectBtn = actionEl.actions.find(
+        (a: { text: { content: string }; url?: string; action_type?: string }) =>
+          a.text.content === "❌ 驳回",
+      );
+      expect(rejectBtn?.url).toMatch(/^http:\/\/localhost:5173\/approval\/.+/);
+      expect(rejectBtn?.url).not.toBe(approveBtn?.url);
     });
 
     it("should return ok=false when feishu returns no message_id", async () => {
@@ -306,6 +321,7 @@ describe("feishu service", () => {
         summary: "测试摘要",
         creatorName: "李四",
         webBaseUrl: "http://localhost:5173",
+        approverUserId: 7,
       });
 
       expect(result.ok).toBe(false);

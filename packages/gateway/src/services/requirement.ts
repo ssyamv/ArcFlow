@@ -330,6 +330,9 @@ export async function finalizeDraft(params: {
         summary,
         creatorName,
         webBaseUrl: config.webBaseUrl,
+        // MVP: creator is default approver. Multi-approver flow can mint
+        // per-user tokens in a follow-up.
+        approverUserId: draft.creator_id,
       });
 
       if (result.ok) {

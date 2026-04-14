@@ -7,8 +7,6 @@ import {
   isEventProcessed,
   recordWebhookEvent,
   recordWebhookLog,
-  getRequirementDraft,
-  updateRequirementDraft,
   findRequirementDraftByPlaneIssue,
   getWorkspaceByPlaneProject,
   getWorkspaceBySlug,
@@ -18,8 +16,6 @@ import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
 import { syncRecentChanges } from "../services/rag-sync";
-import { updateCard } from "../services/feishu";
-import { approveDraft } from "../services/requirement";
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -122,128 +118,19 @@ export function createWebhookRoutes(): Hono {
     },
   );
 
-  // Feishu callback: approval button clicks
+  // Feishu callback endpoint.
+  // Batch 4-I (spec §8): internal network is outbound-only, so card button
+  // reverse callbacks are no longer supported. Cards now ship Web redirect
+  // links carrying short-lived approval tokens — the user's browser hits
+  // /api/approval/execute directly. We keep this endpoint only to answer
+  // Feishu's URL verification challenge during app setup.
   webhookRoutes.post("/feishu", async (c) => {
     const body = await c.req.json();
-
-    // Feishu URL verification challenge
     if (body.type === "url_verification") {
       return c.json({ challenge: body.challenge });
     }
-
-    // Parse Feishu card action callback
-    const action = body.action;
-    if (action?.value) {
-      try {
-        const value = JSON.parse(action.value);
-        const actionType = value.action; // "approve" or "reject" (tech review)
-        const callbackType = value.type; // "requirement_approve" or "requirement_reject"
-        const issueId = value.issue_id;
-
-        // ── 需求 PRD Review 回调 ──────────────────────────────────────────
-        if (callbackType === "requirement_approve" || callbackType === "requirement_reject") {
-          const draftId = Number(value.draft_id);
-          if (draftId) {
-            const draft = getRequirementDraft(draftId);
-            if (draft && draft.status === "review") {
-              if (callbackType === "requirement_approve") {
-                // P4: Stage D — 执行五步原子操作
-                approveDraft({ draftId, source: "feishu" })
-                  .then((result) => {
-                    if (!result.ok) {
-                      console.error(
-                        `[feishu webhook] approveDraft failed (draftId=${draftId}, step=${result.step}): ${result.error}`,
-                      );
-                      // 审批失败时更新卡片显示错误
-                      if (draft.feishu_card_id) {
-                        const errorCard = {
-                          config: { wide_screen_mode: true },
-                          header: {
-                            title: { tag: "plain_text", content: "⚠️ 需求 PRD 审批落地失败" },
-                            template: "yellow",
-                          },
-                          elements: [
-                            {
-                              tag: "div",
-                              text: {
-                                tag: "lark_md",
-                                content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n审批操作失败（步骤: ${result.step ?? "unknown"}）：${result.error}\n\n请联系管理员检查配置后重试。`,
-                              },
-                            },
-                          ],
-                        };
-                        updateCard(draft.feishu_card_id, errorCard).catch((err) => {
-                          console.warn(
-                            `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
-                          );
-                        });
-                      }
-                    } else {
-                      console.log(
-                        `[feishu webhook] requirement draft ${draftId} approved via Stage D`,
-                      );
-                      if (result.warning) {
-                        console.warn(`[feishu webhook] approveDraft warning: ${result.warning}`);
-                      }
-                    }
-                  })
-                  .catch((err) => {
-                    console.error(
-                      `[feishu webhook] approveDraft threw (draftId=${draftId}): ${err instanceof Error ? err.message : err}`,
-                    );
-                  });
-              } else {
-                // requirement_reject
-                updateRequirementDraft(draftId, { status: "rejected" });
-                console.log(`[feishu webhook] requirement draft ${draftId} rejected`);
-
-                if (draft.feishu_card_id) {
-                  const rejectedCard = {
-                    config: { wide_screen_mode: true },
-                    header: {
-                      title: { tag: "plain_text", content: "❌ 需求 PRD 已驳回" },
-                      template: "red",
-                    },
-                    elements: [
-                      {
-                        tag: "div",
-                        text: {
-                          tag: "lark_md",
-                          content: `**标题：** ${draft.issue_title || "（无标题）"}\n\n已驳回，请 PM 修改后重新提交。`,
-                        },
-                      },
-                    ],
-                  };
-                  updateCard(draft.feishu_card_id, rejectedCard).catch((err) => {
-                    console.warn(
-                      `[feishu webhook] 更新卡片失败: ${err instanceof Error ? err.message : err}`,
-                    );
-                  });
-                }
-              }
-            }
-          }
-        }
-
-        // ── 技术文档 Review 回调（原有逻辑） ────────────────────────────
-        if (actionType === "approve" && issueId && value.workspace_id) {
-          // Trigger code generation
-          triggerWorkflow({
-            workspace_id: Number(value.workspace_id),
-            workflow_type: "code_gen",
-            trigger_source: "manual",
-            plane_issue_id: issueId,
-            input_path: value.doc_path,
-            target_repos: ["backend"],
-          });
-        }
-        // reject is handled by updateIssueState in the workflow
-      } catch {
-        // Invalid action value, ignore
-      }
-    }
-
-    return c.json({ received: true, source: "feishu" });
+    // Ignore all other callbacks (including stale card clicks from old cards).
+    return c.json({ received: true, source: "feishu", handled: false });
   });
 
   // iBuild: 构建失败 → Bug 分析

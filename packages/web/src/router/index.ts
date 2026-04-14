@@ -74,6 +74,14 @@ const router = createRouter({
       component: () => import("../pages/Profile.vue"),
     },
     {
+      // Public route — page handles redirect-to-login itself so the user
+      // lands on a clear "please sign in" flow rather than a raw bounce.
+      path: "/approval/:token",
+      name: "approval",
+      component: () => import("../pages/ApprovalConfirm.vue"),
+      meta: { public: true },
+    },
+    {
       path: "/:pathMatch(.*)*",
       name: "NotFound",
       component: () => import("../pages/NotFound.vue"),

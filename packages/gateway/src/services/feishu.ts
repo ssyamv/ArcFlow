@@ -154,9 +154,30 @@ export interface RequirementReviewCardParams {
 }
 
 export async function sendRequirementReviewCard(
-  params: RequirementReviewCardParams,
+  params: RequirementReviewCardParams & { approverUserId: number },
 ): Promise<{ ok: true; card_id: string } | { ok: false; error: string }> {
   const detailUrl = `${params.webBaseUrl}/requirements/${params.draftId}`;
+
+  // Spec §8.2 — replace interactive callbacks with Web redirect links carrying
+  // short-lived approval tokens. Feishu → Gateway reverse callbacks are no
+  // longer supported (internal network is outbound-only).
+  const { signApprovalToken } = await import("./approval-token");
+  const [approveTok, rejectTok] = await Promise.all([
+    signApprovalToken({
+      userId: params.approverUserId,
+      action: "approve",
+      resourceType: "requirement_draft",
+      resourceId: String(params.draftId),
+    }),
+    signApprovalToken({
+      userId: params.approverUserId,
+      action: "reject",
+      resourceType: "requirement_draft",
+      resourceId: String(params.draftId),
+    }),
+  ]);
+  const approveUrl = `${params.webBaseUrl}/approval/${approveTok}`;
+  const rejectUrl = `${params.webBaseUrl}/approval/${rejectTok}`;
 
   const card = {
     config: { wide_screen_mode: true },
@@ -196,17 +217,15 @@ export async function sendRequirementReviewCard(
           },
           {
             tag: "button",
-            text: { tag: "plain_text", content: "✅ 快速通过" },
+            text: { tag: "plain_text", content: "✅ 通过" },
             type: "primary",
-            action_type: "request",
-            value: JSON.stringify({ type: "requirement_approve", draft_id: params.draftId }),
+            url: approveUrl,
           },
           {
             tag: "button",
             text: { tag: "plain_text", content: "❌ 驳回" },
             type: "danger",
-            action_type: "request",
-            value: JSON.stringify({ type: "requirement_reject", draft_id: params.draftId }),
+            url: rejectUrl,
           },
         ],
       },
