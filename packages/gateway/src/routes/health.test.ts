@@ -7,7 +7,6 @@ mock.module("../config", () => ({
   getConfig: () =>
     createTestConfig({
       planeBaseUrl: "http://plane-test:80",
-      wikijsBaseUrl: "http://wikijs-test:3000",
       claudeCodeTimeout: 600000,
     }),
 }));
