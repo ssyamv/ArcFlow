@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { generateOAuthUrl, exchangeCodeForUser, signJwt } from "../services/auth";
+import {
+  generateOAuthUrl,
+  exchangeCodeForUser,
+  signJwt,
+  resolveUserContext,
+} from "../services/auth";
 import { upsertUser, getUserById } from "../db/queries";
 import { authMiddleware } from "../middleware/auth";
 import { getConfig } from "../config";
@@ -38,6 +43,23 @@ authRoutes.get("/callback", async (c) => {
       { error: `OAuth failed: ${err instanceof Error ? err.message : "unknown"}` },
       500,
     );
+  }
+});
+
+// NanoClaw 用：解析 arcflow_token 返回 user/workspace 上下文
+authRoutes.post("/auth/verify", async (c) => {
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) {
+    return c.json({ code: "AUTH_INVALID", message: "Missing bearer" }, 401);
+  }
+  const token = header.slice(7);
+  try {
+    const data = await resolveUserContext(token);
+    return c.json({ code: 0, data });
+  } catch (err) {
+    const code =
+      err instanceof Error && err.message === "AUTH_EXPIRED" ? "AUTH_EXPIRED" : "AUTH_INVALID";
+    return c.json({ code, message: code }, 401);
   }
 });
 
