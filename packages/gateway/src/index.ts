@@ -11,6 +11,7 @@ import { conversationRoutes } from "./routes/conversations";
 import { workspaceRoutes } from "./routes/workspaces";
 import { planeProxyRoutes } from "./routes/plane-proxy";
 import { docsRoutes } from "./routes/docs";
+import { approvalRoutes } from "./routes/approval";
 import { startScheduler } from "./scheduler";
 
 // 初始化数据库
@@ -34,6 +35,7 @@ app.route("/api/conversations", conversationRoutes);
 app.route("/api/workspaces", workspaceRoutes);
 app.route("/api/plane", planeProxyRoutes);
 app.route("/api/docs", docsRoutes);
+app.route("/api/approval", approvalRoutes);
 
 // 启动调度器（非测试环境）
 if (process.env.NODE_ENV !== "test") {

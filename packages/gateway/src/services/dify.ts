@@ -1,3 +1,9 @@
+/**
+ * @deprecated Batch 2-F. Dify integration is scheduled for removal in Batch 5
+ * (spec §7). Do not add new callers. NanoClaw arcflow-* skills now handle
+ * PRD → tech-design, tech-design → OpenAPI, CI log → bug report, and
+ * RAG-style Q&A via the Agent's native Read/Grep/WebFetch + MemPalace.
+ */
 import { getConfig } from "../config";
 import { parseDifySSEChunk } from "./prd";
 import type { DifySSEChunk } from "./prd";

@@ -6,6 +6,9 @@ import {
   listWebhookLogs,
   createMessage,
   getWorkspace,
+  getWorkspaceMemberRole,
+  buildMemorySnapshot,
+  recordUserAction,
 } from "../db/queries";
 import { triggerWorkflow } from "../services/workflow";
 import {
@@ -388,4 +391,117 @@ apiRoutes.post("/requirement/:id/approve", async (c) => {
     prd_git_path: result.draft.prd_git_path,
     warning: result.warning,
   });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 2-F: memory snapshot + nanoclaw dispatch
+// ---------------------------------------------------------------------------
+
+apiRoutes.use("/memory/*", authMiddleware);
+apiRoutes.get("/memory/snapshot", (c) => {
+  const userId = Number(c.get("userId" as never));
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const wsRaw = c.req.query("workspace_id");
+  const workspaceId = Number(wsRaw);
+  if (!wsRaw || !Number.isFinite(workspaceId) || workspaceId <= 0) {
+    return c.json({ error: "workspace_id is required" }, 400);
+  }
+  // Authorization: caller must be a member of the workspace.
+  const role = getWorkspaceMemberRole(workspaceId, userId);
+  if (!role) return c.json({ error: "Not a workspace member" }, 403);
+
+  const snapshot = buildMemorySnapshot(workspaceId);
+  return c.json(snapshot);
+});
+
+/**
+ * POST /api/nanoclaw/dispatch
+ * Header: X-System-Secret (must match NANOCLAW_DISPATCH_SECRET)
+ * Body: { skill: string, workspace_id: number, plane_issue_id?: string,
+ *         user_id?: number, input?: unknown }
+ *
+ * Internal system-task entry. Called by Plane / webhook handlers when an
+ * automated workflow (e.g. Issue approved → prd_to_tech) needs to run an
+ * Agent skill without a live user. The Gateway forwards to NanoClaw's
+ * WebChannel as a system-identity message; NanoClaw loads the requested
+ * skill and executes.
+ *
+ * When NANOCLAW_URL is unset (dev / test), the request is persisted to
+ * user_action_log and echoed back for inspection.
+ */
+apiRoutes.post("/nanoclaw/dispatch", async (c) => {
+  const secret = c.req.header("X-System-Secret") ?? "";
+  const expected = process.env.NANOCLAW_DISPATCH_SECRET ?? "";
+  if (!expected) {
+    return c.json({ error: "NANOCLAW_DISPATCH_SECRET not configured" }, 503);
+  }
+  if (secret !== expected) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  const body =
+    (await c.req.json<{
+      skill?: string;
+      workspace_id?: number;
+      plane_issue_id?: string;
+      user_id?: number;
+      input?: unknown;
+    }>()) ?? {};
+  if (!body.skill || !body.workspace_id) {
+    return c.json({ error: "skill and workspace_id are required" }, 400);
+  }
+
+  const dispatchId = `disp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  recordUserAction({
+    userId: body.user_id ?? 0,
+    workspaceId: body.workspace_id,
+    actionType: `nanoclaw.dispatch.${body.skill}`,
+    payload: {
+      dispatch_id: dispatchId,
+      plane_issue_id: body.plane_issue_id,
+      input: body.input,
+    },
+  });
+
+  const nanoclawUrl = process.env.NANOCLAW_URL;
+  if (!nanoclawUrl) {
+    // Dev / test — do not attempt HTTP, just return the dispatch id.
+    return c.json({
+      ok: true,
+      dispatched: false,
+      dispatch_id: dispatchId,
+      reason: "NANOCLAW_URL not set — recorded only",
+    });
+  }
+
+  try {
+    const resp = await fetch(`${nanoclawUrl.replace(/\/+$/, "")}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-System-Secret": expected,
+      },
+      body: JSON.stringify({
+        client_id: `system-${dispatchId}`,
+        message: `[SYSTEM DISPATCH] run skill=${body.skill} workspace_id=${body.workspace_id} plane_issue_id=${body.plane_issue_id ?? ""}\n\n${JSON.stringify(body.input ?? {})}`,
+      }),
+    });
+    const ok = resp.ok;
+    return c.json({
+      ok,
+      dispatched: true,
+      dispatch_id: dispatchId,
+      nanoclaw_status: resp.status,
+    });
+  } catch (err) {
+    return c.json(
+      {
+        ok: false,
+        dispatched: false,
+        dispatch_id: dispatchId,
+        error: err instanceof Error ? err.message : "dispatch failed",
+      },
+      502,
+    );
+  }
 });
