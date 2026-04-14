@@ -1,1 +1,0 @@
-11 个页面组件：Login（飞书 OAuth）、AuthCallback（回调处理）、Dashboard（KPI 指标 + 最近执行）、WorkflowList（执行列表 + 筛选）、WorkflowDetail（执行详情时间线）、WorkflowTrigger（手动触发表单）、AiChat（多轮对话 + SSE 流式）、Docs（Tiptap 富文本编辑 + 文件树）、WorkspaceSettings（管理员设置）、Profile（用户信息）、NotFound（404）。

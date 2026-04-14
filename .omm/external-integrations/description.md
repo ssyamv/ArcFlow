@@ -1,1 +1,0 @@
-ArcFlow 与 10+ 外部服务的集成关系。Gateway 作为中心枢纽，通过 HTTP/GraphQL/SSH/子进程 4 种方式与外部系统交互。入站（Webhook）：Plane Issue 事件、Git 推送事件、CI/CD 构建结果、飞书卡片回调、iBuild 构建结果。出站（API 调用）：Dify 工作流/Dataset/Chat API、Plane Issue API、Wiki.js GraphQL、Git SSH 操作、飞书消息/OAuth API、iBuild 构建日志 API、Claude Code CLI。

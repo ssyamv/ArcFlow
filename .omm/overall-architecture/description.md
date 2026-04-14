@@ -1,1 +1,0 @@
-ArcFlow 是一个 AI 研发运营一体化平台，以 Markdown + Git 为数据底座、AI 为执行引擎，串联从 PRD 到代码生成的全流程。系统采用六层架构：交互层（NanoClaw/Web）→ 通知层（飞书）→ 编排层（Dify）→ 衔接层（Gateway 胶水服务）→ 协作层（Wiki.js + Plane）→ 数据层（Git + Weaviate）。Gateway 是核心枢纽，负责 Webhook 路由、Git 读写、工作流调度和外部服务集成。

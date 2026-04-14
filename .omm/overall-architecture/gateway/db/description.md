@@ -1,1 +1,0 @@
-SQLite 数据库层（WAL 模式）。9 张表：workflow_execution（工作流执行记录）、bug_fix_retry（Bug 修复重试追踪）、webhook_event（Webhook 去重缓存 24h TTL）、webhook_log（原始 Webhook 载荷）、users（飞书用户）、workspaces（工作空间）、workspace_members（成员关系）、conversations（对话）、messages（消息）。

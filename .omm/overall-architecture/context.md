@@ -1,1 +1,0 @@
-Monorepo 结构，包含 packages/gateway（Bun + Hono + SQLite）和 packages/web（Vue 3 + Tailwind）两个核心包。外部依赖 Dify（AI 编排）、Plane（任务管理）、Wiki.js（知识库）、飞书（通知）、Git（数据底座）、Weaviate（向量搜索）。部署目标：172.29.230.21 服务器，Docker Compose 编排。

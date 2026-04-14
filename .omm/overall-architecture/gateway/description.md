@@ -1,1 +1,0 @@
-Bun + Hono + SQLite 胶水服务，是 ArcFlow 的核心枢纽。负责：接收 Webhook 事件（Plane/Git/CI/CD/飞书）、编排 AI 工作流（调用 Dify）、Git 仓库读写、飞书消息推送、Claude Code 代码生成调度、RAG 知识库同步。提供 REST API 供 Web 前端调用。9 张 SQLite 表存储执行记录、用户、工作空间、对话等数据。171 个测试覆盖。
