@@ -56,12 +56,12 @@ const router = createRouter({
     {
       path: "/requirements/new",
       name: "requirements-new",
-      component: () => import("../pages/RequirementChat.vue"),
+      component: () => import("../pages/GonePage.vue"),
     },
     {
       path: "/requirements/:id",
       name: "requirement-detail",
-      component: () => import("../pages/RequirementChat.vue"),
+      component: () => import("../pages/GonePage.vue"),
     },
     {
       path: "/workspace/settings",

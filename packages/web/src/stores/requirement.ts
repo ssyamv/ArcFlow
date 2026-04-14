@@ -7,7 +7,6 @@ import {
   patchRequirementDraft,
   finalizeRequirementDraft,
   approveRequirementDraft,
-  streamRequirementChat,
   type RequirementDraft,
   type RequirementDraftListResponse,
 } from "../api/requirement";
@@ -77,47 +76,9 @@ export const useRequirementStore = defineStore("requirement", () => {
     }
   }
 
-  async function sendMessage(content: string) {
-    if (!currentDraft.value || streaming.value || !content.trim()) return;
-
-    error.value = null;
-
-    // Optimistic user message
-    messages.value.push({ role: "user", content });
-
-    // Placeholder assistant message
-    const aiMsg: ChatMessage = { role: "assistant", content: "" };
-    messages.value.push(aiMsg);
-
-    streaming.value = true;
-
-    try {
-      await streamRequirementChat(currentDraft.value.id, content, (event) => {
-        if (event.type === "text") {
-          aiMsg.content += event.content;
-        } else if (event.type === "draft_update") {
-          if (currentDraft.value) {
-            if (event.issue_title !== undefined) currentDraft.value.issue_title = event.issue_title;
-            if (event.issue_description !== undefined)
-              currentDraft.value.issue_description = event.issue_description;
-            if (event.prd_content !== undefined) currentDraft.value.prd_content = event.prd_content;
-            if (event.prd_slug !== undefined) currentDraft.value.prd_slug = event.prd_slug;
-          }
-        } else if (event.type === "error") {
-          error.value = event.message;
-        }
-      });
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : "发送失败";
-      // Remove placeholder if empty
-      if (!aiMsg.content) {
-        const idx = messages.value.indexOf(aiMsg);
-        if (idx !== -1) messages.value.splice(idx, 1);
-      }
-    } finally {
-      streaming.value = false;
-    }
-  }
+  // sendMessage removed in Batch 4-H — requirement chat is now handled by
+  // AiChat + NanoClaw tool calls (arcflow-requirement skill). This store
+  // keeps list/detail/CRUD ops only.
 
   async function saveEdit(patch: {
     issue_title?: string;
@@ -193,7 +154,6 @@ export const useRequirementStore = defineStore("requirement", () => {
     createDraft,
     loadDraft,
     loadDrafts,
-    sendMessage,
     saveEdit,
     finalize,
     approve,

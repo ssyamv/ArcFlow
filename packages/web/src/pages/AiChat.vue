@@ -107,7 +107,73 @@
                 {{ msg.content }}
               </div>
             </div>
-            <div v-else class="prose text-sm max-w-2xl" v-html="renderMd(msg.content)" />
+            <div v-else class="max-w-2xl space-y-2">
+              <!-- Skill badges -->
+              <div v-if="sidecarOf(msg.id)?.skillsLoaded.length" class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="s in sidecarOf(msg.id)!.skillsLoaded"
+                  :key="s"
+                  class="text-[10px] px-1.5 py-0.5 rounded"
+                  style="
+                    background-color: var(--color-surface-05);
+                    color: var(--color-text-tertiary);
+                  "
+                  >📎 {{ s }}</span
+                >
+              </div>
+
+              <!-- Thinking (collapsible, default collapsed) -->
+              <details
+                v-if="sidecarOf(msg.id)?.thinking"
+                class="text-xs rounded-md px-2 py-1"
+                style="background-color: var(--color-surface-02); color: var(--color-text-tertiary)"
+              >
+                <summary class="cursor-pointer select-none">💭 思考过程</summary>
+                <pre class="whitespace-pre-wrap mt-1 text-[11px]">{{
+                  sidecarOf(msg.id)!.thinking
+                }}</pre>
+              </details>
+
+              <!-- Tool timeline -->
+              <div v-if="sidecarOf(msg.id)?.toolCalls.length" class="space-y-1">
+                <div
+                  v-for="tc in sidecarOf(msg.id)!.toolCalls"
+                  :key="tc.id"
+                  class="text-[11px] flex items-center gap-1.5"
+                  style="color: var(--color-text-tertiary)"
+                >
+                  <span>{{ tc.status === "running" ? "⟳" : tc.status === "ok" ? "✓" : "✗" }}</span>
+                  <span style="color: var(--color-text-secondary)">{{ tc.name }}</span>
+                  <span class="truncate">{{ tc.summary ?? tc.preview ?? "" }}</span>
+                </div>
+              </div>
+
+              <!-- Assistant message -->
+              <div class="prose text-sm" v-html="renderMd(msg.content)" />
+
+              <!-- Artifacts -->
+              <div
+                v-for="art in sidecarOf(msg.id)?.artifacts ?? []"
+                :key="art.id"
+                class="text-xs rounded-md border p-2"
+                style="
+                  border-color: var(--color-border-subtle);
+                  background-color: var(--color-surface-02);
+                "
+              >
+                <div class="font-medium mb-1" style="color: var(--color-text-primary)">
+                  📄 {{ art.title }}
+                  <span class="ml-1 text-[10px]" style="color: var(--color-text-quaternary)"
+                    >({{ art.type }})</span
+                  >
+                </div>
+                <pre
+                  class="whitespace-pre-wrap text-[11px]"
+                  style="color: var(--color-text-secondary)"
+                  >{{ art.content }}</pre
+                >
+              </div>
+            </div>
           </div>
           <div v-if="chatStore.typing" class="text-sm" style="color: var(--color-text-tertiary)">
             <span class="animate-pulse">···</span>
@@ -194,6 +260,10 @@ defineOptions({ name: "AiChatPage" });
 
 const convStore = useConversationStore();
 const chatStore = useChatStore();
+
+function sidecarOf(id: number) {
+  return chatStore.sidecars[id];
+}
 const sidebarCollapsed = ref(false);
 const input = ref("");
 const searchQuery = ref("");
