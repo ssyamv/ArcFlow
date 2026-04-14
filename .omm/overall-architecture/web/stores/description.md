@@ -1,1 +1,0 @@
-6 个 Pinia Store：auth（JWT token + 用户信息 + 飞书 OAuth）、workspace（多工作空间切换 + Plane 同步）、workflow（执行列表 + 触发 + 筛选）、conversation（对话 CRUD + 搜索 + 置顶）、chat（消息列表 + SSE 流式发送）、docs（文件树 + 内容读写 + 搜索）。Token 和 workspaceId 持久化到 localStorage。

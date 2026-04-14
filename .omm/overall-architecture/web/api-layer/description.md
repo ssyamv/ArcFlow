@@ -1,1 +1,0 @@
-6 个 API 模块对应 Gateway 端点：auth（用户信息）、workspaces（列表/详情/设置/同步）、workflow（执行列表/触发/健康检查/版本）、conversations（CRUD + 消息 + 搜索）、docs（文件树/文件 CRUD/文件夹/重命名/搜索）、chat（发送消息 + SSE 连接）。统一携带 Authorization Bearer token 和 X-Workspace-Id 头。
