@@ -1,5 +1,35 @@
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT, jwtVerify, errors as joseErrors } from "jose";
 import { getConfig } from "../config";
+import { getUserById, listUserWorkspaces } from "../db/queries";
+
+export interface UserContext {
+  userId: number;
+  displayName: string;
+  workspaceId: number;
+  expiresAt: number;
+}
+
+export async function resolveUserContext(token: string): Promise<UserContext> {
+  const config = getConfig();
+  const secret = new TextEncoder().encode(config.jwtSecret);
+  let payload;
+  try {
+    const result = await jwtVerify(token, secret);
+    payload = result.payload;
+  } catch (err) {
+    if (err instanceof joseErrors.JWTExpired) throw new Error("AUTH_EXPIRED");
+    throw new Error("AUTH_INVALID");
+  }
+  const user = getUserById(payload.sub as number);
+  if (!user) throw new Error("AUTH_INVALID");
+  const workspaces = listUserWorkspaces(user.id);
+  return {
+    userId: user.id,
+    displayName: user.name,
+    workspaceId: workspaces[0]?.id ?? 0,
+    expiresAt: Number(payload.exp ?? 0),
+  };
+}
 
 export function generateOAuthUrl(): string {
   const config = getConfig();
