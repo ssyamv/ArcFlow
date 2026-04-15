@@ -1,9 +1,8 @@
-import { describe, expect, it, afterEach } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import {
   extractPrdResult,
   buildPrdFilePath,
   buildWikiUrl,
-  parseDifySSEChunk,
   containsPrdMarker,
   textBeforeMarker,
 } from "./prd";
@@ -59,42 +58,6 @@ describe("buildWikiUrl", () => {
   });
 });
 
-describe("parseDifySSEChunk", () => {
-  it("should parse message event", () => {
-    const line = `data: {"event":"message","message_id":"msg1","conversation_id":"conv1","answer":"你好","created_at":1234567890}`;
-    const chunk = parseDifySSEChunk(line);
-    expect(chunk).not.toBeNull();
-    expect(chunk!.event).toBe("message");
-    expect(chunk!.answer).toBe("你好");
-    expect(chunk!.conversation_id).toBe("conv1");
-  });
-
-  it("should parse message_end event", () => {
-    const line = `data: {"event":"message_end","message_id":"msg1","conversation_id":"conv1","metadata":{}}`;
-    const chunk = parseDifySSEChunk(line);
-    expect(chunk).not.toBeNull();
-    expect(chunk!.event).toBe("message_end");
-  });
-
-  it("should return null for non-data lines", () => {
-    expect(parseDifySSEChunk("event: message")).toBeNull();
-    expect(parseDifySSEChunk("")).toBeNull();
-    expect(parseDifySSEChunk(": comment")).toBeNull();
-  });
-
-  it("should return null for ping event", () => {
-    const line = `data: {"event":"ping"}`;
-    const chunk = parseDifySSEChunk(line);
-    expect(chunk).not.toBeNull();
-    expect(chunk!.event).toBe("ping");
-  });
-
-  it("should return null for invalid JSON", () => {
-    const line = `data: {invalid`;
-    expect(parseDifySSEChunk(line)).toBeNull();
-  });
-});
-
 describe("containsPrdMarker", () => {
   it("returns true when marker is present", () => {
     expect(containsPrdMarker("text before <<<PRD_OUTPUT>>> after")).toBe(true);
@@ -112,99 +75,5 @@ describe("textBeforeMarker", () => {
 
   it("returns full text when no marker", () => {
     expect(textBeforeMarker("no marker here")).toBe("no marker here");
-  });
-});
-
-describe("streamDifyChatflow", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("handles buffered partial lines across chunks", async () => {
-    // Simulate data split across two chunks
-    const part1 = 'data: {"event":"message","answ';
-    const part2 = 'er":"split","conversation_id":"c2"}\n\n';
-
-    globalThis.fetch = (async () => {
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(part1));
-          controller.enqueue(new TextEncoder().encode(part2));
-          controller.close();
-        },
-      });
-      return new Response(stream, { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const { streamDifyChatflow } = await import("./prd");
-    const chunks = [];
-    for await (const chunk of streamDifyChatflow("test")) {
-      chunks.push(chunk);
-    }
-    expect(chunks.length).toBe(1);
-    expect(chunks[0].answer).toBe("split");
-  });
-
-  it("streams SSE chunks from Dify chatflow", async () => {
-    const sseData = [
-      'data: {"event":"message","answer":"Hello","conversation_id":"c1"}\n\n',
-      'data: {"event":"message","answer":" World","conversation_id":"c1"}\n\n',
-      'data: {"event":"message_end","conversation_id":"c1"}\n\n',
-    ].join("");
-
-    globalThis.fetch = (async () => {
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(sseData));
-          controller.close();
-        },
-      });
-      return new Response(stream, { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const { streamDifyChatflow } = await import("./prd");
-    const chunks = [];
-    for await (const chunk of streamDifyChatflow("test")) {
-      chunks.push(chunk);
-    }
-
-    expect(chunks.length).toBe(3);
-    expect(chunks[0].answer).toBe("Hello");
-    expect(chunks[1].answer).toBe(" World");
-    expect(chunks[2].event).toBe("message_end");
-  });
-
-  it("throws on HTTP error", async () => {
-    globalThis.fetch = (async () =>
-      new Response("Internal Error", { status: 500 })) as unknown as typeof fetch;
-
-    const { streamDifyChatflow } = await import("./prd");
-    const gen = streamDifyChatflow("fail");
-    await expect(gen.next()).rejects.toThrow("Dify Chatflow API error: 500");
-  });
-
-  it("filters out ping events", async () => {
-    const sseData = 'data: {"event":"ping"}\ndata: {"event":"message","answer":"hi"}\n';
-
-    globalThis.fetch = (async () => {
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(sseData));
-          controller.close();
-        },
-      });
-      return new Response(stream, { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const { streamDifyChatflow } = await import("./prd");
-    const chunks = [];
-    for await (const chunk of streamDifyChatflow("test")) {
-      chunks.push(chunk);
-    }
-
-    expect(chunks.length).toBe(1);
-    expect(chunks[0].answer).toBe("hi");
   });
 });
