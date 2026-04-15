@@ -54,8 +54,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
   slug TEXT NOT NULL UNIQUE,
   plane_project_id TEXT,
   plane_workspace_slug TEXT,
-  dify_dataset_id TEXT,
-  dify_rag_api_key TEXT,
   wiki_path_prefix TEXT,
   git_repos TEXT NOT NULL DEFAULT '{}',
   feishu_chat_id TEXT,
@@ -80,7 +78,6 @@ CREATE TABLE IF NOT EXISTS conversations (
   workspace_id INTEGER REFERENCES workspaces(id),
   title TEXT NOT NULL DEFAULT '新对话',
   pinned INTEGER NOT NULL DEFAULT 0,
-  dify_conversation_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
