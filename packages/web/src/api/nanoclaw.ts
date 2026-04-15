@@ -74,7 +74,10 @@ export async function postChat(
 
 /**
  * Open an SSE stream. Returns an AbortController — call .abort() to close.
- * `lastEventId` lets the client resume from NanoClaw's ring buffer.
+ * Auto-reconnects with exponential backoff on transport failures, resuming
+ * via Last-Event-ID so in-flight replies survive transient drops (the case
+ * in issue #111: long turns >1min where the first connection dies before
+ * the assistant message_end lands).
  */
 export function openChatStream(
   params: {
@@ -85,43 +88,80 @@ export function openChatStream(
 ): AbortController {
   const controller = new AbortController();
   const url = `${NANOCLAW_BASE}/api/chat/sse?client_id=${encodeURIComponent(params.clientId)}&token=${encodeURIComponent(params.token)}`;
-  const headers: Record<string, string> = {
-    "X-Workspace-Id": String(params.workspaceId),
-    Accept: "text/event-stream",
-  };
-  if (typeof params.lastEventId === "number" && params.lastEventId >= 0) {
-    headers["Last-Event-ID"] = String(params.lastEventId);
+
+  let lastId: number | null =
+    typeof params.lastEventId === "number" && params.lastEventId >= 0 ? params.lastEventId : null;
+  let terminated = false; // set when we've observed a terminal event
+
+  const terminalTypes: NanoClawEventType[] = ["done", "message_end", "error"];
+
+  async function connectOnce(): Promise<"ok" | "terminal" | "retry"> {
+    const headers: Record<string, string> = {
+      "X-Workspace-Id": String(params.workspaceId),
+      Accept: "text/event-stream",
+    };
+    if (lastId !== null) headers["Last-Event-ID"] = String(lastId);
+
+    const res = await fetch(url, { headers, signal: controller.signal });
+    if (!res.ok || !res.body) {
+      throw new Error(`stream failed: ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const ev = parseSseEvent(raw);
+        if (!ev) continue;
+        if (typeof ev.id === "number") lastId = ev.id;
+        handlers.onEvent(ev);
+        const isLegacyDone =
+          ev.type === "message" && (ev.data as { done?: boolean })?.done === true;
+        if (terminalTypes.includes(ev.type) || isLegacyDone) {
+          terminated = true;
+        }
+      }
+    }
+    return terminated ? "terminal" : "retry";
   }
 
   (async () => {
-    try {
-      const res = await fetch(url, { headers, signal: controller.signal });
-      if (!res.ok || !res.body) {
-        handlers.onConnectError?.(new Error(`stream failed: ${res.status}`));
+    let attempt = 0;
+    for (;;) {
+      if (controller.signal.aborted) {
+        handlers.onClose?.();
         return;
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const raw = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const ev = parseSseEvent(raw);
-          if (ev) handlers.onEvent(ev);
+      try {
+        const outcome = await connectOnce();
+        if (outcome === "terminal") {
+          handlers.onClose?.();
+          return;
         }
+        // Natural EOF without a terminal event → reconnect to resume.
+      } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") {
+          handlers.onClose?.();
+          return;
+        }
+        // Surface first failure, then keep retrying quietly.
+        if (attempt === 0) handlers.onConnectError?.(err);
       }
-      handlers.onClose?.();
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") {
-        handlers.onClose?.();
-      } else {
-        handlers.onConnectError?.(err);
-      }
+      attempt++;
+      const delay = Math.min(500 * 2 ** (attempt - 1), 5000);
+      await new Promise((r) => {
+        const t = setTimeout(r, delay);
+        controller.signal.addEventListener("abort", () => {
+          clearTimeout(t);
+          r(undefined);
+        });
+      });
     }
   })();
 
