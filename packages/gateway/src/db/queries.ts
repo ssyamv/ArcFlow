@@ -12,8 +12,6 @@ import type {
   Conversation,
   Message,
   Workspace,
-  RequirementDraft,
-  RequirementDraftStatus,
 } from "../types";
 
 // ─── workflow_execution ────────────────────────────────────────────────────────
@@ -293,8 +291,6 @@ export function createWorkspace(params: {
 export function updateWorkspaceSettings(
   id: number,
   patch: {
-    dify_dataset_id?: string;
-    dify_rag_api_key?: string;
     wiki_path_prefix?: string;
     git_repos?: string;
     plane_project_id?: string;
@@ -305,14 +301,6 @@ export function updateWorkspaceSettings(
   const db = getDb();
   const sets: string[] = [];
   const values: unknown[] = [];
-  if (patch.dify_dataset_id !== undefined) {
-    sets.push("dify_dataset_id = ?");
-    values.push(patch.dify_dataset_id);
-  }
-  if (patch.dify_rag_api_key !== undefined) {
-    sets.push("dify_rag_api_key = ?");
-    values.push(patch.dify_rag_api_key);
-  }
   if (patch.wiki_path_prefix !== undefined) {
     sets.push("wiki_path_prefix = ?");
     values.push(patch.wiki_path_prefix);
@@ -482,142 +470,8 @@ export function createMessage(
   return db.query("SELECT * FROM messages WHERE id = ?").get(row.id) as Message;
 }
 
-// ─── requirement_drafts ───────────────────────────────────────────────────────
-
-export function createRequirementDraft(input: {
-  workspace_id: number;
-  creator_id: number;
-  feishu_chat_id?: string;
-  dify_conversation_id?: string;
-}): RequirementDraft {
-  const db = getDb();
-  db.query(
-    `INSERT INTO requirement_drafts (workspace_id, creator_id, feishu_chat_id, dify_conversation_id)
-     VALUES (?, ?, ?, ?)`,
-  ).run(
-    input.workspace_id,
-    input.creator_id,
-    input.feishu_chat_id ?? null,
-    input.dify_conversation_id ?? null,
-  );
-  const { id } = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
-  return db.query("SELECT * FROM requirement_drafts WHERE id = ?").get(id) as RequirementDraft;
-}
-
-export function getRequirementDraft(id: number): RequirementDraft | null {
-  const db = getDb();
-  return db
-    .query("SELECT * FROM requirement_drafts WHERE id = ?")
-    .get(id) as RequirementDraft | null;
-}
-
-export function findRequirementDraftByPlaneIssue(planeIssueId: string): RequirementDraft | null {
-  const db = getDb();
-  return db
-    .query("SELECT * FROM requirement_drafts WHERE plane_issue_id = ? LIMIT 1")
-    .get(planeIssueId) as RequirementDraft | null;
-}
-
-export function listRequirementDrafts(filters: {
-  workspace_id?: number;
-  creator_id?: number;
-  status?: RequirementDraftStatus;
-  limit?: number;
-}): RequirementDraft[] {
-  const db = getDb();
-  const limit = filters.limit ?? 20;
-  const conditions: string[] = [];
-  const values: (string | number)[] = [];
-
-  if (filters.workspace_id !== undefined) {
-    conditions.push("workspace_id = ?");
-    values.push(filters.workspace_id);
-  }
-  if (filters.creator_id !== undefined) {
-    conditions.push("creator_id = ?");
-    values.push(filters.creator_id);
-  }
-  if (filters.status !== undefined) {
-    conditions.push("status = ?");
-    values.push(filters.status);
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  return db
-    .query(`SELECT * FROM requirement_drafts ${where} ORDER BY updated_at DESC LIMIT ?`)
-    .all(...values, limit) as RequirementDraft[];
-}
-
-export function updateRequirementDraft(
-  id: number,
-  patch: {
-    issue_title?: string;
-    issue_description?: string;
-    prd_content?: string;
-    prd_slug?: string;
-    dify_conversation_id?: string;
-    status?: RequirementDraftStatus;
-    feishu_card_id?: string;
-    plane_issue_id?: string;
-    prd_git_path?: string;
-  },
-): boolean {
-  const db = getDb();
-  const sets: string[] = [];
-  const values: unknown[] = [];
-
-  if (patch.issue_title !== undefined) {
-    sets.push("issue_title = ?");
-    values.push(patch.issue_title);
-  }
-  if (patch.issue_description !== undefined) {
-    sets.push("issue_description = ?");
-    values.push(patch.issue_description);
-  }
-  if (patch.prd_content !== undefined) {
-    sets.push("prd_content = ?");
-    values.push(patch.prd_content);
-  }
-  if (patch.prd_slug !== undefined) {
-    sets.push("prd_slug = ?");
-    values.push(patch.prd_slug);
-  }
-  if (patch.dify_conversation_id !== undefined) {
-    sets.push("dify_conversation_id = ?");
-    values.push(patch.dify_conversation_id);
-  }
-  if (patch.status !== undefined) {
-    sets.push("status = ?");
-    values.push(patch.status);
-    if (patch.status === "approved") {
-      sets.push("approved_at = datetime('now')");
-    }
-  }
-  if (patch.feishu_card_id !== undefined) {
-    sets.push("feishu_card_id = ?");
-    values.push(patch.feishu_card_id);
-  }
-  if (patch.plane_issue_id !== undefined) {
-    sets.push("plane_issue_id = ?");
-    values.push(patch.plane_issue_id);
-  }
-  if (patch.prd_git_path !== undefined) {
-    sets.push("prd_git_path = ?");
-    values.push(patch.prd_git_path);
-  }
-
-  if (sets.length === 0) return false;
-  sets.push("updated_at = datetime('now')");
-  values.push(id);
-
-  const result = db
-    .query(`UPDATE requirement_drafts SET ${sets.join(", ")} WHERE id = ?`)
-    .run(...values);
-  return result.changes > 0;
-}
-
 // ----------------------------------------------------------------------------
-// Batch 2-F: user action log + approval token consumption + memory snapshot
+// Batch 2-F: user action log + memory snapshot
 // ----------------------------------------------------------------------------
 
 export interface UserActionLog {
@@ -664,40 +518,8 @@ export function listRecentUserActions(params: {
   return rows;
 }
 
-/** Mark an approval token's jti as consumed. Returns false if already consumed. */
-export function markApprovalTokenConsumed(params: {
-  jti: string;
-  userId: number;
-  action: string;
-  resourceId: string;
-}): boolean {
-  const db = getDb();
-  try {
-    db.query(
-      `INSERT INTO approval_token_consumption (jti, user_id, action, resource_id)
-       VALUES (?, ?, ?, ?)`,
-    ).run(params.jti, params.userId, params.action, params.resourceId);
-    return true;
-  } catch {
-    // UNIQUE constraint → already consumed
-    return false;
-  }
-}
-
-export function isApprovalTokenConsumed(jti: string): boolean {
-  const db = getDb();
-  const row = db.query(`SELECT 1 FROM approval_token_consumption WHERE jti = ?`).get(jti);
-  return row !== null;
-}
-
 export interface MemorySnapshot {
   workspace_id: number;
-  active_drafts: Array<{
-    id: number;
-    status: string;
-    issue_title: string;
-    updated_at: string;
-  }>;
   running_workflows: Array<{
     id: number;
     workflow_type: string;
@@ -705,28 +527,12 @@ export interface MemorySnapshot {
     status: string;
     started_at: string | null;
   }>;
-  recent_finalized: Array<{
-    id: number;
-    issue_title: string;
-    plane_issue_id: string | null;
-    approved_at: string | null;
-  }>;
   recent_user_actions: UserActionLog[];
   generated_at: string;
 }
 
 export function buildMemorySnapshot(workspaceId: number): MemorySnapshot {
   const db = getDb();
-  const active_drafts = db
-    .query(
-      `SELECT id, status, issue_title, updated_at
-       FROM requirement_drafts
-       WHERE workspace_id = ? AND status IN ('drafting', 'review')
-       ORDER BY updated_at DESC
-       LIMIT 20`,
-    )
-    .all(workspaceId) as MemorySnapshot["active_drafts"];
-
   const running_workflows = db
     .query(
       `SELECT id, workflow_type, plane_issue_id, status, started_at
@@ -737,16 +543,6 @@ export function buildMemorySnapshot(workspaceId: number): MemorySnapshot {
     )
     .all() as MemorySnapshot["running_workflows"];
 
-  const recent_finalized = db
-    .query(
-      `SELECT id, issue_title, plane_issue_id, approved_at
-       FROM requirement_drafts
-       WHERE workspace_id = ? AND status IN ('approved', 'review')
-       ORDER BY COALESCE(approved_at, updated_at) DESC
-       LIMIT 5`,
-    )
-    .all(workspaceId) as MemorySnapshot["recent_finalized"];
-
   const recent_user_actions = listRecentUserActions({
     workspaceId,
     limit: 20,
@@ -754,9 +550,7 @@ export function buildMemorySnapshot(workspaceId: number): MemorySnapshot {
 
   return {
     workspace_id: workspaceId,
-    active_drafts,
     running_workflows,
-    recent_finalized,
     recent_user_actions,
     generated_at: new Date().toISOString(),
   };

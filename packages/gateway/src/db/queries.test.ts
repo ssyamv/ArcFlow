@@ -14,12 +14,8 @@ import {
   updateBugFixStatus,
   recordWebhookLog,
   listWebhookLogs,
-  createRequirementDraft,
-  getRequirementDraft,
-  listRequirementDrafts,
-  updateRequirementDraft,
-  upsertUser,
-  createWorkspace,
+  insertDispatch,
+  updateDispatchStatus,
 } from "./queries";
 
 describe("workflow_execution", () => {
@@ -263,161 +259,43 @@ describe("bug_fix_retry", () => {
   });
 });
 
-describe("requirement_drafts", () => {
-  let workspaceId: number;
-  let userId: number;
-
+describe("dispatch", () => {
   beforeEach(() => {
     process.env.NODE_ENV = "test";
     getDb();
-    const ws = createWorkspace({ name: "ReqWS", slug: `req-ws-${Date.now()}` });
-    workspaceId = ws.id;
-    const user = upsertUser({ feishu_user_id: `req-user-${Date.now()}`, name: "Req User" });
-    userId = user.id;
   });
 
   afterEach(() => {
     closeDb();
   });
 
-  it("creates a draft with defaults", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    expect(draft.id).toBeGreaterThan(0);
-    expect(draft.workspace_id).toBe(workspaceId);
-    expect(draft.creator_id).toBe(userId);
-    expect(draft.status).toBe("drafting");
-    expect(draft.issue_title).toBe("");
-    expect(draft.issue_description).toBe("");
-    expect(draft.prd_content).toBe("");
-    expect(draft.prd_slug).toBeNull();
-    expect(draft.dify_conversation_id).toBeNull();
-    expect(draft.feishu_chat_id).toBeNull();
-    expect(draft.approved_at).toBeNull();
-    expect(draft.created_at).toBeTruthy();
-    expect(draft.updated_at).toBeTruthy();
-  });
-
-  it("creates a draft with optional fields", () => {
-    const draft = createRequirementDraft({
-      workspace_id: workspaceId,
-      creator_id: userId,
-      feishu_chat_id: "chat-123",
-      dify_conversation_id: "dify-conv-456",
+  it("insertDispatch persists plane_issue_id and timeout_at", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: { x: 1 },
+      planeIssueId: "PROJ-7",
+      timeoutAt: 9999,
     });
-    expect(draft.feishu_chat_id).toBe("chat-123");
-    expect(draft.dify_conversation_id).toBe("dify-conv-456");
+    const row = db
+      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
+      .get(id) as { plane_issue_id: string; timeout_at: number };
+    expect(row.plane_issue_id).toBe("PROJ-7");
+    expect(row.timeout_at).toBe(9999);
   });
 
-  it("gets draft by id", () => {
-    const created = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    const fetched = getRequirementDraft(created.id);
-    expect(fetched).not.toBeNull();
-    expect(fetched!.id).toBe(created.id);
-  });
-
-  it("returns null for non-existent draft", () => {
-    expect(getRequirementDraft(999999)).toBeNull();
-  });
-
-  it("lists drafts by workspace_id", () => {
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-
-    const drafts = listRequirementDrafts({ workspace_id: workspaceId });
-    expect(drafts.length).toBe(2);
-  });
-
-  it("lists drafts with status filter", () => {
-    const d1 = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    updateRequirementDraft(d1.id, { status: "review" });
-
-    const drafting = listRequirementDrafts({ workspace_id: workspaceId, status: "drafting" });
-    expect(drafting.length).toBe(1);
-
-    const review = listRequirementDrafts({ workspace_id: workspaceId, status: "review" });
-    expect(review.length).toBe(1);
-  });
-
-  it("lists drafts with limit", () => {
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-
-    const limited = listRequirementDrafts({ workspace_id: workspaceId, limit: 2 });
-    expect(limited.length).toBe(2);
-  });
-
-  it("updates draft fields", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    const ok = updateRequirementDraft(draft.id, {
-      issue_title: "新功能需求",
-      issue_description: "详细描述",
-      prd_content: "# PRD\n内容",
-      prd_slug: "new-feature-req",
-      dify_conversation_id: "conv-789",
+  it("updateDispatchStatus marks success idempotently", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
     });
-    expect(ok).toBe(true);
-
-    const updated = getRequirementDraft(draft.id);
-    expect(updated!.issue_title).toBe("新功能需求");
-    expect(updated!.issue_description).toBe("详细描述");
-    expect(updated!.prd_content).toBe("# PRD\n内容");
-    expect(updated!.prd_slug).toBe("new-feature-req");
-    expect(updated!.dify_conversation_id).toBe("conv-789");
-  });
-
-  it("updates status and sets approved_at when status is approved", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    updateRequirementDraft(draft.id, { status: "approved" });
-
-    const updated = getRequirementDraft(draft.id);
-    expect(updated!.status).toBe("approved");
-    expect(updated!.approved_at).not.toBeNull();
-  });
-
-  it("does not set approved_at for non-approved status", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    updateRequirementDraft(draft.id, { status: "review" });
-
-    const updated = getRequirementDraft(draft.id);
-    expect(updated!.status).toBe("review");
-    expect(updated!.approved_at).toBeNull();
-  });
-
-  it("returns false when updating non-existent draft", () => {
-    const ok = updateRequirementDraft(999999, { issue_title: "x" });
-    expect(ok).toBe(false);
-  });
-
-  it("returns false when patch is empty", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    const ok = updateRequirementDraft(draft.id, {});
-    expect(ok).toBe(false);
-  });
-
-  it("filters drafts by creator_id", () => {
-    const user2 = upsertUser({ feishu_user_id: `req-user2-${Date.now()}`, name: "User 2" });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    createRequirementDraft({ workspace_id: workspaceId, creator_id: user2.id });
-
-    const mine = listRequirementDrafts({ creator_id: userId });
-    expect(mine.length).toBe(1);
-    expect(mine[0].creator_id).toBe(userId);
-  });
-
-  it("updates plane_issue_id and prd_git_path", () => {
-    const draft = createRequirementDraft({ workspace_id: workspaceId, creator_id: userId });
-    updateRequirementDraft(draft.id, {
-      plane_issue_id: "PLANE-123",
-      prd_git_path: "prd/2026-04/new-feature.md",
-      feishu_card_id: "card-abc",
-    });
-
-    const updated = getRequirementDraft(draft.id);
-    expect(updated!.plane_issue_id).toBe("PLANE-123");
-    expect(updated!.prd_git_path).toBe("prd/2026-04/new-feature.md");
-    expect(updated!.feishu_card_id).toBe("card-abc");
+    const first = updateDispatchStatus(db, id, "success");
+    const second = updateDispatchStatus(db, id, "success");
+    expect(first).toBe(true);
+    expect(second).toBe(false); // already completed returns false
   });
 });
 

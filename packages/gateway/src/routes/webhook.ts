@@ -16,7 +16,6 @@ import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
-import { syncRecentChanges } from "../services/rag-sync";
 
 /** Insert a dispatch record and fire-and-forget to NanoClaw WebChannel. */
 function dispatchToNanoclaw(params: {
@@ -102,19 +101,7 @@ export function createWebhookRoutes(): Hono {
     createWebhookVerifier("X-Gitea-Secret", config.gitWebhookSecret),
     createDedup("X-Gitea-Delivery", "git"),
     async (c) => {
-      const body = await c.req.json();
-
-      // 检测 docs 仓库 push 事件，立即触发 RAG 增量同步
-      const repoName = body.repository?.full_name ?? body.repository?.name ?? "";
-      const isDocsPush = repoName.includes("docs");
-
-      if (isDocsPush && config.difyDatasetApiKey && config.difyDatasetId) {
-        syncRecentChanges(10).catch((err) => {
-          console.error("Git hook RAG sync error:", err instanceof Error ? err.message : err);
-        });
-      }
-
-      return c.json({ received: true, source: "git", rag_sync_triggered: isDocsPush });
+      return c.json({ received: true, source: "git" });
     },
   );
 

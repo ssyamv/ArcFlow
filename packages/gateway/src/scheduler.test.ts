@@ -34,17 +34,6 @@ describe("scheduler", () => {
     stopScheduler();
   });
 
-  it("startScheduler starts RAG sync when config is set", () => {
-    process.env.DIFY_DATASET_API_KEY = "test-key";
-    process.env.DIFY_DATASET_ID = "test-dataset";
-
-    startScheduler();
-    stopScheduler();
-
-    delete process.env.DIFY_DATASET_API_KEY;
-    delete process.env.DIFY_DATASET_ID;
-  });
-
   it("cleanup callback runs cleanExpiredEvents", async () => {
     // Use short interval to actually trigger the callback
     const origSetInterval = globalThis.setInterval;

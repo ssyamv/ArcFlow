@@ -8,11 +8,6 @@ import type { Config } from "./config";
 export function createTestConfig(overrides?: Partial<Config>): Config {
   return {
     port: 3100,
-    difyBaseUrl: "http://dify-test:3001",
-    difyApiKey: "dify-shared-val",
-    difyTechDocApiKey: "dify-tech-key",
-    difyOpenApiApiKey: "dify-openapi-key",
-    difyBugAnalysisApiKey: "dify-bug-key",
     planeBaseUrl: "http://plane-test:8080",
     planeExternalUrl: "http://plane-test:8080",
     planeApiToken: "test-plane-token",
@@ -31,11 +26,6 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     feishuVerificationToken: "",
     feishuEncryptKey: "",
     feishuDefaultChatId: "oc_test_chat",
-    difyPrdGenApiKey: "",
-    difyRagApiKey: "",
-    difyDatasetApiKey: "",
-    difyDatasetId: "",
-    difyDatasetMap: {},
     claudeCodeTimeout: 500,
     ibuildBaseUrl: "http://ibuild-test:8080",
     ibuildClientKey: "test-client-key",

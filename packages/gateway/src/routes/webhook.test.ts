@@ -12,7 +12,6 @@ mock.module("../config", () => ({
 const { createWebhookRoutes } = await import("./webhook");
 const workflowService = await import("../services/workflow");
 const ibuildLogFetcher = await import("../services/ibuild-log-fetcher");
-const ragSync = await import("../services/rag-sync");
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -113,38 +112,6 @@ describe("webhook routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.source).toBe("git");
-    expect(body.rag_sync_triggered).toBe(false);
-  });
-
-  it("POST /webhook/git triggers RAG sync on docs repo push", async () => {
-    configOverrides = {
-      difyDatasetApiKey: "test-key",
-      difyDatasetId: "test-dataset",
-    };
-    const syncSpy = spyOn(ragSync, "syncRecentChanges").mockResolvedValue({
-      created: 1,
-      updated: 0,
-      deleted: 0,
-      skipped: 0,
-      errors: [],
-    });
-
-    // Recreate routes to pick up new config overrides
-    const freshApp = new Hono();
-    freshApp.route("/webhook", createWebhookRoutes());
-
-    const res = await freshApp.request("/webhook/git", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ref: "refs/heads/main",
-        repository: { full_name: "org/docs", name: "docs" },
-      }),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.rag_sync_triggered).toBe(true);
-    expect(syncSpy).toHaveBeenCalledWith(10);
   });
 
   it("POST /webhook/cicd returns received", async () => {

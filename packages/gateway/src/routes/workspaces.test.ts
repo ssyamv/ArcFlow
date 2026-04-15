@@ -71,14 +71,13 @@ describe("workspace routes", () => {
     const res = await workspaceRoutes.request(`/${ws.id}/settings`, {
       method: "PATCH",
       headers: { ...headers(adminToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ dify_dataset_id: "ds-123", wiki_path_prefix: "/project-a" }),
+      body: JSON.stringify({ wiki_path_prefix: "/project-a" }),
     });
     expect(res.status).toBe(200);
 
     // Verify the update
     const detail = await workspaceRoutes.request(`/${ws.id}`, { headers: headers(adminToken) });
     const body = await detail.json();
-    expect(body.dify_dataset_id).toBe("ds-123");
     expect(body.wiki_path_prefix).toBe("/project-a");
   });
 
@@ -90,7 +89,7 @@ describe("workspace routes", () => {
     const res = await workspaceRoutes.request(`/${ws.id}/settings`, {
       method: "PATCH",
       headers: { ...headers(memberToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ dify_dataset_id: "ds-hack" }),
+      body: JSON.stringify({ wiki_path_prefix: "/hack" }),
     });
     expect(res.status).toBe(403);
   });

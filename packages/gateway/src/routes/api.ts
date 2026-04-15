@@ -1,10 +1,8 @@
 import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 import {
   getWorkflowExecution,
   listWorkflowExecutions,
   listWebhookLogs,
-  createMessage,
   getWorkspace,
   getWorkspaceMemberRole,
   buildMemorySnapshot,
@@ -21,15 +19,6 @@ const ALLOWED_SKILLS = [
   "arcflow-rag",
 ] as const;
 import { triggerWorkflow } from "../services/workflow";
-import {
-  streamDifyChatflow,
-  extractPrdResult,
-  containsPrdMarker,
-  textBeforeMarker,
-  savePrdToGit,
-} from "../services/prd";
-import { queryKnowledgeBase } from "../services/dify";
-import { syncGitToDify } from "../services/rag-sync";
 import { authMiddleware } from "../middleware/auth";
 import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
@@ -94,152 +83,6 @@ apiRoutes.get("/webhook/logs", (c) => {
     })),
     total: logs.length,
   });
-});
-
-apiRoutes.post("/prd/chat", async (c) => {
-  const { message, conversation_id, dify_conversation_id } = await c.req.json<{
-    message: string;
-    conversation_id?: number;
-    dify_conversation_id?: string;
-  }>();
-
-  if (!message?.trim()) {
-    return c.json({ error: "message is required" }, 400);
-  }
-
-  if (conversation_id) {
-    createMessage(conversation_id, "user", message);
-  }
-
-  return streamSSE(c, async (stream) => {
-    let fullAnswer = "";
-    let convId = dify_conversation_id ?? "";
-    let markerDetected = false;
-
-    try {
-      for await (const chunk of streamDifyChatflow(message, dify_conversation_id)) {
-        if (chunk.event === "message" && chunk.answer) {
-          convId = convId || chunk.conversation_id || "";
-          fullAnswer += chunk.answer;
-
-          if (markerDetected) continue;
-
-          if (containsPrdMarker(fullAnswer)) {
-            const before = textBeforeMarker(chunk.answer);
-            if (before) {
-              await stream.writeSSE({
-                event: "message",
-                data: JSON.stringify({
-                  type: "text",
-                  content: before,
-                  conversation_id: convId,
-                }),
-              });
-            }
-            markerDetected = true;
-            continue;
-          }
-
-          await stream.writeSSE({
-            event: "message",
-            data: JSON.stringify({
-              type: "text",
-              content: chunk.answer,
-              conversation_id: convId,
-            }),
-          });
-        }
-
-        if (chunk.event === "message_end") {
-          if (conversation_id && fullAnswer) {
-            const cleanAnswer = markerDetected
-              ? textBeforeMarker(fullAnswer) || fullAnswer
-              : fullAnswer;
-            createMessage(conversation_id, "assistant", cleanAnswer);
-          }
-          if (conversation_id && convId) {
-            const { getDb } = await import("../db");
-            const db = getDb();
-            db.query("UPDATE conversations SET dify_conversation_id = ? WHERE id = ?").run(
-              convId,
-              conversation_id,
-            );
-          }
-
-          const prdResult = extractPrdResult(fullAnswer);
-          if (prdResult) {
-            try {
-              const { path, wikiUrl } = await savePrdToGit(prdResult);
-              await stream.writeSSE({
-                event: "prd_complete",
-                data: JSON.stringify({
-                  prd_path: path,
-                  wiki_url: wikiUrl,
-                  title: prdResult.title,
-                }),
-              });
-            } catch (err) {
-              await stream.writeSSE({
-                event: "error",
-                data: JSON.stringify({
-                  message: `PRD 写入失败: ${err instanceof Error ? err.message : "未知错误"}`,
-                }),
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      await stream.writeSSE({
-        event: "error",
-        data: JSON.stringify({
-          message: `对话失败: ${err instanceof Error ? err.message : "未知错误"}`,
-        }),
-      });
-    }
-  });
-});
-
-apiRoutes.post("/rag/query", async (c) => {
-  const { question, conversation_id, project_id } = await c.req.json<{
-    question: string;
-    conversation_id?: string;
-    project_id?: string;
-  }>();
-  if (!question?.trim()) {
-    return c.json({ error: "question is required" }, 400);
-  }
-  try {
-    const result = await queryKnowledgeBase(question, conversation_id, project_id);
-    return c.json(result);
-  } catch (err) {
-    return c.json(
-      { error: `RAG query failed: ${err instanceof Error ? err.message : "unknown error"}` },
-      500,
-    );
-  }
-});
-
-apiRoutes.post("/rag/sync", async (c) => {
-  try {
-    const body = await c.req.json<{ project_id?: string }>().catch(() => ({}));
-    if (body.project_id) {
-      const config = (await import("../config")).getConfig();
-      const dataset = config.difyDatasetMap[body.project_id];
-      if (!dataset) {
-        return c.json({ error: `Unknown project: ${body.project_id}` }, 400);
-      }
-      const result = await syncGitToDify(dataset.datasetId);
-      return c.json(result);
-    }
-    const result = await syncGitToDify();
-    return c.json(result);
-  } catch (err) {
-    return c.json(
-      { error: `Sync failed: ${err instanceof Error ? err.message : "unknown error"}` },
-      500,
-    );
-  }
 });
 
 // ---------------------------------------------------------------------------

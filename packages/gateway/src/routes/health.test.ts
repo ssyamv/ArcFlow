@@ -35,38 +35,21 @@ describe("health dependencies", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
-    expect(body.services.dify.status).toBe("ok");
     expect(body.services.plane.status).toBe("ok");
-    expect(typeof body.services.dify.latency_ms).toBe("number");
+    expect(typeof body.services.plane.latency_ms).toBe("number");
   });
 
-  it("returns degraded when some services unreachable", async () => {
-    const urls: string[] = [];
-    globalThis.fetch = (async (url: string) => {
-      urls.push(url);
-      // Make Dify fail, others succeed
-      if (url.includes("dify-test")) throw new Error("connection refused");
-      return new Response("ok", { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const res = await healthRoutes.request("/health/dependencies");
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.status).toBe("degraded");
-    expect(body.services.dify.status).toBe("error");
-    expect(body.services.dify.error).toBe("connection refused");
-    expect(body.services.plane.status).toBe("ok");
-  });
-
-  it("returns unhealthy when all services unreachable", async () => {
+  it("returns unhealthy when plane unreachable", async () => {
     globalThis.fetch = (async () => {
-      throw new Error("network down");
+      throw new Error("connection refused");
     }) as unknown as typeof fetch;
 
     const res = await healthRoutes.request("/health/dependencies");
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.status).toBe("unhealthy");
+    expect(body.services.plane.status).toBe("error");
+    expect(body.services.plane.error).toBe("connection refused");
   });
 
   it("handles HTTP error responses as errors", async () => {
@@ -76,6 +59,6 @@ describe("health dependencies", () => {
     const res = await healthRoutes.request("/health/dependencies");
     expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.services.dify.status).toBe("error");
+    expect(body.services.plane.status).toBe("error");
   });
 });
