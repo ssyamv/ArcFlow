@@ -1,5 +1,30 @@
 import { describe, it, expect } from "bun:test";
-import { splitMarkdown } from "./rag-index";
+import { Database } from "bun:sqlite";
+import * as sqliteVec from "sqlite-vec";
+import { splitMarkdown, createRagIndex } from "./rag-index";
+
+// Bun's bundled SQLite disables extension loading; point to system SQLite with extension support.
+if (process.platform === "darwin") {
+  try {
+    Database.setCustomSQLite(
+      process.env.SQLITE_LIB_PATH ?? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib",
+    );
+  } catch {
+    // Already set in another test file
+  }
+}
+
+function makeDb(dim: number) {
+  const db = new Database(":memory:");
+  sqliteVec.load(db);
+  db.exec(`
+    CREATE TABLE rag_docs (workspace_id TEXT, doc_path TEXT, git_sha TEXT, indexed_at INTEGER,
+      PRIMARY KEY (workspace_id, doc_path));
+    CREATE TABLE rag_chunk_meta (chunk_id TEXT PRIMARY KEY, workspace_id TEXT, doc_path TEXT, heading TEXT, content TEXT);
+    CREATE VIRTUAL TABLE rag_chunks USING vec0(chunk_id TEXT PRIMARY KEY, workspace_id TEXT PARTITION KEY, embedding FLOAT[${dim}]);
+  `);
+  return db;
+}
 
 describe("splitMarkdown", () => {
   it("splits by h1/h2/h3 headings", () => {
@@ -20,5 +45,61 @@ describe("splitMarkdown", () => {
     const md = `# A\n## B\n### C\ntext`;
     const chunks = splitMarkdown(md, { maxTokens: 1000 });
     expect(chunks[chunks.length - 1].heading).toBe("A > B > C");
+  });
+});
+
+describe("createRagIndex.upsertDoc", () => {
+  it("inserts chunks with embeddings and meta", async () => {
+    const db = makeDb(4);
+    const embedder = {
+      embedBatch: async (xs: string[]) => xs.map((_, i) => [i, 0, 0, 0]),
+    };
+    const idx = createRagIndex({ db, embedder, dim: 4 });
+    await idx.upsertDoc({
+      workspaceId: "w1",
+      docPath: "a.md",
+      gitSha: "sha1",
+      content: `# H\nhello world`,
+    });
+    const rows = db.prepare("SELECT COUNT(*) as n FROM rag_chunk_meta").all() as { n: number }[];
+    expect(rows[0].n).toBe(1);
+  });
+
+  it("replaces chunks on re-upsert (new git_sha)", async () => {
+    const db = makeDb(4);
+    const embedder = { embedBatch: async (xs: string[]) => xs.map(() => [1, 0, 0, 0]) };
+    const idx = createRagIndex({ db, embedder, dim: 4 });
+    await idx.upsertDoc({ workspaceId: "w1", docPath: "a.md", gitSha: "s1", content: `# H1\nA` });
+    await idx.upsertDoc({
+      workspaceId: "w1",
+      docPath: "a.md",
+      gitSha: "s2",
+      content: `# H2\nB\n# H3\nC`,
+    });
+    const metas = db
+      .prepare("SELECT heading FROM rag_chunk_meta WHERE doc_path='a.md' ORDER BY heading")
+      .all();
+    expect(metas.length).toBe(2);
+  });
+
+  it("deleteDoc removes chunks and doc row", async () => {
+    const db = makeDb(4);
+    const embedder = { embedBatch: async (xs: string[]) => xs.map(() => [1, 0, 0, 0]) };
+    const idx = createRagIndex({ db, embedder, dim: 4 });
+    await idx.upsertDoc({ workspaceId: "w1", docPath: "a.md", gitSha: "s1", content: "# X\nA" });
+    await idx.deleteDoc({ workspaceId: "w1", docPath: "a.md" });
+    const metas = db.prepare("SELECT * FROM rag_chunk_meta").all();
+    const docs = db.prepare("SELECT * FROM rag_docs").all();
+    expect(metas.length).toBe(0);
+    expect(docs.length).toBe(0);
+  });
+
+  it("rejects empty workspaceId", async () => {
+    const db = makeDb(4);
+    const embedder = { embedBatch: async () => [[1, 0, 0, 0]] };
+    const idx = createRagIndex({ db, embedder, dim: 4 });
+    await expect(
+      idx.upsertDoc({ workspaceId: "", docPath: "a.md", gitSha: "s", content: "# H\nx" }),
+    ).rejects.toThrow(/workspaceId/);
   });
 });
