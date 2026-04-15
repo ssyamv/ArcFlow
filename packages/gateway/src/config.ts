@@ -39,9 +39,6 @@ export interface Config {
   // PRD 生成
   difyPrdGenApiKey: string;
 
-  // 需求对话草稿
-  difyRequirementChatApiKey: string;
-
   // RAG 知识库问答
   difyRagApiKey: string;
 
@@ -69,6 +66,14 @@ export interface Config {
 
   // Web 前端
   webBaseUrl: string;
+
+  // 硅基流动 Embedding + RAG
+  siliconflowApiKey: string;
+  siliconflowBaseUrl: string;
+  ragDbPath: string;
+  ragEmbeddingModel: string;
+  ragEmbeddingDim: number;
+  ragSyncIntervalMs: number;
 }
 
 export function getConfig(): Config {
@@ -105,8 +110,6 @@ export function getConfig(): Config {
 
     difyPrdGenApiKey: process.env.DIFY_PRD_GEN_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
-    difyRequirementChatApiKey: process.env.DIFY_REQUIREMENT_CHAT_API_KEY ?? "",
-
     difyRagApiKey: process.env.DIFY_RAG_API_KEY ?? process.env.DIFY_API_KEY ?? "",
 
     difyDatasetApiKey: process.env.DIFY_DATASET_API_KEY ?? "",
@@ -127,5 +130,12 @@ export function getConfig(): Config {
     oauthRedirectUri: process.env.OAUTH_REDIRECT_URI ?? "http://localhost:5173/auth/callback",
 
     webBaseUrl: process.env.WEB_BASE_URL ?? "http://localhost:5173",
+
+    siliconflowApiKey: process.env.SILICONFLOW_API_KEY ?? "",
+    siliconflowBaseUrl: process.env.SILICONFLOW_BASE_URL ?? "https://api.siliconflow.cn/v1",
+    ragDbPath: process.env.RAG_DB_PATH ?? "./data/rag.db",
+    ragEmbeddingModel: process.env.RAG_EMBEDDING_MODEL ?? "BAAI/bge-m3",
+    ragEmbeddingDim: Number(process.env.RAG_EMBEDDING_DIM) || 1024,
+    ragSyncIntervalMs: Number(process.env.RAG_SYNC_INTERVAL_MS) || 300000,
   };
 }

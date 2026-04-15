@@ -32,7 +32,6 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     feishuEncryptKey: "",
     feishuDefaultChatId: "oc_test_chat",
     difyPrdGenApiKey: "",
-    difyRequirementChatApiKey: "",
     difyRagApiKey: "",
     difyDatasetApiKey: "",
     difyDatasetId: "",
@@ -48,6 +47,12 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     jwtExpiresIn: "7d",
     oauthRedirectUri: "http://localhost:5173/auth/callback",
     webBaseUrl: "http://localhost:5173",
+    siliconflowApiKey: "test-sf-key",
+    siliconflowBaseUrl: "http://localhost:1",
+    ragDbPath: ":memory:",
+    ragEmbeddingModel: "BAAI/bge-m3",
+    ragEmbeddingDim: 4,
+    ragSyncIntervalMs: 600000,
     ...overrides,
   };
 }
