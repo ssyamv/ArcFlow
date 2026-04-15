@@ -178,7 +178,9 @@ export const useChatStore = defineStore("chat", () => {
         {
           onEvent(ev: NanoClawEvent) {
             handleNanoClawEvent(ev, aiMsg, sidecar);
-            if (ev.type === "done" && !settled) {
+            const isLegacyDone =
+              ev.type === "message" && (ev.data as { done?: boolean })?.done === true;
+            if ((ev.type === "done" || isLegacyDone) && !settled) {
               settled = true;
               resolve();
             }
@@ -286,8 +288,14 @@ export const useChatStore = defineStore("chat", () => {
       case "error":
         error.value = typeof data?.message === "string" ? data.message : "NanoClaw 错误";
         break;
+      case "message": {
+        // Legacy NanoClaw event: whole assistant message in one shot.
+        const c = typeof data?.content === "string" ? data.content : "";
+        if (c) aiMsg.content += c;
+        break;
+      }
       default:
-        // session_start / message_end / done / connected / legacy — no-op
+        // session_start / message_end / done / connected — no-op
         break;
     }
   }
