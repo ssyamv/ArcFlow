@@ -50,6 +50,11 @@ export function splitMarkdown(md: string, opts: SplitOptions): Chunk[] {
   return chunks;
 }
 
+export interface GitAdapter {
+  listDocs(): Promise<{ path: string; sha: string }[]>;
+  readDoc(path: string): Promise<string>;
+}
+
 export interface RagIndexDeps {
   db: Database;
   embedder: Pick<EmbeddingClient, "embedBatch">;
@@ -129,5 +134,26 @@ export function createRagIndex(deps: RagIndexDeps) {
     tx();
   }
 
-  return { upsertDoc, deleteDoc };
+  async function syncAll({ workspaceId, git }: { workspaceId: string; git: GitAdapter }) {
+    assertWorkspace(workspaceId);
+    const remote = await git.listDocs();
+    const remoteMap = new Map(remote.map((d) => [d.path, d.sha]));
+
+    const local = db
+      .prepare(`SELECT doc_path, git_sha FROM rag_docs WHERE workspace_id=?`)
+      .all(workspaceId) as { doc_path: string; git_sha: string }[];
+    const localMap = new Map(local.map((d) => [d.doc_path, d.git_sha]));
+
+    for (const [path, sha] of remoteMap) {
+      if (localMap.get(path) !== sha) {
+        const content = await git.readDoc(path);
+        await upsertDoc({ workspaceId, docPath: path, gitSha: sha, content });
+      }
+    }
+    for (const path of localMap.keys()) {
+      if (!remoteMap.has(path)) deleteDoc({ workspaceId, docPath: path });
+    }
+  }
+
+  return { upsertDoc, deleteDoc, syncAll };
 }

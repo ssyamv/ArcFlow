@@ -103,3 +103,45 @@ describe("createRagIndex.upsertDoc", () => {
     ).rejects.toThrow(/workspaceId/);
   });
 });
+
+describe("syncAll", () => {
+  it("adds new, updates changed, removes missing", async () => {
+    const db = makeDb(4);
+    const embedder = { embedBatch: async (xs: string[]) => xs.map(() => [1, 0, 0, 0]) };
+
+    const gitState = {
+      files: new Map<string, { sha: string; content: string }>([
+        ["a.md", { sha: "s1", content: "# A\nx" }],
+        ["b.md", { sha: "s1", content: "# B\ny" }],
+      ]),
+    };
+    const gitAdapter = {
+      listDocs: async () => Array.from(gitState.files, ([path, v]) => ({ path, sha: v.sha })),
+      readDoc: async (p: string) => gitState.files.get(p)!.content,
+    };
+
+    const idx = createRagIndex({ db, embedder, dim: 4 });
+    await idx.syncAll({ workspaceId: "w1", git: gitAdapter });
+
+    expect((db.prepare("SELECT COUNT(*) as n FROM rag_docs").get() as { n: number }).n).toBe(2);
+
+    gitState.files.delete("b.md");
+    gitState.files.set("a.md", { sha: "s2", content: "# A2\nz" });
+    gitState.files.set("c.md", { sha: "s1", content: "# C\nq" });
+
+    await idx.syncAll({ workspaceId: "w1", git: gitAdapter });
+
+    const paths = (
+      db.prepare("SELECT doc_path FROM rag_docs ORDER BY doc_path").all() as {
+        doc_path: string;
+      }[]
+    ).map((r) => r.doc_path);
+    expect(paths).toEqual(["a.md", "c.md"]);
+    const aSha = (
+      db.prepare("SELECT git_sha FROM rag_docs WHERE doc_path='a.md'").get() as {
+        git_sha: string;
+      }
+    ).git_sha;
+    expect(aSha).toBe("s2");
+  });
+});
