@@ -74,6 +74,38 @@ describe("conversation routes", () => {
     expect(body.data.length).toBe(2);
   });
 
+  it("POST /:id/messages persists assistant message", async () => {
+    const conv = createConversation(userId, "Chat");
+    const res = await conversationRoutes.request(`/${conv.id}/messages`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "assistant", content: "hello from nanoclaw" }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.role).toBe("assistant");
+    expect(body.content).toBe("hello from nanoclaw");
+  });
+
+  it("POST /:id/messages rejects invalid role", async () => {
+    const conv = createConversation(userId, "Chat");
+    const res = await conversationRoutes.request(`/${conv.id}/messages`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "system", content: "x" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /:id/messages 404 when conversation missing", async () => {
+    const res = await conversationRoutes.request(`/99999/messages`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "user", content: "x" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
   it("GET /search?q= searches conversations", async () => {
     const conv = createConversation(userId, "Project Alpha");
     createMessage(conv.id, "user", "Tell me about the API design");

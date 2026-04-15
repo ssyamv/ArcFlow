@@ -60,7 +60,7 @@ export function createRequirementDraft(params: {
 }
 
 export function getRequirementDraft(id: number): Promise<RequirementDraft> {
-  return request<RequirementDraft>(`/api/requirement/draft/${id}`);
+  return request<RequirementDraft>(`/api/requirement/${id}`);
 }
 
 export function listRequirementDrafts(params: {
@@ -72,7 +72,7 @@ export function listRequirementDrafts(params: {
   if (params.workspace_id) q.set("workspace_id", String(params.workspace_id));
   if (params.status) q.set("status", params.status);
   if (params.limit) q.set("limit", String(params.limit));
-  return request<RequirementDraftListResponse>(`/api/requirement/drafts?${q}`);
+  return request<RequirementDraftListResponse>(`/api/requirement?${q}`);
 }
 
 export function patchRequirementDraft(

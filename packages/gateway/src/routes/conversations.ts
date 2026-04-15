@@ -9,6 +9,7 @@ import {
   deleteConversation,
   searchConversations,
   listMessages,
+  createMessage,
 } from "../db/queries";
 
 export const conversationRoutes = new Hono();
@@ -61,4 +62,21 @@ conversationRoutes.get("/:id/messages", (c) => {
   if (!conv) return c.json({ error: "Not found" }, 404);
   const data = listMessages(id);
   return c.json({ data });
+});
+
+conversationRoutes.post("/:id/messages", async (c) => {
+  const userId = c.get("userId") as number;
+  const id = Number(c.req.param("id"));
+  const conv = getConversation(id, userId);
+  if (!conv) return c.json({ error: "Not found" }, 404);
+  const body = await c.req
+    .json<{ role?: "user" | "assistant"; content?: string }>()
+    .catch(() => ({}) as { role?: "user" | "assistant"; content?: string });
+  const role = body.role;
+  const content = typeof body.content === "string" ? body.content : "";
+  if ((role !== "user" && role !== "assistant") || !content.trim()) {
+    return c.json({ error: "Invalid role or content" }, 400);
+  }
+  const msg = createMessage(id, role, content);
+  return c.json(msg, 201);
 });

@@ -149,7 +149,14 @@
               </div>
 
               <!-- Assistant message -->
-              <div class="prose text-sm" v-html="renderMd(msg.content)" />
+              <div class="prose text-sm">
+                <span v-html="renderMd(msg.content)" /><span
+                  v-if="chatStore.streamingId === msg.id"
+                  class="streaming-cursor"
+                  aria-hidden="true"
+                  >▍</span
+                >
+              </div>
 
               <!-- Artifacts -->
               <div
@@ -175,8 +182,15 @@
               </div>
             </div>
           </div>
-          <div v-if="chatStore.typing" class="text-sm" style="color: var(--color-text-tertiary)">
-            <span class="animate-pulse">···</span>
+          <div
+            v-if="chatStore.typing && !hasStreamingContent"
+            class="text-sm flex items-center gap-1"
+            style="color: var(--color-text-tertiary)"
+          >
+            <span class="thinking-dot" />
+            <span class="thinking-dot" style="animation-delay: 0.15s" />
+            <span class="thinking-dot" style="animation-delay: 0.3s" />
+            <span class="ml-1 text-xs">思考中…</span>
           </div>
         </div>
 
@@ -318,8 +332,14 @@ async function handleSend() {
   if (!input.value.trim() || !convStore.currentId) return;
   const msg = input.value;
   input.value = "";
-  const conv = convStore.conversations.find((c) => c.id === convStore.currentId);
-  await chatStore.send(convStore.currentId, msg, conv?.dify_conversation_id ?? undefined);
+  const convId = convStore.currentId;
+  const conv = convStore.conversations.find((c) => c.id === convId);
+  const shouldAutoTitle = !!conv && (!conv.title || conv.title === "新对话");
+  if (shouldAutoTitle) {
+    const title = msg.replace(/\s+/g, " ").trim().slice(0, 24);
+    if (title) void convStore.update(convId, { title });
+  }
+  await chatStore.send(convId, msg, conv?.dify_conversation_id ?? undefined);
   scrollToBottom();
 }
 
@@ -344,7 +364,19 @@ function scrollToBottom() {
   });
 }
 
+const hasStreamingContent = computed(() => {
+  const id = chatStore.streamingId;
+  if (id == null) return false;
+  const m = chatStore.messages.find((x) => x.id === id);
+  return !!m && m.content.length > 0;
+});
+
 watch(() => chatStore.messages.length, scrollToBottom);
+watch(() => {
+  const id = chatStore.streamingId;
+  if (id == null) return "";
+  return chatStore.messages.find((x) => x.id === id)?.content ?? "";
+}, scrollToBottom);
 
 onMounted(() => {
   convStore.load();
@@ -357,5 +389,37 @@ onMounted(() => {
   font-weight: 510;
   color: var(--color-text-quaternary);
   padding: 8px 12px 4px;
+}
+.thinking-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.4;
+  animation: thinking-bounce 1s infinite ease-in-out;
+}
+@keyframes thinking-bounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.3;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+}
+.streaming-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--color-accent);
+  animation: cursor-blink 1s steps(2) infinite;
+}
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
 }
 </style>
