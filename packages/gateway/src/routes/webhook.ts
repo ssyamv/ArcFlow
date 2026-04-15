@@ -7,15 +7,46 @@ import {
   isEventProcessed,
   recordWebhookEvent,
   recordWebhookLog,
-  findRequirementDraftByPlaneIssue,
   getWorkspaceByPlaneProject,
   getWorkspaceBySlug,
+  insertDispatch,
 } from "../db/queries";
+import { getDb } from "../db";
 import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
 import { syncRecentChanges } from "../services/rag-sync";
+
+/** Insert a dispatch record and fire-and-forget to NanoClaw WebChannel. */
+function dispatchToNanoclaw(params: {
+  skill: string;
+  workspaceId: string;
+  planeIssueId?: string;
+  input: unknown;
+}): string {
+  const db = getDb();
+  const dispatchId = insertDispatch(db, {
+    workspaceId: params.workspaceId,
+    skill: params.skill,
+    input: params.input,
+    planeIssueId: params.planeIssueId,
+    timeoutAt: Date.now() + 10 * 60 * 1000,
+  });
+  const nanoclawUrl = process.env.NANOCLAW_URL;
+  const secret = process.env.NANOCLAW_DISPATCH_SECRET ?? "";
+  if (nanoclawUrl && secret) {
+    fetch(`${nanoclawUrl.replace(/\/+$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-System-Secret": secret },
+      body: JSON.stringify({
+        client_id: `system-${dispatchId}`,
+        message: `[SYSTEM DISPATCH] run skill=${params.skill} workspace_id=${params.workspaceId} plane_issue_id=${params.planeIssueId ?? ""}\n\n${JSON.stringify(params.input)}`,
+      }),
+    }).catch((err) => console.error("[webhook] nanoclaw dispatch error:", err));
+  }
+  return dispatchId;
+}
 
 export function createWebhookRoutes(): Hono {
   const config = getConfig();
@@ -33,13 +64,7 @@ export function createWebhookRoutes(): Hono {
       recordWebhookLog("plane", body);
 
       if (shouldTriggerWorkflow(body, config.planeApprovedStateId)) {
-        // 1. 优先从 issue 描述里抽 prd/ 路径（手动 issue 走这条）
-        let prdPath = extractPrdPath(body.data);
-        // 2. 回落：通过新流程创建的 issue 没有路径在描述里，靠 plane_issue_id 反查 draft
-        if (!prdPath) {
-          const draft = findRequirementDraftByPlaneIssue(body.data.id);
-          if (draft?.prd_git_path) prdPath = draft.prd_git_path;
-        }
+        const prdPath = extractPrdPath(body.data);
         const projectId = (body.data.project_id ?? body.data.project) as string | undefined;
         const ws = projectId ? getWorkspaceByPlaneProject(projectId) : null;
         if (!ws) {
@@ -56,6 +81,14 @@ export function createWebhookRoutes(): Hono {
           plane_issue_id: body.data.id,
           input_path: prdPath,
           chat_id: ws.feishu_chat_id || undefined,
+        });
+
+        // NanoClaw skill dispatch (new path, co-exists until Task 21 removes triggerWorkflow)
+        dispatchToNanoclaw({
+          skill: "arcflow-prd-to-tech",
+          workspaceId: String(ws.id),
+          planeIssueId: body.data.id,
+          input: { prd_path: prdPath, workspace_id: String(ws.id), plane_issue_id: body.data.id },
         });
       }
 

@@ -410,4 +410,34 @@ describe("webhook routes", () => {
       }),
     );
   });
+
+  it("POST /webhook/plane approved → dispatch table has arcflow-prd-to-tech row", async () => {
+    const { createWorkspace, updateWorkspaceSettings } = await import("../db/queries");
+    const ws = createWorkspace({ name: "WS2", slug: "ws-dispatch-1", plane_project_id: "proj-d" });
+    updateWorkspaceSettings(ws.id, {});
+
+    await app.request("/webhook/plane", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "issue",
+        action: "update",
+        webhook_id: "wh-d",
+        workspace_id: "ws-1",
+        data: {
+          id: "issue-99",
+          state_id: "state-approved",
+          project_id: "proj-d",
+          description_text: "需求文档 prd/2026-04/feature.md",
+        },
+      }),
+    });
+
+    const db = getDb();
+    const row = db
+      .prepare("SELECT skill, plane_issue_id FROM dispatch WHERE plane_issue_id=?")
+      .get("issue-99") as { skill: string; plane_issue_id: string } | null;
+    expect(row?.skill).toBe("arcflow-prd-to-tech");
+    expect(row?.plane_issue_id).toBe("issue-99");
+  });
 });
