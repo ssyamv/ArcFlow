@@ -171,11 +171,11 @@ NanoClaw → Gateway /auth/verify → { userId:7, workspaceId:3, … }
 ## 8. 验收标准
 
 1. ✅ Gateway `/auth/verify` 通过单测（Task 2 已完成）。
-2. NanoClaw POST/SSE 拒绝无 token 请求。
-3. POST 带有效 token → ClientAuthStore 命中 + onMessage 触发。
-4. container-runner 正确挂载凭证文件（mode 0400，readonly，退出清理）。
-5. 容器内 `jq -r .token /run/arcflow/credentials.json` 可读；调 Gateway 可通。
-6. Token 过期 → Web 自动 refresh + 重连 SSE 成功。
+2. ✅ NanoClaw POST/SSE 拒绝无 token 请求（`web.test.ts` 15/15，含 401 AUTH_INVALID / AUTH_EXPIRED 负路径）。
+3. ✅ POST 带有效 token → ClientAuthStore 命中 + onMessage 触发（`web.test.ts`）。
+4. ✅ container-runner 正确挂载凭证文件 mode 0400/readonly/退出清理（`credentials-file.test.ts` + `container-runner.test.ts` 6/6）。
+5. ⬜ 容器内 `jq -r .token /run/arcflow/credentials.json` 可读；调 Gateway 可通（需人工起 Docker + Gateway 验证，见 plan Task 10 步骤 1–2）。
+6. ⬜ Token 过期 → Web 自动 refresh + 重连 SSE 成功（`useAiChat.test.ts` 单测覆盖 handler 逻辑；端到端 refresh + 重连需人工）。
 
 ## 9. 后续依赖
 

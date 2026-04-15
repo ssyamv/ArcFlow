@@ -41,7 +41,31 @@ export const useChatStore = defineStore("chat", () => {
   const sidecars = ref<Record<number, MessageSidecar>>({});
   const loading = ref(false);
   const typing = ref(false);
+  const streamingId = ref<number | null>(null);
   const error = ref<string | null>(null);
+
+  async function persistMessage(
+    conversationId: number,
+    role: "user" | "assistant",
+    content: string,
+  ) {
+    if (!content.trim()) return;
+    const token = localStorage.getItem("arcflow_token");
+    const wsId = localStorage.getItem("arcflow_workspace_id");
+    try {
+      await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(wsId ? { "X-Workspace-Id": wsId } : {}),
+        },
+        body: JSON.stringify({ role, content }),
+      });
+    } catch (e) {
+      console.warn("persistMessage failed", e);
+    }
+  }
 
   async function loadMessages(conversationId: number) {
     loading.value = true;
@@ -162,12 +186,17 @@ export const useChatStore = defineStore("chat", () => {
     };
     messages.value.push(aiMsg);
     sidecars.value[aiMsg.id] = blankSidecar();
+    streamingId.value = aiMsg.id;
 
     const sidecar = sidecars.value[aiMsg.id];
 
+    // Persist user message (best-effort) so it survives reload even if the
+    // stream is interrupted before the assistant reply lands.
+    void persistMessage(conversationId, "user", message);
+
     // Open SSE stream BEFORE posting so we don't miss session_start.
     let settled = false;
-    let controller: AbortController | null = null;
+    let controller: AbortController | undefined;
     const doneP = new Promise<void>((resolve) => {
       controller = openChatStream(
         {
@@ -178,7 +207,11 @@ export const useChatStore = defineStore("chat", () => {
         {
           onEvent(ev: NanoClawEvent) {
             handleNanoClawEvent(ev, aiMsg, sidecar);
-            if (ev.type === "done" && !settled) {
+            const isLegacyDone =
+              ev.type === "message" && (ev.data as { done?: boolean })?.done === true;
+            // message_end marks end-of-assistant-turn per spec §6 — don't
+            // wait for an additional `done` that NanoClaw may never send.
+            if ((ev.type === "done" || ev.type === "message_end" || isLegacyDone) && !settled) {
               settled = true;
               resolve();
             }
@@ -214,6 +247,10 @@ export const useChatStore = defineStore("chat", () => {
         controller?.abort();
       } else {
         await doneP;
+        // Close the SSE connection once the turn is settled so the server
+        // doesn't keep pumping heartbeats and the client doesn't keep the
+        // stream half-open (which looked like a mid-stream interruption).
+        controller?.abort();
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : "发送失败";
@@ -221,6 +258,10 @@ export const useChatStore = defineStore("chat", () => {
     } finally {
       loading.value = false;
       typing.value = false;
+      streamingId.value = null;
+      if (aiMsg.content.trim()) {
+        void persistMessage(conversationId, "assistant", aiMsg.content);
+      }
     }
   }
 
@@ -286,8 +327,14 @@ export const useChatStore = defineStore("chat", () => {
       case "error":
         error.value = typeof data?.message === "string" ? data.message : "NanoClaw 错误";
         break;
+      case "message": {
+        // Legacy NanoClaw event: whole assistant message in one shot.
+        const c = typeof data?.content === "string" ? data.content : "";
+        if (c) aiMsg.content += c;
+        break;
+      }
       default:
-        // session_start / message_end / done / connected / legacy — no-op
+        // session_start / message_end / done / connected — no-op
         break;
     }
   }
@@ -310,6 +357,7 @@ export const useChatStore = defineStore("chat", () => {
     sidecars,
     loading,
     typing,
+    streamingId,
     error,
     loadMessages,
     send,
