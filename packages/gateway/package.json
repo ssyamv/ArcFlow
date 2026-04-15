@@ -14,7 +14,8 @@
   "dependencies": {
     "hono": "^4.0.0",
     "jose": "^6.2.2",
-    "simple-git": "^3.33.0"
+    "simple-git": "^3.33.0",
+    "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "bun-types": "latest"

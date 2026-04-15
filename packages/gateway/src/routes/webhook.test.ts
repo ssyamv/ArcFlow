@@ -12,7 +12,6 @@ mock.module("../config", () => ({
 const { createWebhookRoutes } = await import("./webhook");
 const workflowService = await import("../services/workflow");
 const ibuildLogFetcher = await import("../services/ibuild-log-fetcher");
-const ragSync = await import("../services/rag-sync");
 
 describe("webhook routes", () => {
   let app: Hono;
@@ -113,38 +112,6 @@ describe("webhook routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.source).toBe("git");
-    expect(body.rag_sync_triggered).toBe(false);
-  });
-
-  it("POST /webhook/git triggers RAG sync on docs repo push", async () => {
-    configOverrides = {
-      difyDatasetApiKey: "test-key",
-      difyDatasetId: "test-dataset",
-    };
-    const syncSpy = spyOn(ragSync, "syncRecentChanges").mockResolvedValue({
-      created: 1,
-      updated: 0,
-      deleted: 0,
-      skipped: 0,
-      errors: [],
-    });
-
-    // Recreate routes to pick up new config overrides
-    const freshApp = new Hono();
-    freshApp.route("/webhook", createWebhookRoutes());
-
-    const res = await freshApp.request("/webhook/git", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ref: "refs/heads/main",
-        repository: { full_name: "org/docs", name: "docs" },
-      }),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.rag_sync_triggered).toBe(true);
-    expect(syncSpy).toHaveBeenCalledWith(10);
   });
 
   it("POST /webhook/cicd returns received", async () => {
@@ -409,5 +376,35 @@ describe("webhook routes", () => {
         trigger_source: "ibuild_webhook",
       }),
     );
+  });
+
+  it("POST /webhook/plane approved → dispatch table has arcflow-prd-to-tech row", async () => {
+    const { createWorkspace, updateWorkspaceSettings } = await import("../db/queries");
+    const ws = createWorkspace({ name: "WS2", slug: "ws-dispatch-1", plane_project_id: "proj-d" });
+    updateWorkspaceSettings(ws.id, {});
+
+    await app.request("/webhook/plane", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "issue",
+        action: "update",
+        webhook_id: "wh-d",
+        workspace_id: "ws-1",
+        data: {
+          id: "issue-99",
+          state_id: "state-approved",
+          project_id: "proj-d",
+          description_text: "需求文档 prd/2026-04/feature.md",
+        },
+      }),
+    });
+
+    const db = getDb();
+    const row = db
+      .prepare("SELECT skill, plane_issue_id FROM dispatch WHERE plane_issue_id=?")
+      .get("issue-99") as { skill: string; plane_issue_id: string } | null;
+    expect(row?.skill).toBe("arcflow-prd-to-tech");
+    expect(row?.plane_issue_id).toBe("issue-99");
   });
 });

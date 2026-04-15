@@ -3,8 +3,6 @@ import { Hono } from "hono";
 import { apiRoutes } from "./api";
 import { closeDb, getDb } from "../db";
 import * as workflowService from "../services/workflow";
-import * as difyService from "../services/dify";
-import { recordWebhookLog } from "../db/queries";
 
 describe("api routes", () => {
   let app: Hono;
@@ -162,12 +160,15 @@ describe("api routes", () => {
   });
 });
 
-describe("rag routes", () => {
+describe("nanoclaw dispatch", () => {
   let app: Hono;
+  let db: ReturnType<typeof getDb>;
 
   beforeEach(() => {
     process.env.NODE_ENV = "test";
-    getDb();
+    process.env.NANOCLAW_DISPATCH_SECRET = "s";
+    delete process.env.NANOCLAW_URL;
+    db = getDb();
     app = new Hono();
     app.route("/api", apiRoutes);
   });
@@ -175,225 +176,35 @@ describe("rag routes", () => {
   afterEach(() => {
     closeDb();
     mock.restore();
+    delete process.env.NANOCLAW_DISPATCH_SECRET;
   });
 
-  it("POST /api/rag/query returns answer", async () => {
-    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
-      answer: "ArcFlow is an AI DevOps platform",
-      conversation_id: "conv-001",
-    });
-
-    const res = await app.request("/api/rag/query", {
+  it("accepts arcflow-prd-to-tech with plane_issue_id and persists timeout_at", async () => {
+    const res = await app.request("/api/nanoclaw/dispatch", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "What is ArcFlow?" }),
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({
+        skill: "arcflow-prd-to-tech",
+        workspace_id: "w",
+        plane_issue_id: "PROJ-1",
+        input: { prd_path: "prd/x.md" },
+      }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.answer).toBe("ArcFlow is an AI DevOps platform");
-    expect(body.conversation_id).toBe("conv-001");
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("What is ArcFlow?", undefined, undefined);
+    const { dispatch_id } = await res.json();
+    const row = db
+      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
+      .get(dispatch_id) as { plane_issue_id: string; timeout_at: number } | null;
+    expect(row?.plane_issue_id).toBe("PROJ-1");
+    expect(row?.timeout_at).toBeGreaterThan(Date.now());
   });
 
-  it("POST /api/rag/query passes conversation_id", async () => {
-    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
-      answer: "It uses Bun + Hono",
-      conversation_id: "conv-002",
-    });
-
-    const res = await app.request("/api/rag/query", {
+  it("rejects unknown skill", async () => {
+    const res = await app.request("/api/nanoclaw/dispatch", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "What stack?", conversation_id: "conv-002" }),
-    });
-    expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith("What stack?", "conv-002", undefined);
-  });
-
-  it("POST /api/rag/query returns 400 if question is empty", async () => {
-    const res = await app.request("/api/rag/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "" }),
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({ skill: "foo", workspace_id: "w" }),
     });
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("question is required");
-  });
-
-  it("POST /api/rag/query returns 500 on service error", async () => {
-    spyOn(difyService, "queryKnowledgeBase").mockRejectedValue(new Error("Dify timeout"));
-
-    const res = await app.request("/api/rag/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "Will this fail?" }),
-    });
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toBe("RAG query failed: Dify timeout");
-  });
-
-  it("GET /api/webhook/logs returns logs", async () => {
-    recordWebhookLog("plane", { test: "payload" });
-
-    const res = await app.request("/api/webhook/logs");
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.length).toBeGreaterThanOrEqual(1);
-    expect(body.data[0].payload).toEqual({ test: "payload" });
-    expect(body.total).toBeGreaterThanOrEqual(1);
-  });
-
-  it("GET /api/webhook/logs filters by source", async () => {
-    recordWebhookLog("git", { ref: "main" });
-
-    const res = await app.request("/api/webhook/logs?source=git&limit=5");
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.every((l: { source: string }) => l.source === "git")).toBe(true);
-  });
-
-  it("POST /api/rag/query passes project_id", async () => {
-    const spy = spyOn(difyService, "queryKnowledgeBase").mockResolvedValue({
-      answer: "project-specific answer",
-      conversation_id: "conv-p1",
-    });
-
-    const res = await app.request("/api/rag/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: "What?", project_id: "proj-alpha" }),
-    });
-    expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith("What?", undefined, "proj-alpha");
-  });
-});
-
-describe("POST /api/requirement/:id/approve", () => {
-  let app: Hono;
-  let authedUserId: number;
-
-  beforeEach(async () => {
-    process.env.NODE_ENV = "test";
-    getDb();
-
-    const { upsertUser } = await import("../db/queries");
-    const user = upsertUser({ feishu_user_id: `approve-api-user-${Date.now()}`, name: "PM" });
-    authedUserId = user.id;
-
-    app = new Hono();
-    // Inject userId via middleware (bypasses JWT in tests)
-    app.use("/*", async (c, next) => {
-      c.set("userId" as never, authedUserId as never);
-      await next();
-    });
-    app.route("/api", apiRoutes);
-  });
-
-  afterEach(() => {
-    closeDb();
-    mock.restore();
-  });
-
-  it("returns 401 when not authenticated", async () => {
-    const unauthApp = new Hono();
-    unauthApp.route("/api", apiRoutes);
-    const res = await unauthApp.request("/api/requirement/1/approve", { method: "POST" });
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 400 for invalid ID", async () => {
-    const res = await app.request("/api/requirement/abc/approve", { method: "POST" });
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 200 and draft info on success", async () => {
-    const requirementService = await import("../services/requirement");
-    const {
-      createWorkspace,
-      addWorkspaceMember,
-      createRequirementDraft,
-      updateRequirementDraft,
-      updateWorkspaceSettings,
-    } = await import("../db/queries");
-    const ws = createWorkspace({ name: "ApproveSuccWS", slug: `approve-succ-${Date.now()}` });
-    updateWorkspaceSettings(ws.id, {
-      plane_project_id: "proj-succ",
-      plane_workspace_slug: "succ-slug",
-    });
-    addWorkspaceMember(ws.id, authedUserId);
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-    updateRequirementDraft(draft.id, { status: "review", issue_title: "成功审批" });
-    updateRequirementDraft(draft.id, {
-      plane_issue_id: "plane-123",
-      prd_git_path: "prd/2026-04/test.md",
-      status: "approved",
-    });
-    const approvedDraft = (await import("../db/queries")).getRequirementDraft(draft.id)!;
-
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: true,
-      draft: approvedDraft,
-    });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.plane_issue_id).toBe("plane-123");
-    expect(body.prd_git_path).toBe("prd/2026-04/test.md");
-    expect(body.draft.status).toBe("approved");
-  });
-
-  it("returns 400 when approveDraft returns state_check error", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: '当前状态 "drafting" 不允许审批',
-      step: "state_check",
-    });
-
-    const { createWorkspace, addWorkspaceMember, createRequirementDraft } =
-      await import("../db/queries");
-    const ws = createWorkspace({ name: "StateErrWS", slug: `state-err-${Date.now()}` });
-    addWorkspaceMember(ws.id, authedUserId);
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain("drafting");
-    expect(body.step).toBe("state_check");
-  });
-
-  it("returns 404 when draft not found", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: "草稿不存在",
-      step: "load",
-    });
-
-    const res = await app.request("/api/requirement/999999/approve", { method: "POST" });
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toContain("不存在");
-  });
-
-  it("returns 403 when user has no permission", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: "无权限审批此草稿",
-      step: "auth",
-    });
-
-    const { createWorkspace, createRequirementDraft } = await import("../db/queries");
-    const ws = createWorkspace({ name: "AuthErrWS", slug: `auth-err-${Date.now()}` });
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
-    expect(res.status).toBe(403);
   });
 });

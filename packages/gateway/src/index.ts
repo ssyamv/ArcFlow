@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getConfig } from "./config";
@@ -11,11 +12,65 @@ import { conversationRoutes } from "./routes/conversations";
 import { workspaceRoutes } from "./routes/workspaces";
 import { planeProxyRoutes } from "./routes/plane-proxy";
 import { docsRoutes } from "./routes/docs";
-import { approvalRoutes } from "./routes/approval";
 import { startScheduler } from "./scheduler";
+import { ragRoutes } from "./routes/rag";
+import { callbackRoutes } from "./routes/workflow-callback";
+import { createEmbeddingClient } from "./services/llm-embedding";
+import { createRagIndex } from "./services/rag-index";
+import { createRagSearch } from "./services/rag-search";
+import { createGitAdapter } from "./services/rag-git-adapter";
+import { createCallbackHandler } from "./services/workflow-callback";
+import { createScheduler } from "./services/scheduler";
 
-// 初始化数据库
+// ── sqlite-vec: must call setCustomSQLite before any Database() on macOS ──────
+if (process.platform === "darwin") {
+  try {
+    Database.setCustomSQLite(
+      process.env.SQLITE_LIB_PATH ?? "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib",
+    );
+  } catch {
+    // already set (e.g. by test-preload.ts)
+  }
+}
+
+const config = getConfig();
+
+// ── Main gateway DB ────────────────────────────────────────────────────────────
 getDb();
+
+// ── RAG DB (separate file, loaded with sqlite-vec) ────────────────────────────
+let ragDb: Database | null = null;
+let ragScheduler: ReturnType<typeof createScheduler> | null = null;
+
+if (process.env.NODE_ENV !== "test") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sqliteVec = require("sqlite-vec") as typeof import("sqlite-vec");
+  ragDb = new Database(config.ragDbPath);
+  sqliteVec.load(ragDb);
+  ragDb.exec(`
+    CREATE TABLE IF NOT EXISTS rag_docs (
+      workspace_id TEXT NOT NULL,
+      doc_path TEXT NOT NULL,
+      git_sha TEXT NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      PRIMARY KEY (workspace_id, doc_path)
+    );
+    CREATE TABLE IF NOT EXISTS rag_chunk_meta (
+      chunk_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      doc_path TEXT NOT NULL,
+      heading TEXT,
+      content TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rag_chunk_meta_doc ON rag_chunk_meta(workspace_id, doc_path);
+    CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks USING vec0(
+      chunk_id TEXT PRIMARY KEY,
+      workspace_id TEXT PARTITION KEY,
+      embedding FLOAT[${config.ragEmbeddingDim}]
+    )
+  `);
+  console.log(`[rag] db opened: ${config.ragDbPath}, dim=${config.ragEmbeddingDim}`);
+}
 
 export const app = new Hono();
 
@@ -35,14 +90,94 @@ app.route("/api/conversations", conversationRoutes);
 app.route("/api/workspaces", workspaceRoutes);
 app.route("/api/plane", planeProxyRoutes);
 app.route("/api/docs", docsRoutes);
-app.route("/api/approval", approvalRoutes);
+
+// ── RAG + callback routes ──────────────────────────────────────────────────────
+const systemSecret = process.env.SYSTEM_SECRET ?? process.env.NANOCLAW_DISPATCH_SECRET ?? "";
+
+if (ragDb) {
+  const embedder = createEmbeddingClient({
+    apiKey: config.siliconflowApiKey,
+    baseUrl: config.siliconflowBaseUrl,
+    model: config.ragEmbeddingModel,
+    dim: config.ragEmbeddingDim,
+  });
+  const ragSearch = createRagSearch({ db: ragDb, embedder });
+
+  app.route("/api/rag", ragRoutes({ search: ragSearch, systemSecret }));
+  console.log("[rag] /api/rag/search mounted");
+
+  // Incremental RAG sync scheduler
+  if (config.ragSyncIntervalMs > 0 && process.env.RAG_GIT_ROOT) {
+    const ragIndex = createRagIndex({ db: ragDb, embedder, dim: config.ragEmbeddingDim });
+    const gitAdapter = createGitAdapter({
+      rootDir: process.env.RAG_GIT_ROOT,
+      globs: ["prd/**/*.md", "tech-design/**/*.md", "api/**/*.yaml", "arch/**/*.md"],
+    });
+    const workspaceId = process.env.RAG_WORKSPACE_ID ?? "default";
+    ragScheduler = createScheduler();
+    ragScheduler.every(config.ragSyncIntervalMs, () =>
+      ragIndex.syncAll({ workspaceId, git: gitAdapter }),
+    );
+    console.log(`[rag] scheduler started every ${config.ragSyncIntervalMs}ms`);
+  }
+}
+
+// Callback route (always mounted; handler stubs out deps when ragDb absent)
+const callbackHandler = createCallbackHandler({
+  writeTechDesign: async ({ workspaceId, planeIssueId, content }) => {
+    console.log(
+      `[callback] writeTechDesign ws=${workspaceId} issue=${planeIssueId ?? "-"} len=${content.length}`,
+    );
+  },
+  writeOpenApi: async ({ workspaceId, planeIssueId, content }) => {
+    console.log(
+      `[callback] writeOpenApi ws=${workspaceId} issue=${planeIssueId ?? "-"} len=${content.length}`,
+    );
+  },
+  commentPlaneIssue: async ({ planeIssueId, content }) => {
+    console.log(`[callback] commentPlaneIssue issue=${planeIssueId} len=${content.length}`);
+  },
+  loadDispatch: async (id) => {
+    const db = getDb();
+    const row = db
+      .prepare("SELECT id, workspace_id, skill, plane_issue_id, status FROM dispatch WHERE id=?")
+      .get(id) as {
+      id: string;
+      workspace_id: string;
+      skill: string;
+      plane_issue_id: string | null;
+      status: string;
+    } | null;
+    if (!row) return null;
+    return {
+      id: row.id,
+      workspaceId: row.workspace_id,
+      skill: row.skill,
+      planeIssueId: row.plane_issue_id ?? undefined,
+      status: row.status as "pending" | "success" | "failed",
+    };
+  },
+  markDone: async (id, status) => {
+    const { updateDispatchStatus } = await import("./db/queries");
+    return updateDispatchStatus(getDb(), id, status);
+  },
+});
+
+app.route("/api/workflow/callback", callbackRoutes({ handler: callbackHandler, systemSecret }));
+console.log("[callback] /api/workflow/callback mounted");
 
 // 启动调度器（非测试环境）
 if (process.env.NODE_ENV !== "test") {
   startScheduler();
 }
 
-const config = getConfig();
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  ragScheduler?.stop();
+  ragDb?.close();
+  process.exit(0);
+});
+
 export default {
   port: config.port,
   fetch: app.fetch,

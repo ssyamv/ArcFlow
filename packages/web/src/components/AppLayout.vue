@@ -270,7 +270,6 @@ import {
   CalendarDays,
   Package,
   BarChart3,
-  ClipboardList,
 } from "lucide-vue-next";
 import { useThemeStore } from "../stores/theme";
 import UiDialog from "./ui/AppDialog.vue";
@@ -289,7 +288,6 @@ const wsNameInput = ref<HTMLInputElement | null>(null);
 const navItems = computed(() => {
   const items = [
     { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
-    { path: "/requirements", label: "需求", icon: ClipboardList },
     { path: "/chat", label: "AI 对话", icon: MessageSquare },
     { path: "/docs", label: "文档", icon: FileText },
     { path: "/workflows", label: "工作流", icon: List },
@@ -320,10 +318,7 @@ const currentPageTitle = computed(() => {
 });
 
 const isFullWidthPage = computed(
-  () =>
-    route.path.startsWith("/docs") ||
-    route.path.startsWith("/chat") ||
-    route.path.startsWith("/requirements/"),
+  () => route.path.startsWith("/docs") || route.path.startsWith("/chat"),
 );
 
 function isActive(path: string) {

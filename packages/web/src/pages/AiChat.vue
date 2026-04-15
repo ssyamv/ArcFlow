@@ -339,7 +339,7 @@ async function handleSend() {
     const title = msg.replace(/\s+/g, " ").trim().slice(0, 24);
     if (title) void convStore.update(convId, { title });
   }
-  await chatStore.send(convId, msg, conv?.dify_conversation_id ?? undefined);
+  await chatStore.send(convId, msg);
   scrollToBottom();
 }
 

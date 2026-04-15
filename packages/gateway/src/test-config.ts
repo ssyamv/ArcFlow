@@ -8,11 +8,6 @@ import type { Config } from "./config";
 export function createTestConfig(overrides?: Partial<Config>): Config {
   return {
     port: 3100,
-    difyBaseUrl: "http://dify-test:3001",
-    difyApiKey: "dify-shared-val",
-    difyTechDocApiKey: "dify-tech-key",
-    difyOpenApiApiKey: "dify-openapi-key",
-    difyBugAnalysisApiKey: "dify-bug-key",
     planeBaseUrl: "http://plane-test:8080",
     planeExternalUrl: "http://plane-test:8080",
     planeApiToken: "test-plane-token",
@@ -31,12 +26,6 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     feishuVerificationToken: "",
     feishuEncryptKey: "",
     feishuDefaultChatId: "oc_test_chat",
-    difyPrdGenApiKey: "",
-    difyRequirementChatApiKey: "",
-    difyRagApiKey: "",
-    difyDatasetApiKey: "",
-    difyDatasetId: "",
-    difyDatasetMap: {},
     claudeCodeTimeout: 500,
     ibuildBaseUrl: "http://ibuild-test:8080",
     ibuildClientKey: "test-client-key",
@@ -48,6 +37,12 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     jwtExpiresIn: "7d",
     oauthRedirectUri: "http://localhost:5173/auth/callback",
     webBaseUrl: "http://localhost:5173",
+    siliconflowApiKey: "test-sf-key",
+    siliconflowBaseUrl: "http://localhost:1",
+    ragDbPath: ":memory:",
+    ragEmbeddingModel: "BAAI/bge-m3",
+    ragEmbeddingDim: 4,
+    ragSyncIntervalMs: 600000,
     ...overrides,
   };
 }

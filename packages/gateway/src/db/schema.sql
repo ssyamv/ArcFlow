@@ -96,27 +96,6 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 
-CREATE TABLE IF NOT EXISTS requirement_drafts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  creator_id INTEGER NOT NULL REFERENCES users(id),
-  status TEXT NOT NULL DEFAULT 'drafting',
-  issue_title TEXT NOT NULL DEFAULT '',
-  issue_description TEXT NOT NULL DEFAULT '',
-  prd_content TEXT NOT NULL DEFAULT '',
-  prd_slug TEXT,
-  dify_conversation_id TEXT,
-  plane_issue_id TEXT,
-  prd_git_path TEXT,
-  feishu_chat_id TEXT,
-  feishu_card_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  approved_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_requirement_drafts_workspace ON requirement_drafts(workspace_id, status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_requirement_drafts_creator ON requirement_drafts(creator_id, updated_at DESC);
-
 -- Batch 2-F: Agent memory snapshot support — persists notable user actions so
 -- NanoClaw's memory_workspace_snapshot tool can surface "recent_user_actions".
 CREATE TABLE IF NOT EXISTS user_action_log (
@@ -130,12 +109,40 @@ CREATE TABLE IF NOT EXISTS user_action_log (
 CREATE INDEX IF NOT EXISTS idx_user_action_log_user ON user_action_log(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_action_log_workspace ON user_action_log(workspace_id, created_at DESC);
 
--- Batch 2-F: one-time approval token consumption guard. Token jti recorded
--- here becomes invalid for re-use even before its exp.
-CREATE TABLE IF NOT EXISTS approval_token_consumption (
-  jti TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL,
-  action TEXT NOT NULL,
-  resource_id TEXT NOT NULL,
-  consumed_at TEXT NOT NULL DEFAULT (datetime('now'))
+-- NanoClaw dispatch 记账表：记录每次 skill 派发 + 回调状态
+CREATE TABLE IF NOT EXISTS dispatch (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  skill TEXT NOT NULL,
+  input_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  plane_issue_id TEXT,
+  timeout_at INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_dispatch_plane_issue ON dispatch(plane_issue_id);
+
+-- RAG 索引元数据
+CREATE TABLE IF NOT EXISTS rag_docs (
+  workspace_id TEXT NOT NULL,
+  doc_path TEXT NOT NULL,
+  git_sha TEXT NOT NULL,
+  indexed_at INTEGER NOT NULL,
+  PRIMARY KEY (workspace_id, doc_path)
+);
+
+CREATE TABLE IF NOT EXISTS rag_chunk_meta (
+  chunk_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  doc_path TEXT NOT NULL,
+  heading TEXT,
+  content TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rag_chunk_meta_doc
+  ON rag_chunk_meta(workspace_id, doc_path);
+
+-- 注：rag_chunks 是 sqlite-vec 虚表，只能运行时通过 vec0 创建，由 rag-index.ts 在初始化时执行
+-- CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks USING vec0(...)
+
