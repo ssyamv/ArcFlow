@@ -22,6 +22,17 @@ export function getDb(): Database {
     if (!colNames.has("feishu_chat_id")) {
       db.exec("ALTER TABLE workspaces ADD COLUMN feishu_chat_id TEXT");
     }
+    // Drop legacy Dify columns if present (全量切 NanoClaw + sqlite-vec 后不再使用)
+    if (colNames.has("dify_dataset_id")) {
+      db.exec("ALTER TABLE workspaces DROP COLUMN dify_dataset_id");
+    }
+    if (colNames.has("dify_rag_api_key")) {
+      db.exec("ALTER TABLE workspaces DROP COLUMN dify_rag_api_key");
+    }
+    const convCols = db.query("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+    if (convCols.some((c) => c.name === "dify_conversation_id")) {
+      db.exec("ALTER TABLE conversations DROP COLUMN dify_conversation_id");
+    }
   }
   return db;
 }
