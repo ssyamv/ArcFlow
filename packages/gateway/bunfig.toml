@@ -1,3 +1,4 @@
 [test]
 # Increase timeout for slower tests
 timeout = 10000
+preload = ["./test-preload.ts"]

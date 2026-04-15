@@ -420,3 +420,45 @@ describe("requirement_drafts", () => {
     expect(updated!.feishu_card_id).toBe("card-abc");
   });
 });
+
+import { insertDispatch, updateDispatchStatus } from "./queries";
+
+describe("dispatch", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it("insertDispatch persists plane_issue_id and timeout_at", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: { x: 1 },
+      planeIssueId: "PROJ-7",
+      timeoutAt: 9999,
+    });
+    const row = db
+      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
+      .get(id) as { plane_issue_id: string; timeout_at: number };
+    expect(row.plane_issue_id).toBe("PROJ-7");
+    expect(row.timeout_at).toBe(9999);
+  });
+
+  it("updateDispatchStatus marks success idempotently", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
+    });
+    const first = updateDispatchStatus(db, id, "success");
+    const second = updateDispatchStatus(db, id, "success");
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+});

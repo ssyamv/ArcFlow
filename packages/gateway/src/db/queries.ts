@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { getDb } from "./index";
 import type {
   WorkflowExecution,
@@ -759,4 +760,45 @@ export function buildMemorySnapshot(workspaceId: number): MemorySnapshot {
     recent_user_actions,
     generated_at: new Date().toISOString(),
   };
+}
+
+// ─── dispatch ────────────────────────────────────────────────────────────────
+
+export interface InsertDispatchInput {
+  workspaceId: string;
+  skill: string;
+  input: unknown;
+  planeIssueId?: string;
+  timeoutAt?: number;
+}
+
+export function insertDispatch(db: Database, x: InsertDispatchInput): string {
+  const id = crypto.randomUUID();
+  db.run(
+    `INSERT INTO dispatch(id, workspace_id, skill, input_json, status, created_at, plane_issue_id, timeout_at)
+     VALUES(?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      x.workspaceId,
+      x.skill,
+      JSON.stringify(x.input),
+      "pending",
+      Date.now(),
+      x.planeIssueId ?? null,
+      x.timeoutAt ?? null,
+    ],
+  );
+  return id;
+}
+
+export function updateDispatchStatus(
+  db: Database,
+  id: string,
+  status: "success" | "failed",
+): boolean {
+  const res = db.run(
+    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status='pending'`,
+    [status, Date.now(), id],
+  );
+  return res.changes === 1;
 }
