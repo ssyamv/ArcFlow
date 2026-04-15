@@ -48,6 +48,21 @@ if (process.env.NODE_ENV !== "test") {
   ragDb = new Database(config.ragDbPath);
   sqliteVec.load(ragDb);
   ragDb.exec(`
+    CREATE TABLE IF NOT EXISTS rag_docs (
+      workspace_id TEXT NOT NULL,
+      doc_path TEXT NOT NULL,
+      git_sha TEXT NOT NULL,
+      indexed_at INTEGER NOT NULL,
+      PRIMARY KEY (workspace_id, doc_path)
+    );
+    CREATE TABLE IF NOT EXISTS rag_chunk_meta (
+      chunk_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      doc_path TEXT NOT NULL,
+      heading TEXT,
+      content TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rag_chunk_meta_doc ON rag_chunk_meta(workspace_id, doc_path);
     CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks USING vec0(
       chunk_id TEXT PRIMARY KEY,
       workspace_id TEXT PARTITION KEY,
