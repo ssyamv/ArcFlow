@@ -45,25 +45,6 @@ const router = createRouter({
       component: () => import("../pages/Docs.vue"),
     },
     {
-      path: "/prd/chat",
-      redirect: "/chat",
-    },
-    {
-      path: "/requirements",
-      name: "requirements",
-      component: () => import("../pages/RequirementList.vue"),
-    },
-    {
-      path: "/requirements/new",
-      name: "requirements-new",
-      component: () => import("../pages/GonePage.vue"),
-    },
-    {
-      path: "/requirements/:id",
-      name: "requirement-detail",
-      component: () => import("../pages/GonePage.vue"),
-    },
-    {
       path: "/workspace/settings",
       name: "workspace-settings",
       component: () => import("../pages/WorkspaceSettings.vue"),
@@ -72,14 +53,6 @@ const router = createRouter({
       path: "/profile",
       name: "profile",
       component: () => import("../pages/Profile.vue"),
-    },
-    {
-      // Public route — page handles redirect-to-login itself so the user
-      // lands on a clear "please sign in" flow rather than a raw bounce.
-      path: "/approval/:token",
-      name: "approval",
-      component: () => import("../pages/ApprovalConfirm.vue"),
-      meta: { public: true },
     },
     {
       path: "/:pathMatch(.*)*",

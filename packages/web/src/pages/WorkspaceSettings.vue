@@ -109,40 +109,6 @@
         <div class="space-y-4">
           <div>
             <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
-              >Dify Dataset ID</label
-            >
-            <input
-              v-model="form.dify_dataset_id"
-              type="text"
-              class="w-full px-3 py-2 rounded-lg text-sm"
-              style="
-                background-color: var(--color-bg-primary);
-                border: 1px solid var(--color-border-default);
-                color: var(--color-text-primary);
-                outline: none;
-              "
-              placeholder="输入 Dify 数据集 ID"
-            />
-          </div>
-          <div>
-            <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
-              >Dify RAG API Key</label
-            >
-            <input
-              v-model="form.dify_rag_api_key"
-              type="password"
-              class="w-full px-3 py-2 rounded-lg text-sm"
-              style="
-                background-color: var(--color-bg-primary);
-                border: 1px solid var(--color-border-default);
-                color: var(--color-text-primary);
-                outline: none;
-              "
-              placeholder="输入 Dify RAG API Key"
-            />
-          </div>
-          <div>
-            <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
               >Wiki 路径前缀</label
             >
             <input
@@ -364,8 +330,6 @@ async function loadPlaneProjects() {
 }
 
 const form = reactive({
-  dify_dataset_id: "",
-  dify_rag_api_key: "",
   wiki_path_prefix: "",
   plane_project_id: "",
   plane_workspace_slug: "",
@@ -382,8 +346,6 @@ const gitRepos = reactive({
 
 function loadForm() {
   if (!detail.value) return;
-  form.dify_dataset_id = detail.value.dify_dataset_id ?? "";
-  form.dify_rag_api_key = detail.value.dify_rag_api_key ?? "";
   form.wiki_path_prefix = detail.value.wiki_path_prefix ?? "";
   form.plane_project_id = detail.value.plane_project_id ?? "";
   form.plane_workspace_slug = detail.value.plane_workspace_slug ?? "";
@@ -417,8 +379,6 @@ async function handleSave() {
   statusMessage.value = "";
   try {
     await updateWorkspaceSettings(detail.value.id, {
-      dify_dataset_id: form.dify_dataset_id || null,
-      dify_rag_api_key: form.dify_rag_api_key || null,
       wiki_path_prefix: form.wiki_path_prefix || null,
       plane_project_id: form.plane_project_id || null,
       plane_workspace_slug: form.plane_workspace_slug || null,

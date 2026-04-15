@@ -15,7 +15,6 @@ export interface Conversation {
   workspace_id: number | null;
   title: string;
   pinned: number;
-  dify_conversation_id: string | null;
   created_at: string;
   updated_at: string;
 }
