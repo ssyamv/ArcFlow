@@ -271,129 +271,51 @@ describe("rag routes", () => {
   });
 });
 
-describe("POST /api/requirement/:id/approve", () => {
+describe("nanoclaw dispatch", () => {
   let app: Hono;
-  let authedUserId: number;
+  let db: ReturnType<typeof getDb>;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     process.env.NODE_ENV = "test";
-    getDb();
-
-    const { upsertUser } = await import("../db/queries");
-    const user = upsertUser({ feishu_user_id: `approve-api-user-${Date.now()}`, name: "PM" });
-    authedUserId = user.id;
-
+    process.env.NANOCLAW_DISPATCH_SECRET = "s";
+    delete process.env.NANOCLAW_URL;
+    db = getDb();
     app = new Hono();
-    // Inject userId via middleware (bypasses JWT in tests)
-    app.use("/*", async (c, next) => {
-      c.set("userId" as never, authedUserId as never);
-      await next();
-    });
     app.route("/api", apiRoutes);
   });
 
   afterEach(() => {
     closeDb();
     mock.restore();
+    delete process.env.NANOCLAW_DISPATCH_SECRET;
   });
 
-  it("returns 401 when not authenticated", async () => {
-    const unauthApp = new Hono();
-    unauthApp.route("/api", apiRoutes);
-    const res = await unauthApp.request("/api/requirement/1/approve", { method: "POST" });
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 400 for invalid ID", async () => {
-    const res = await app.request("/api/requirement/abc/approve", { method: "POST" });
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 200 and draft info on success", async () => {
-    const requirementService = await import("../services/requirement");
-    const {
-      createWorkspace,
-      addWorkspaceMember,
-      createRequirementDraft,
-      updateRequirementDraft,
-      updateWorkspaceSettings,
-    } = await import("../db/queries");
-    const ws = createWorkspace({ name: "ApproveSuccWS", slug: `approve-succ-${Date.now()}` });
-    updateWorkspaceSettings(ws.id, {
-      plane_project_id: "proj-succ",
-      plane_workspace_slug: "succ-slug",
+  it("accepts arcflow-prd-to-tech with plane_issue_id and persists timeout_at", async () => {
+    const res = await app.request("/api/nanoclaw/dispatch", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({
+        skill: "arcflow-prd-to-tech",
+        workspace_id: "w",
+        plane_issue_id: "PROJ-1",
+        input: { prd_path: "prd/x.md" },
+      }),
     });
-    addWorkspaceMember(ws.id, authedUserId);
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-    updateRequirementDraft(draft.id, { status: "review", issue_title: "成功审批" });
-    updateRequirementDraft(draft.id, {
-      plane_issue_id: "plane-123",
-      prd_git_path: "prd/2026-04/test.md",
-      status: "approved",
-    });
-    const approvedDraft = (await import("../db/queries")).getRequirementDraft(draft.id)!;
-
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: true,
-      draft: approvedDraft,
-    });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.plane_issue_id).toBe("plane-123");
-    expect(body.prd_git_path).toBe("prd/2026-04/test.md");
-    expect(body.draft.status).toBe("approved");
+    const { dispatch_id } = await res.json();
+    const row = db
+      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
+      .get(dispatch_id) as { plane_issue_id: string; timeout_at: number } | null;
+    expect(row?.plane_issue_id).toBe("PROJ-1");
+    expect(row?.timeout_at).toBeGreaterThan(Date.now());
   });
 
-  it("returns 400 when approveDraft returns state_check error", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: '当前状态 "drafting" 不允许审批',
-      step: "state_check",
+  it("rejects unknown skill", async () => {
+    const res = await app.request("/api/nanoclaw/dispatch", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({ skill: "foo", workspace_id: "w" }),
     });
-
-    const { createWorkspace, addWorkspaceMember, createRequirementDraft } =
-      await import("../db/queries");
-    const ws = createWorkspace({ name: "StateErrWS", slug: `state-err-${Date.now()}` });
-    addWorkspaceMember(ws.id, authedUserId);
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain("drafting");
-    expect(body.step).toBe("state_check");
-  });
-
-  it("returns 404 when draft not found", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: "草稿不存在",
-      step: "load",
-    });
-
-    const res = await app.request("/api/requirement/999999/approve", { method: "POST" });
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toContain("不存在");
-  });
-
-  it("returns 403 when user has no permission", async () => {
-    const requirementService = await import("../services/requirement");
-    spyOn(requirementService, "approveDraft").mockResolvedValue({
-      ok: false,
-      error: "无权限审批此草稿",
-      step: "auth",
-    });
-
-    const { createWorkspace, createRequirementDraft } = await import("../db/queries");
-    const ws = createWorkspace({ name: "AuthErrWS", slug: `auth-err-${Date.now()}` });
-    const draft = createRequirementDraft({ workspace_id: ws.id, creator_id: authedUserId });
-
-    const res = await app.request(`/api/requirement/${draft.id}/approve`, { method: "POST" });
-    expect(res.status).toBe(403);
   });
 });

@@ -9,7 +9,17 @@ import {
   getWorkspaceMemberRole,
   buildMemorySnapshot,
   recordUserAction,
+  insertDispatch,
 } from "../db/queries";
+import { getDb } from "../db";
+
+const ALLOWED_SKILLS = [
+  "arcflow-prd-draft",
+  "arcflow-prd-to-tech",
+  "arcflow-tech-to-openapi",
+  "arcflow-bug-analysis",
+  "arcflow-rag",
+] as const;
 import { triggerWorkflow } from "../services/workflow";
 import {
   streamDifyChatflow,
@@ -21,22 +31,7 @@ import {
 import { queryKnowledgeBase } from "../services/dify";
 import { syncGitToDify } from "../services/rag-sync";
 import { authMiddleware } from "../middleware/auth";
-import {
-  createDraft,
-  chatDraft,
-  patchDraft,
-  getDraft,
-  listDrafts,
-  finalizeDraft,
-  approveDraft,
-} from "../services/requirement";
-import type {
-  TriggerWorkflowRequest,
-  WorkflowType,
-  WorkflowStatus,
-  WebhookSource,
-  RequirementDraftStatus,
-} from "../types";
+import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
 
 export const apiRoutes = new Hono();
 
@@ -247,152 +242,6 @@ apiRoutes.post("/rag/sync", async (c) => {
   }
 });
 
-// ─── Requirement Draft Routes ──────────────────────────────────────────────────
-
-apiRoutes.use("/requirement/*", authMiddleware);
-
-apiRoutes.post("/requirement/draft", async (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const body = await c.req.json<{ workspace_id: number; feishu_chat_id?: string }>();
-  if (!body.workspace_id) {
-    return c.json({ error: "workspace_id is required" }, 400);
-  }
-  if (!getWorkspace(body.workspace_id)) {
-    return c.json({ error: `workspace ${body.workspace_id} not found` }, 404);
-  }
-
-  const draft = createDraft({
-    workspaceId: body.workspace_id,
-    creatorId: userId,
-    feishuChatId: body.feishu_chat_id,
-  });
-  return c.json(draft, 201);
-});
-
-apiRoutes.get("/requirement/:id", (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-
-  const { draft, error } = getDraft(id, userId);
-  if (error) return c.json({ error }, draft === null ? 404 : 403);
-  return c.json(draft);
-});
-
-apiRoutes.get("/requirement", (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const workspaceId = c.req.query("workspace_id") ? Number(c.req.query("workspace_id")) : undefined;
-  const status = c.req.query("status") as RequirementDraftStatus | undefined;
-  const limit = Number(c.req.query("limit")) || 20;
-
-  const drafts = listDrafts({ workspaceId, userId, status, limit });
-  return c.json({ data: drafts, total: drafts.length });
-});
-
-apiRoutes.patch("/requirement/:id", async (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-
-  const body = await c.req.json<{
-    issue_title?: string;
-    issue_description?: string;
-    prd_content?: string;
-  }>();
-
-  const { ok, error } = patchDraft({ draftId: id, userId, patch: body });
-  if (!ok) {
-    return c.json({ error }, error === "草稿不存在" ? 404 : 403);
-  }
-  return c.json({ ok: true });
-});
-
-apiRoutes.post("/requirement/:id/chat", async (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-
-  const body = await c.req.json<{ message: string }>();
-  if (!body.message?.trim()) {
-    return c.json({ error: "message is required" }, 400);
-  }
-
-  return streamSSE(c, async (stream) => {
-    for await (const { event, data } of chatDraft({ draftId: id, userId, message: body.message })) {
-      await stream.writeSSE({ event, data });
-    }
-  });
-});
-
-apiRoutes.post("/requirement/:id/finalize", async (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-
-  const result = await finalizeDraft({ draftId: id, userId });
-  if (!result.ok) {
-    const status = result.error?.includes("不存在")
-      ? 404
-      : result.error?.includes("无权限")
-        ? 403
-        : 400;
-    return c.json({ error: result.error }, status);
-  }
-
-  return c.json({ draft: result.draft, feishu_sent: result.feishu_sent });
-});
-
-apiRoutes.post("/requirement/:id/approve", async (c) => {
-  const userId = Number(c.get("userId" as never));
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
-
-  const result = await approveDraft({ draftId: id, userId, source: "web" });
-  if (!result.ok) {
-    const status = result.error?.includes("不存在")
-      ? 404
-      : result.error?.includes("无权限")
-        ? 403
-        : 400;
-    return c.json({ error: result.error, step: result.step }, status);
-  }
-
-  return c.json({
-    draft: result.draft,
-    plane_issue_id: result.draft.plane_issue_id,
-    prd_git_path: result.draft.prd_git_path,
-    warning: result.warning,
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Batch 2-F: memory snapshot + nanoclaw dispatch
 // ---------------------------------------------------------------------------
@@ -442,7 +291,7 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
   const body =
     (await c.req.json<{
       skill?: string;
-      workspace_id?: number;
+      workspace_id?: number | string;
       plane_issue_id?: string;
       user_id?: number;
       input?: unknown;
@@ -450,11 +299,22 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
   if (!body.skill || !body.workspace_id) {
     return c.json({ error: "skill and workspace_id are required" }, 400);
   }
+  if (!(ALLOWED_SKILLS as readonly string[]).includes(body.skill)) {
+    return c.json({ error: `unknown skill: ${body.skill}` }, 400);
+  }
 
-  const dispatchId = `disp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const workspaceId = String(body.workspace_id);
+  const db = getDb();
+  const dispatchId = insertDispatch(db, {
+    workspaceId,
+    skill: body.skill,
+    input: body.input ?? {},
+    planeIssueId: body.plane_issue_id,
+    timeoutAt: Date.now() + 10 * 60 * 1000,
+  });
   recordUserAction({
     userId: body.user_id ?? 0,
-    workspaceId: body.workspace_id,
+    workspaceId: typeof body.workspace_id === "number" ? body.workspace_id : null,
     actionType: `nanoclaw.dispatch.${body.skill}`,
     payload: {
       dispatch_id: dispatchId,
