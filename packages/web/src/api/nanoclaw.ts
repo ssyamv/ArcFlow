@@ -84,9 +84,8 @@ export function openChatStream(
   handlers: NanoClawStreamHandlers,
 ): AbortController {
   const controller = new AbortController();
-  const url = `${NANOCLAW_BASE}/api/chat/sse?client_id=${encodeURIComponent(params.clientId)}`;
+  const url = `${NANOCLAW_BASE}/api/chat/sse?client_id=${encodeURIComponent(params.clientId)}&token=${encodeURIComponent(params.token)}`;
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${params.token}`,
     "X-Workspace-Id": String(params.workspaceId),
     Accept: "text/event-stream",
   };
