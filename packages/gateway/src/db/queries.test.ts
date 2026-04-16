@@ -22,6 +22,8 @@ import {
   recordWebhookLog,
   listWebhookLogs,
   insertDispatch,
+  claimDispatchForCallback,
+  releaseDispatchClaim,
   updateDispatchStatus,
 } from "./queries";
 
@@ -292,6 +294,41 @@ describe("workflow_execution", () => {
     expect(execution!.id).toBe(olderExecutionId);
   });
 
+  it("scopes external run id matching by plane issue", () => {
+    const collidingExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-OTHER",
+    });
+    createWorkflowSubtask({
+      execution_id: collidingExecutionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-shared",
+    });
+
+    const intendedExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-125",
+    });
+    createWorkflowSubtask({
+      execution_id: intendedExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-125", "backend", {
+      externalRunId: "run-shared",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(intendedExecutionId);
+  });
+
   it("prefers branch metadata over latest issue matching for code_gen execution lookup", () => {
     const olderExecutionId = createWorkflowExecution({
       workflow_type: "code_gen",
@@ -326,6 +363,41 @@ describe("workflow_execution", () => {
     });
     expect(execution).not.toBeNull();
     expect(execution!.id).toBe(olderExecutionId);
+  });
+
+  it("scopes branch matching by plane issue", () => {
+    const collidingExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-OTHER-BRANCH",
+    });
+    createWorkflowSubtask({
+      execution_id: collidingExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/shared-branch",
+    });
+
+    const intendedExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-126",
+    });
+    createWorkflowSubtask({
+      execution_id: intendedExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-126", "backend", {
+      branchName: "feature/shared-branch",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(intendedExecutionId);
   });
 
   it("creates workflow links between executions", () => {
@@ -561,6 +633,68 @@ describe("dispatch", () => {
     const second = updateDispatchStatus(db, id, "success");
     expect(first).toBe(true);
     expect(second).toBe(false); // already completed returns false
+  });
+
+  it("claimDispatchForCallback transitions pending dispatch to processing once", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+
+    const first = claimDispatchForCallback(db, id, Date.now(), 5_000);
+    const second = claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    const row = db.prepare("SELECT status FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+    };
+    expect(row.status).toBe("processing");
+  });
+
+  it("releaseDispatchClaim returns processing dispatch to pending", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+    claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    const released = releaseDispatchClaim(db, id);
+
+    expect(released).toBe(true);
+    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+      completed_at: number | null;
+    };
+    expect(row.status).toBe("pending");
+    expect(row.completed_at).toBeNull();
+  });
+
+  it("claimDispatchForCallback can recover an expired processing dispatch", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+    claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    const reclaimed = claimDispatchForCallback(db, id, Date.now() + 10_000, 5_000);
+
+    expect(reclaimed).toBe(true);
+    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+      completed_at: number | null;
+    };
+    expect(row.status).toBe("processing");
+    expect(row.completed_at).toBeNull();
   });
 });
 

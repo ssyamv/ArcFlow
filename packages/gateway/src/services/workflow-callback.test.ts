@@ -229,4 +229,103 @@ describe("workflow-callback dispatcher", () => {
     );
     expect(order).toEqual(["subtask:generate_failed", "done:failed"]);
   });
+
+  it("claims callback work before side effects so concurrent deliveries do not double-apply", async () => {
+    const sideEffects: string[] = [];
+    let claimed = false;
+    let released = false;
+
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async (input) => {
+        sideEffects.push(input.stage);
+      },
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      claimDispatch: async () => {
+        if (claimed) return false;
+        claimed = true;
+        return true;
+      },
+      releaseClaim: async () => {
+        released = true;
+        claimed = false;
+        return true;
+      },
+      markDone: async () => {
+        claimed = false;
+        return true;
+      },
+    });
+
+    const r1 = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+    claimed = true;
+    const r2 = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(r1).toBe(true);
+    expect(r2).toBe(false);
+    expect(sideEffects).toEqual(["generate", "ci_pending"]);
+    expect(released).toBe(false);
+  });
+
+  it("releases the callback claim when side effects fail", async () => {
+    let claimCount = 0;
+    let releaseCount = 0;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {
+        throw new Error("db write failed");
+      },
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      claimDispatch: async () => {
+        claimCount += 1;
+        return true;
+      },
+      releaseClaim: async () => {
+        releaseCount += 1;
+        return true;
+      },
+      markDone: async () => true,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d-codegen-1",
+        skill: "arcflow-code-gen",
+        status: "success",
+        result: {
+          content: JSON.stringify({
+            execution_id: 7,
+            target: "backend",
+          }),
+        },
+      }),
+    ).rejects.toThrow("db write failed");
+
+    expect(claimCount).toBe(1);
+    expect(releaseCount).toBe(1);
+  });
 });

@@ -5,7 +5,7 @@ export interface DispatchRecord {
   workspaceId: string;
   skill: string;
   planeIssueId?: string;
-  status: "pending" | "success" | "failed";
+  status: "pending" | "processing" | "success" | "failed";
   input?: unknown;
 }
 
@@ -22,6 +22,8 @@ export interface CallbackDeps {
   }) => Promise<void>;
   commentPlaneIssue: (x: { planeIssueId: string; content: string }) => Promise<void>;
   loadDispatch: (id: string) => Promise<DispatchRecord | null>;
+  claimDispatch?: (id: string) => Promise<boolean>;
+  releaseClaim?: (id: string) => Promise<boolean>;
   markDone: (id: string, status: "success" | "failed") => Promise<boolean>;
   markSubtaskProgress?: (x: {
     execution_id: number;
@@ -81,7 +83,9 @@ export function createCallbackHandler(deps: CallbackDeps) {
     async handle(p: CallbackPayload): Promise<boolean> {
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
-      if (rec.status !== "pending") return false;
+
+      const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
+      if (!claimed) return false;
 
       const content = p.result?.content ?? "";
       const piid = p.result?.planeIssueId ?? rec.planeIssueId;
@@ -103,50 +107,55 @@ export function createCallbackHandler(deps: CallbackDeps) {
         updateWorkflowSubtaskStatusByStage(input);
       };
 
-      if (p.status === "failed") {
-        if (p.skill === "arcflow-code-gen") {
-          const dispatchInput = parseCodegenDispatchInput(rec.input);
+      try {
+        if (p.status === "failed") {
+          if (p.skill === "arcflow-code-gen") {
+            const dispatchInput = parseCodegenDispatchInput(rec.input);
+            await markSubtaskProgress({
+              execution_id: dispatchInput.execution_id,
+              target: dispatchInput.target,
+              stage: "generate_failed",
+              status: "failed",
+              provider: "nanoclaw",
+              branch_name: dispatchInput.branch_name,
+              repo_name: dispatchInput.repo_name,
+              log_url: dispatchInput.log_url,
+              error_message: p.error,
+            });
+          }
+        } else if (p.skill === "arcflow-prd-to-tech") {
+          await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
+        } else if (p.skill === "arcflow-tech-to-openapi") {
+          await deps.writeOpenApi({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
+        } else if (p.skill === "arcflow-bug-analysis") {
+          if (piid) await deps.commentPlaneIssue({ planeIssueId: piid, content });
+        } else if (p.skill === "arcflow-code-gen") {
+          const result = parseCodegenResult(content);
           await markSubtaskProgress({
-            execution_id: dispatchInput.execution_id,
-            target: dispatchInput.target,
-            stage: "generate_failed",
-            status: "failed",
+            execution_id: result.execution_id,
+            target: result.target,
+            stage: "generate",
+            status: "success",
             provider: "nanoclaw",
-            branch_name: dispatchInput.branch_name,
-            repo_name: dispatchInput.repo_name,
-            log_url: dispatchInput.log_url,
-            error_message: p.error,
+            branch_name: result.branch_name,
+            repo_name: result.repo_name,
+            log_url: result.log_url,
+          });
+          await markSubtaskProgress({
+            execution_id: result.execution_id,
+            target: result.target,
+            stage: "ci_pending",
+            status: "pending",
+            provider: "generic",
           });
         }
-      } else if (p.skill === "arcflow-prd-to-tech") {
-        await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
-      } else if (p.skill === "arcflow-tech-to-openapi") {
-        await deps.writeOpenApi({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
-      } else if (p.skill === "arcflow-bug-analysis") {
-        if (piid) await deps.commentPlaneIssue({ planeIssueId: piid, content });
-      } else if (p.skill === "arcflow-code-gen") {
-        const result = parseCodegenResult(content);
-        await markSubtaskProgress({
-          execution_id: result.execution_id,
-          target: result.target,
-          stage: "generate",
-          status: "success",
-          provider: "nanoclaw",
-          branch_name: result.branch_name,
-          repo_name: result.repo_name,
-          log_url: result.log_url,
-        });
-        await markSubtaskProgress({
-          execution_id: result.execution_id,
-          target: result.target,
-          stage: "ci_pending",
-          status: "pending",
-          provider: "generic",
-        });
+      } catch (error) {
+        await deps.releaseClaim?.(p.dispatch_id);
+        throw error;
       }
 
-      const claimed = await deps.markDone(p.dispatch_id, p.status);
-      return claimed;
+      const finalized = await deps.markDone(p.dispatch_id, p.status);
+      return finalized;
     },
   };
 }

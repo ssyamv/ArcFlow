@@ -279,10 +279,11 @@ export function findLatestCodegenExecution(
        FROM workflow_execution we
        INNER JOIN workflow_subtask ws ON ws.execution_id = we.id
        WHERE we.workflow_type = 'code_gen'
+         AND we.plane_issue_id = ?
          AND ws.target = ?
        ORDER BY we.id DESC, ws.id DESC`,
     )
-    .all(target) as Array<
+    .all(planeIssueId, target) as Array<
     WorkflowExecution & {
       subtask_branch_name: string | null;
       subtask_external_run_id: string | null;
@@ -842,8 +843,38 @@ export function updateDispatchStatus(
   status: "success" | "failed",
 ): boolean {
   const res = db.run(
-    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status='pending'`,
+    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status IN ('pending', 'processing')`,
     [status, Date.now(), id],
+  );
+  return res.changes === 1;
+}
+
+export function claimDispatchForCallback(
+  db: Database,
+  id: string,
+  now = Date.now(),
+  processingLeaseMs = 60_000,
+): boolean {
+  const nextTimeoutAt = now + processingLeaseMs;
+  const res = db.run(
+    `UPDATE dispatch
+     SET status = 'processing', timeout_at = ?, completed_at = NULL
+     WHERE id = ?
+       AND (
+         status = 'pending'
+         OR (status = 'processing' AND timeout_at IS NOT NULL AND timeout_at < ?)
+       )`,
+    [nextTimeoutAt, id, now],
+  );
+  return res.changes === 1;
+}
+
+export function releaseDispatchClaim(db: Database, id: string): boolean {
+  const res = db.run(
+    `UPDATE dispatch
+     SET status = 'pending', completed_at = NULL
+     WHERE id = ? AND status = 'processing'`,
+    [id],
   );
   return res.changes === 1;
 }
