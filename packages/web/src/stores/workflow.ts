@@ -4,7 +4,9 @@ import {
   fetchExecutions,
   triggerWorkflow,
   type TriggerResponse,
+  type WorkflowLink,
   type WorkflowSummary,
+  type WorkflowSubtask,
 } from "../api/workflow";
 
 export interface WorkflowExecution {
@@ -18,6 +20,8 @@ export interface WorkflowExecution {
   completed_at: string | null;
   created_at: string;
   summary?: WorkflowSummary | null;
+  subtasks?: WorkflowSubtask[];
+  links?: WorkflowLink[];
 }
 
 export const useWorkflowStore = defineStore("workflow", () => {
