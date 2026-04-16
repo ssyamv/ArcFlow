@@ -7,6 +7,8 @@ import {
   listWorkflowExecutions,
   createWorkflowSubtask,
   listWorkflowSubtasks,
+  updateWorkflowSubtaskStatusByStage,
+  findLatestCodegenExecution,
   createWorkflowLink,
   listWorkflowLinks,
   recordWebhookEvent,
@@ -173,6 +175,85 @@ describe("workflow_execution", () => {
       started_at: "2026-04-16T08:00:00Z",
       finished_at: "2026-04-16T08:05:00Z",
     });
+  });
+
+  it("updates workflow subtasks by execution, target, and stage", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-121",
+    });
+
+    const subtaskId = updateWorkflowSubtaskStatusByStage({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-1",
+      log_url: "https://ci.example/run-1",
+    });
+    updateWorkflowSubtaskStatusByStage({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      status: "failed",
+      log_url: "https://ci.example/run-1?retry=1",
+    });
+
+    const ciFailed = listWorkflowSubtasks(executionId).filter(
+      (subtask) => subtask.stage === "ci_failed",
+    );
+    expect(ciFailed).toHaveLength(1);
+    expect(ciFailed[0]).toMatchObject({
+      id: subtaskId,
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-1",
+      log_url: "https://ci.example/run-1?retry=1",
+    });
+  });
+
+  it("finds the latest code_gen execution by issue and target", () => {
+    const olderExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-122",
+    });
+    createWorkflowSubtask({
+      execution_id: olderExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const newerExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-122",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "frontend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-122", "backend");
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(newerExecutionId);
   });
 
   it("creates workflow links between executions", () => {

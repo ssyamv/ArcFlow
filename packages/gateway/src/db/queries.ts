@@ -178,6 +178,109 @@ export function listWorkflowSubtasks(executionId: number): WorkflowSubtask[] {
     .all(executionId) as WorkflowSubtask[];
 }
 
+export function updateWorkflowSubtaskStatusByStage(params: {
+  execution_id: number;
+  stage: string;
+  target: string;
+  provider?: string;
+  status: WorkflowStatus;
+  input_ref?: string;
+  output_ref?: string;
+  external_run_id?: string;
+  branch_name?: string;
+  repo_name?: string;
+  log_url?: string;
+  error_message?: string;
+}): number {
+  const db = getDb();
+  const existing = db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id = ? AND target = ? AND stage = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get(params.execution_id, params.target, params.stage) as WorkflowSubtask | null;
+
+  const now = new Date().toISOString();
+  const startedAt = params.status === "pending" ? null : (existing?.started_at ?? now);
+  const finishedAt =
+    params.status === "success" || params.status === "failed"
+      ? now
+      : (existing?.finished_at ?? null);
+
+  if (!existing) {
+    return createWorkflowSubtask({
+      execution_id: params.execution_id,
+      stage: params.stage,
+      target: params.target,
+      provider: params.provider ?? "system",
+      status: params.status,
+      input_ref: params.input_ref,
+      output_ref: params.output_ref,
+      external_run_id: params.external_run_id,
+      branch_name: params.branch_name,
+      repo_name: params.repo_name,
+      log_url: params.log_url,
+      error_message: params.error_message,
+      started_at: startedAt ?? undefined,
+      finished_at: finishedAt ?? undefined,
+    });
+  }
+
+  db.query(
+    `UPDATE workflow_subtask
+     SET provider = ?,
+         status = ?,
+         input_ref = ?,
+         output_ref = ?,
+         external_run_id = ?,
+         branch_name = ?,
+         repo_name = ?,
+         log_url = ?,
+         error_message = ?,
+         started_at = ?,
+         finished_at = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(
+    params.provider ?? existing.provider,
+    params.status,
+    params.input_ref ?? existing.input_ref,
+    params.output_ref ?? existing.output_ref,
+    params.external_run_id ?? existing.external_run_id,
+    params.branch_name ?? existing.branch_name,
+    params.repo_name ?? existing.repo_name,
+    params.log_url ?? existing.log_url,
+    params.error_message ?? existing.error_message,
+    startedAt,
+    finishedAt,
+    existing.id,
+  );
+
+  return existing.id;
+}
+
+export function findLatestCodegenExecution(
+  planeIssueId: string,
+  target: string,
+): WorkflowExecution | null {
+  const db = getDb();
+  const row = db
+    .query(
+      `SELECT we.*
+       FROM workflow_execution we
+       INNER JOIN workflow_subtask ws ON ws.execution_id = we.id
+       WHERE we.workflow_type = 'code_gen'
+         AND we.plane_issue_id = ?
+         AND ws.target = ?
+       ORDER BY we.id DESC, ws.id DESC
+       LIMIT 1`,
+    )
+    .get(planeIssueId, target) as WorkflowExecution | null;
+  return row ?? null;
+}
+
 // ─── workflow_link ───────────────────────────────────────────────────────────
 
 export function createWorkflowLink(params: {

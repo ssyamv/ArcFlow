@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { createCallbackHandler } from "./workflow-callback";
 
 describe("workflow-callback dispatcher", () => {
@@ -10,6 +10,7 @@ describe("workflow-callback dispatcher", () => {
       },
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
       loadDispatch: async (id) => ({
         id,
         workspaceId: "w",
@@ -38,6 +39,7 @@ describe("workflow-callback dispatcher", () => {
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
       loadDispatch: async (id) => ({
         id,
         workspaceId: "w",
@@ -74,6 +76,7 @@ describe("workflow-callback dispatcher", () => {
       },
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
       loadDispatch: async () => ({
         id: "d",
         workspaceId: "w",
@@ -89,5 +92,60 @@ describe("workflow-callback dispatcher", () => {
       error: "oops",
     });
     expect(calls.length).toBe(0);
+  });
+
+  it("writes code_gen callback result into generate subtask and branch metadata", async () => {
+    const markSubtaskProgress = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress,
+      loadDispatch: async (id) => ({
+        id,
+        workspaceId: "w",
+        skill: "arcflow-code-gen",
+        planeIssueId: "ISS-120",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+          branch_name: "feature/ISS-120-backend",
+          repo_name: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(markSubtaskProgress).toHaveBeenCalledTimes(2);
+    expect(markSubtaskProgress).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "generate",
+        status: "success",
+        branch_name: "feature/ISS-120-backend",
+        repo_name: "backend",
+      }),
+    );
+    expect(markSubtaskProgress).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "ci_pending",
+        status: "pending",
+      }),
+    );
   });
 });
