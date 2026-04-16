@@ -48,16 +48,15 @@ main() {
   case "$action" in
     up)
       init_env
-      log "启动所有服务..."
+      log "启动 ArcFlow Gateway 独立栈..."
       docker compose up -d --build
       log "等待服务就绪..."
       sleep 5
       docker compose ps
       log "部署完成！"
       log "  Gateway:  http://localhost:${GATEWAY_PORT:-3100}/health"
-      log "  Plane:    http://localhost:${PLANE_PORT:-8082}"
-      log "  Dify:     http://localhost:${DIFY_WEB_PORT:-3001}"
-      log "  Weaviate: http://localhost:${WEAVIATE_PORT:-8080}"
+      log "  Plane:    独立部署，见 setup/plane/docker-compose.yml"
+      log "  NanoClaw: 服务器 PM2 进程 arcflow-nanoclaw"
       ;;
     down)
       log "停止所有服务..."

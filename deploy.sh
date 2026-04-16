@@ -41,7 +41,7 @@ ssh "$SERVER" "
 
 # ─── 3. 构建并启动核心服务 ──────────────────────────────────────
 echo ""
-echo ">>> 构建并启动核心服务（Gateway + Web + Wiki.js）..."
+echo ">>> 构建并启动核心服务（Gateway + Web）..."
 ssh "$SERVER" "
   cd $DEPLOY_DIR
   docker compose build --no-cache
@@ -59,9 +59,6 @@ ssh "$SERVER" "
 
   echo '--- Web ---'
   curl -sf http://localhost:80 > /dev/null && echo '✅ Web 已就绪' || echo '❌ Web 未就绪'
-
-  echo '--- Wiki.js ---'
-  curl -sf http://localhost:3000 > /dev/null && echo '✅ Wiki.js 已就绪' || echo '❌ Wiki.js 未就绪（首次启动需等待 30s）'
 "
 
 # ─── 5. 显示状态 ────────────────────────────────────────────────
@@ -73,8 +70,7 @@ echo ""
 echo "=== 部署完成 ==="
 echo "Gateway: http://172.29.230.21:3100"
 echo "Web:     http://172.29.230.21"
-echo "Wiki.js: http://172.29.230.21:3000"
 echo ""
 echo "其他服务（按需启动）："
 echo "  Plane:  cd $DEPLOY_DIR/setup/plane && docker compose up -d"
-echo "  Dify:   cd $DEPLOY_DIR/setup/dify && docker compose up -d"
+echo "  NanoClaw: pm2 restart arcflow-nanoclaw"

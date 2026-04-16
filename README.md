@@ -12,7 +12,7 @@
 |------|------|
 | **流程标准化** | PRD → 技术文档 → OpenAPI → 代码，全流程规范化，减少人工传递损耗 |
 | **AI 驱动研发** | Claude Opus/Sonnet 自动生成技术文档、API 规范和代码，Claude Code 无头模式执行代码生成 |
-| **知识管理** | Markdown + Git 统一存储，ArcFlow Web 内置文档管理（Tiptap/Markdown），Weaviate + Dify RAG 语义检索 |
+| **知识管理** | Markdown + Git 统一存储，ArcFlow Web 内置文档管理（Tiptap/Markdown），Gateway 内置 sqlite-vec RAG 检索 |
 | **人机协同** | AI 生成 → 飞书通知 → 人工 Review → 审批通过 → 进入下一环节，关键节点必须人工把关 |
 
 ## 架构总览
@@ -30,7 +30,7 @@ block-beta
     Feishu["飞书 — 消息卡片 + 审批按钮"]
   end
   block:orchestration["⚙️ 编排层 — AI 引擎"]
-    Dify["Dify — Prompt 链 · RAG 检索 · 模型调用"]
+    NanoEngine["NanoClaw + Claude Code — 对话调度 · 技能执行 · 代码生成"]
   end
   block:gateway["🔗 衔接层 — 核心枢纽"]
     GW["Gateway 胶水服务 — Webhook 路由 · Git 读写 · 工作流编排 · Claude Code 调度"]
@@ -41,8 +41,8 @@ block-beta
   end
   block:data["💾 数据层 — 持久存储"]
     Git["docs Git + 代码仓库"]
-    Weaviate["Weaviate 向量库"]
     SQLite["SQLite（执行记录）"]
+    Vec["sqlite-vec（轻量向量检索）"]
   end
 
   interaction --> notification --> orchestration --> gateway --> collab --> data
@@ -95,9 +95,9 @@ graph LR
     NC["🤖 NanoClaw"]
 
     subgraph AI["AI 服务"]
-        Dify["Dify<br/>工作流 / Chat / Dataset"]
+        NCWorker["NanoClaw<br/>会话编排 / skill 调度"]
         CC["Claude Code<br/>代码生成"]
-        WV["Weaviate<br/>向量检索"]
+        Vec["sqlite-vec<br/>向量检索"]
     end
 
     subgraph Collab["协作服务"]
@@ -113,13 +113,13 @@ graph LR
 
     Web -->|"REST API"| GW
     NC -->|"HTTP API"| GW
-    GW -->|"Workflow API"| Dify
+    GW -->|"Dispatch API"| NCWorker
     GW -->|"Bun.spawn"| CC
     GW -->|"REST"| Plane
     GW -->|"SSH"| Git
     GW -->|"HTTP"| FS
     GW -->|"HTTP"| IB
-    Dify --- WV
+    GW --- Vec
     Plane -.->|"Webhook"| GW
     Git -.->|"Webhook"| GW
     FS -.->|"回调"| GW
@@ -138,11 +138,11 @@ graph LR
 
 | 场景 | 模型 | 调用方式 |
 |------|------|---------|
-| PRD → 技术设计文档 | Claude Opus 4.6 | Dify 工作流 |
-| 技术文档 → OpenAPI | Claude Sonnet 4.6 | Dify 工作流 |
-| CI 日志分析 / Bug 报告 | Claude Sonnet 4.6 | Dify 工作流 |
-| RAG 知识库问答 | Claude Sonnet 4.6 | Dify Chat + Weaviate |
-| PRD 生成对话 | Claude Opus 4.6 | Dify Advanced Chat |
+| PRD → 技术设计文档 | Claude Opus 4.6 | NanoClaw + Gateway 调度 |
+| 技术文档 → OpenAPI | Claude Sonnet 4.6 | NanoClaw + Gateway 调度 |
+| CI 日志分析 / Bug 报告 | Claude Sonnet 4.6 | NanoClaw + Gateway 调度 |
+| RAG 知识库问答 | Claude Sonnet 4.6 | Gateway sqlite-vec 检索 |
+| PRD 生成对话 | Claude Opus 4.6 | NanoClaw Web / 飞书会话 |
 | 代码生成 / Bug 修复 | Claude Sonnet 4.6 | Claude Code headless |
 | AI Code Review | Claude Sonnet 4.6 | GitHub Action |
 | NanoClaw 对话 | Claude Sonnet 4.6 | Agent SDK |
@@ -156,12 +156,12 @@ graph LR
 | 移动端 | Flutter 3.x + GetX + Dio |
 | 客户端 | Kotlin Android（Jetpack Compose + XML） |
 | 胶水服务 | Bun + Hono + bun:sqlite（WAL 模式） |
-| AI 编排 | Dify（5 条工作流 + RAG + Dataset API） |
+| AI 编排 | NanoClaw + Gateway（技能调度 / 工作流编排 / sqlite-vec RAG） |
 | AI 引擎 | Claude API（Opus / Sonnet）+ Claude Code（headless） |
 | 文档知识库 | ArcFlow Web 文档管理（Tiptap 富文本 + Markdown 预览 + 工作空间隔离） |
 | 任务管理 | Plane CE（Webhook + REST API） |
 | AI 工作台 | NanoClaw（Claude Agent SDK，飞书渠道） |
-| 向量数据库 | Weaviate 1.27（Dify 自动对接） |
+| 向量检索 | sqlite-vec（Gateway 内置） |
 | CI/CD | GitHub Actions（CI + AI Review + Security）+ iBuild |
 
 ## 仓库结构
@@ -191,7 +191,7 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 │       │   └── utils/                      # 工具函数
 │       └── Dockerfile                      # Nginx SPA 部署
 ├── setup/                                  # 第三方服务部署配置
-│   ├── dify/                               # Dify + Weaviate + 5 条工作流 YAML
+│   ├── dify/                               # 历史部署残留（当前生产未启用）
 │   ├── plane/                              # Plane CE docker-compose + Webhook 配置指南
 │   ├── nanoclaw/                           # NanoClaw AI 工作台部署指南
 │   ├── gateway/                            # Gateway 扩展环境变量（iBuild 等）
@@ -220,11 +220,11 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 | Phase 1.6 | Gateway Bug 修复与加固 + 服务层测试补全 | ✅ 已完成 |
 | Phase 1.7 | Web 前端 Tailwind 重构 + 统一错误处理 | ✅ 已完成 |
 | Phase 2.0 | 统一部署配置 + Plane CE 部署 | ✅ 已完成 |
-| Phase 2.1 | Dify v1.13.3 + Weaviate 1.27 部署 | ✅ 已完成 |
+| Phase 2.1 | 历史 AI 编排部署实验 | ✅ 已下线 |
 | Phase 2.2 | iBuild CI/CD Bug 回流端点 | ✅ 已完成 |
-| Phase 2.3 | PRD 智能生成 + Dify 工作流 YAML + RAG 知识库同步 | ✅ 已完成 |
+| Phase 2.3 | PRD 智能生成 + RAG 知识库同步 | ✅ 已完成 |
 | Phase 2.4 | Web 前端重设计（Linear 风格 + 飞书 OAuth + 多工作空间 + 对话 + 文档管理） | ✅ 已完成 |
-| Phase 2.5 | 文档系统工作空间隔离 + 移除 Wiki.js（#75 #76 #77） | ✅ 已完成 |
+| Phase 2.5 | 文档系统工作空间隔离 + 旧文档系统下线（#75 #76 #77） | ✅ 已完成 |
 | Phase 3.0 | ArcFlow ↔ Plane 无缝集成（双向导航 + 统一 OAuth + 页面精简，#74） | ✅ 已完成 |
 | Phase 3.1 | 需求草稿系统（需求对话 → PRD 生成 → 飞书 Review 卡片 → Stage D 原子写入，#78–#83） | ✅ 已完成 |
 | Phase 3.2 | NanoClaw 接入：Web AiChat 切换 + 飞书审批链接改造 + memory snapshot + approval token（#90 #91 #93 #95–#97） | ✅ 已完成 |
@@ -240,7 +240,7 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 
 - **5 条 Webhook 路由**：Plane / Git / CI-CD / 飞书 / iBuild
 - **4 种工作流编排**：PRD→技术文档 / 技术文档→OpenAPI / Bug 分析 / 代码生成
-- **核心服务模块**：Dify / Plane / 飞书 / Git / Claude Code / 工作流引擎 / RAG 同步 / iBuild / PRD 生成 / 需求草稿 / 认证 / 工作空间同步 / NanoClaw 调度等
+- **核心服务模块**：Plane / 飞书 / Git / Claude Code / 工作流引擎 / RAG 同步 / iBuild / PRD 生成 / 需求草稿 / 认证 / 工作空间同步 / NanoClaw 调度等
 - **5 个中间件**：JWT 认证 / 工作空间权限 / HMAC 签名验证 / Webhook 去重 / 请求日志
 - **9 张 SQLite 表**：workflow_execution / bug_fix_retry / webhook_event / webhook_log / users / workspaces / workspace_members / conversations / messages
 - **定时调度**：RAG 增量同步（5 分钟）+ Webhook 去重缓存清理（24 小时）
@@ -262,13 +262,13 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 </details>
 
 <details>
-<summary><b>Dify 工作流</b>（5 条 YAML 已就绪）</summary>
+<summary><b>NanoClaw / Gateway 工作流链路</b></summary>
 
 1. **PRD → 技术设计文档**（Claude Opus）— 数据库设计 / 接口设计 / 分层说明
 2. **技术文档 → OpenAPI**（Claude Sonnet）— RESTful / Result\<T\> 封装 / 分页模式
 3. **CI Bug 分析**（Claude Sonnet）— 根因分析 / 严重级别 P0-P2 / 修复建议
 4. **PRD 生成对话流**（Claude Opus）— 多轮对话 / 自动生成 PRD 模板
-5. **RAG 知识问答**（Claude Sonnet）— 向量 + 关键词混合检索
+5. **RAG 知识问答**（Claude Sonnet）— sqlite-vec + 关键词混合检索
 
 </details>
 
@@ -290,13 +290,13 @@ ArcFlow/                                    # Monorepo（npm workspaces）
 
 2. **端到端全链路联调**（Phase 3.5）
    - 配置 Plane Webhook + Approved State ID → 验证 Issue 审批触发工作流
-   - 导入 5 条 Dify 工作流 YAML + 配置 API Key 映射 → 验证 AI 文档生成
+   - 验证 Gateway → NanoClaw → Claude Code 调度链路
    - 验证飞书 OAuth + 消息卡片 + 审批回调 + Plane 联动
    - 验证 NanoClaw 飞书渠道对接真实研发群
 
 3. **剩余技术债务**
    - NanoClaw 服务器运维补丁（`container/Dockerfile` CN 镜像等）推回 ssyamv/nanoclaw fork（PR ssyamv/nanoclaw#6）
-   - Dify RAG Dataset ID 硬编码，需支持多工作空间动态绑定
+   - sqlite-vec 工作空间级索引与同步策略仍需继续加固
    - PRD 文件路径从 Issue 描述提取使用正则，需要更健壮的约定
 
 ## 快速开始
@@ -317,8 +317,14 @@ cd packages/web && cp .env.example .env && bun dev
 # 运行测试
 bun test
 
-# 部署第三方服务
+# 部署 ArcFlow Gateway 独立栈
 cd setup && cp .env.example .env && ./deploy.sh up
+
+# 部署 Plane（独立栈）
+cd setup/plane && cp .env.example .env && docker compose up -d
+
+# NanoClaw 由服务器 PM2 管理
+ssh arcflow-server 'pm2 restart arcflow-nanoclaw'
 ```
 
 ## 参与开发
