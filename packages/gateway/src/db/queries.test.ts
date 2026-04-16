@@ -5,6 +5,10 @@ import {
   getWorkflowExecution,
   updateWorkflowStatus,
   listWorkflowExecutions,
+  createWorkflowSubtask,
+  listWorkflowSubtasks,
+  createWorkflowLink,
+  listWorkflowLinks,
   recordWebhookEvent,
   isEventProcessed,
   cleanExpiredEvents,
@@ -125,6 +129,49 @@ describe("workflow_execution", () => {
   it("get non-existent workflow execution returns null", () => {
     const exec = getWorkflowExecution(9999);
     expect(exec).toBeNull();
+  });
+
+  it("creates and lists workflow subtasks by execution", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-120",
+    });
+
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "pending",
+      repo_name: "backend",
+    });
+
+    const subtasks = listWorkflowSubtasks(executionId);
+    expect(subtasks).toHaveLength(1);
+    expect(subtasks[0]?.target).toBe("backend");
+    expect(subtasks[0]?.stage).toBe("dispatch");
+  });
+
+  it("creates workflow links between executions", () => {
+    const sourceExecutionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
+    const targetExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowLink({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "derived_from",
+      metadata: { source_stage: "success" },
+    });
+
+    const links = listWorkflowLinks(targetExecutionId);
+    expect(links.some((link) => link.source_execution_id === sourceExecutionId)).toBe(true);
   });
 });
 

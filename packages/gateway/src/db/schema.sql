@@ -13,6 +13,38 @@ CREATE TABLE IF NOT EXISTS workflow_execution (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS workflow_subtask (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  execution_id INTEGER NOT NULL REFERENCES workflow_execution(id) ON DELETE CASCADE,
+  stage TEXT NOT NULL,
+  target TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  input_ref TEXT,
+  output_ref TEXT,
+  external_run_id TEXT,
+  branch_name TEXT,
+  repo_name TEXT,
+  log_url TEXT,
+  error_message TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_subtask_execution
+  ON workflow_subtask(execution_id, target, stage);
+
+CREATE TABLE IF NOT EXISTS workflow_link (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_execution_id INTEGER NOT NULL REFERENCES workflow_execution(id) ON DELETE CASCADE,
+  target_execution_id INTEGER NOT NULL REFERENCES workflow_execution(id) ON DELETE CASCADE,
+  link_type TEXT NOT NULL,
+  metadata TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_link_target ON workflow_link(target_execution_id, created_at);
+
 CREATE TABLE IF NOT EXISTS bug_fix_retry (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plane_issue_id TEXT NOT NULL UNIQUE,
@@ -142,4 +174,3 @@ CREATE INDEX IF NOT EXISTS idx_rag_chunk_meta_doc
 
 -- 注：rag_chunks 是 sqlite-vec 虚表，只能运行时通过 vec0 创建，由 rag-index.ts 在初始化时执行
 -- CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks USING vec0(...)
-

@@ -29,6 +29,35 @@ export interface WorkflowExecution {
   created_at: string;
 }
 
+export interface WorkflowSubtask {
+  id: number;
+  execution_id: number;
+  stage: string;
+  target: string;
+  provider: string;
+  status: WorkflowStatus;
+  input_ref: string | null;
+  output_ref: string | null;
+  external_run_id: string | null;
+  branch_name: string | null;
+  repo_name: string | null;
+  log_url: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowLink {
+  id: number;
+  source_execution_id: number;
+  target_execution_id: number;
+  link_type: string;
+  metadata: string;
+  created_at: string;
+}
+
 // Bug 修复重试记录
 export interface BugFixRetry {
   id: number;

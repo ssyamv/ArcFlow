@@ -2,6 +2,8 @@ import { Database } from "bun:sqlite";
 import { getDb } from "./index";
 import type {
   WorkflowExecution,
+  WorkflowSubtask,
+  WorkflowLink,
   WorkflowType,
   WorkflowStatus,
   TriggerSource,
@@ -107,6 +109,76 @@ export function updateWorkflowStatus(
       id,
     );
   }
+}
+
+// ─── workflow_subtask ────────────────────────────────────────────────────────
+
+export function createWorkflowSubtask(params: {
+  execution_id: number;
+  stage: string;
+  target: string;
+  provider: string;
+  status?: WorkflowStatus;
+  repo_name?: string;
+}): number {
+  const db = getDb();
+  db.query(
+    `INSERT INTO workflow_subtask (execution_id, stage, target, provider, status, repo_name)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    params.execution_id,
+    params.stage,
+    params.target,
+    params.provider,
+    params.status ?? "pending",
+    params.repo_name ?? null,
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return row.id;
+}
+
+export function listWorkflowSubtasks(executionId: number): WorkflowSubtask[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId) as WorkflowSubtask[];
+}
+
+// ─── workflow_link ───────────────────────────────────────────────────────────
+
+export function createWorkflowLink(params: {
+  source_execution_id: number;
+  target_execution_id: number;
+  link_type: string;
+  metadata?: Record<string, unknown>;
+}): number {
+  const db = getDb();
+  db.query(
+    `INSERT INTO workflow_link (source_execution_id, target_execution_id, link_type, metadata)
+     VALUES (?, ?, ?, ?)`,
+  ).run(
+    params.source_execution_id,
+    params.target_execution_id,
+    params.link_type,
+    JSON.stringify(params.metadata ?? {}),
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return row.id;
+}
+
+export function listWorkflowLinks(targetExecutionId: number): WorkflowLink[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE target_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(targetExecutionId) as WorkflowLink[];
 }
 
 // ─── webhook_event ─────────────────────────────────────────────────────────────
