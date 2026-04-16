@@ -99,9 +99,19 @@
             >
               <td class="table-cell" style="color: var(--color-text-tertiary)">#{{ exec.id }}</td>
               <td class="table-cell">
-                <span class="status-pill" style="border-color: var(--color-border-solid)">
-                  {{ typeLabel(exec.workflow_type) }}
-                </span>
+                <div class="flex flex-col gap-1">
+                  <span class="status-pill" style="border-color: var(--color-border-solid)">
+                    {{ typeLabel(exec.workflow_type) }}
+                  </span>
+                  <span
+                    v-if="exec.workflow_type === 'code_gen' && exec.summary"
+                    class="text-xs"
+                    style="color: var(--color-text-quaternary)"
+                  >
+                    {{ exec.summary.completed_targets }}/{{ exec.summary.total_targets }} ·
+                    {{ exec.summary.latest_stage ?? "pending" }}
+                  </span>
+                </div>
               </td>
               <td class="table-cell" style="color: var(--color-text-tertiary)">
                 {{ exec.trigger_source }}
@@ -159,9 +169,9 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { useWorkflowStore } from "@/stores/workflow";
-import { typeLabel } from "@/utils/workflow";
-import { usePlaneUrl } from "@/composables/usePlaneUrl";
+import { usePlaneUrl } from "../composables/usePlaneUrl";
+import { useWorkflowStore } from "../stores/workflow";
+import { typeLabel } from "../utils/workflow";
 
 defineOptions({ name: "WorkflowList" });
 

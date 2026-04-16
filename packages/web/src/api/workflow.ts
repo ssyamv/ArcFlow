@@ -33,18 +33,46 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export interface ExecutionListResponse {
-  data: Array<{
-    id: number;
-    workflow_type: string;
-    trigger_source: string;
-    plane_issue_id: string | null;
-    status: string;
-    error_message: string | null;
-    started_at: string | null;
-    completed_at: string | null;
-    created_at: string;
-  }>;
+  data: ExecutionListItem[];
   total: number;
+}
+
+export interface WorkflowSummary {
+  total_targets: number;
+  completed_targets: number;
+  latest_stage: string | null;
+}
+
+export interface WorkflowSubtask {
+  id: number;
+  target: string;
+  stage: string;
+  provider: string;
+  status: string;
+  branch_name?: string | null;
+  repo_name?: string | null;
+  log_url?: string | null;
+  error_message?: string | null;
+}
+
+export interface WorkflowLink {
+  id: number;
+  source_execution_id: number;
+  target_execution_id: number;
+  link_type: string;
+}
+
+export interface ExecutionListItem {
+  id: number;
+  workflow_type: string;
+  trigger_source: string;
+  plane_issue_id: string | null;
+  status: string;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  summary?: WorkflowSummary | null;
 }
 
 export interface TriggerResponse {
@@ -72,6 +100,9 @@ export interface ExecutionDetail {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  summary?: WorkflowSummary | null;
+  subtasks?: WorkflowSubtask[];
+  links?: WorkflowLink[];
 }
 
 export function fetchExecution(id: number): Promise<ExecutionDetail> {
