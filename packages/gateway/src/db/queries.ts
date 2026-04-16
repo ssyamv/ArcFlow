@@ -119,19 +119,49 @@ export function createWorkflowSubtask(params: {
   target: string;
   provider: string;
   status?: WorkflowStatus;
+  input_ref?: string;
+  output_ref?: string;
+  external_run_id?: string;
+  branch_name?: string;
   repo_name?: string;
+  log_url?: string;
+  error_message?: string;
+  started_at?: string;
+  finished_at?: string;
 }): number {
   const db = getDb();
   db.query(
-    `INSERT INTO workflow_subtask (execution_id, stage, target, provider, status, repo_name)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO workflow_subtask (
+       execution_id,
+       stage,
+       target,
+       provider,
+       status,
+       input_ref,
+       output_ref,
+       external_run_id,
+       branch_name,
+       repo_name,
+       log_url,
+       error_message,
+       started_at,
+       finished_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     params.execution_id,
     params.stage,
     params.target,
     params.provider,
     params.status ?? "pending",
+    params.input_ref ?? null,
+    params.output_ref ?? null,
+    params.external_run_id ?? null,
+    params.branch_name ?? null,
     params.repo_name ?? null,
+    params.log_url ?? null,
+    params.error_message ?? null,
+    params.started_at ?? null,
+    params.finished_at ?? null,
   );
   const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
   return row.id;

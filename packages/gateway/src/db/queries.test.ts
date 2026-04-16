@@ -144,13 +144,35 @@ describe("workflow_execution", () => {
       target: "backend",
       provider: "nanoclaw",
       status: "pending",
+      input_ref: "input-1",
+      output_ref: "output-1",
+      external_run_id: "run-123",
+      branch_name: "feature/issue-120",
       repo_name: "backend",
+      log_url: "https://example.com/logs/123",
+      error_message: "no error",
+      started_at: "2026-04-16T08:00:00Z",
+      finished_at: "2026-04-16T08:05:00Z",
     });
 
     const subtasks = listWorkflowSubtasks(executionId);
     expect(subtasks).toHaveLength(1);
-    expect(subtasks[0]?.target).toBe("backend");
-    expect(subtasks[0]?.stage).toBe("dispatch");
+    expect(subtasks[0]).toMatchObject({
+      execution_id: executionId,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "pending",
+      input_ref: "input-1",
+      output_ref: "output-1",
+      external_run_id: "run-123",
+      branch_name: "feature/issue-120",
+      repo_name: "backend",
+      log_url: "https://example.com/logs/123",
+      error_message: "no error",
+      started_at: "2026-04-16T08:00:00Z",
+      finished_at: "2026-04-16T08:05:00Z",
+    });
   });
 
   it("creates workflow links between executions", () => {
@@ -171,7 +193,13 @@ describe("workflow_execution", () => {
     });
 
     const links = listWorkflowLinks(targetExecutionId);
-    expect(links.some((link) => link.source_execution_id === sourceExecutionId)).toBe(true);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "derived_from",
+    });
+    expect(JSON.parse(links[0]!.metadata)).toEqual({ source_stage: "success" });
   });
 });
 
