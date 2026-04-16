@@ -63,9 +63,14 @@ mock.module("../config", () => ({
     }),
 }));
 
-const fakeDb = { tag: "db" } as const;
-mock.module("../db", () => ({
-  getDb: () => fakeDb,
+const dispatchToNanoclaw = mock(() =>
+  Promise.resolve({
+    dispatchId: "dispatch-1",
+    dispatched: false,
+  }),
+);
+mock.module("./nanoclaw-dispatch", () => ({
+  dispatchToNanoclaw,
 }));
 
 // --- Use spyOn for modules that have their own test files downstream ---
@@ -93,6 +98,7 @@ function clearAllMocks() {
   updateWorkflowStatus.mockClear();
   createWorkflowSubtask.mockClear();
   insertDispatch.mockClear();
+  dispatchToNanoclaw.mockClear();
   ensureRepo.mockClear();
   readFileMock.mockClear();
   createBranchAndPush.mockClear();
@@ -185,9 +191,9 @@ describe("flowCodeGen", () => {
         provider: "nanoclaw",
       }),
     );
-    expect(insertDispatch).toHaveBeenCalledWith(
-      fakeDb,
+    expect(dispatchToNanoclaw).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspaceId: "1",
         skill: "arcflow-code-gen",
         planeIssueId: "ISS-120",
       }),
@@ -206,7 +212,7 @@ describe("flowCodeGen", () => {
     await tick();
 
     expect(createWorkflowSubtask).toHaveBeenCalledTimes(2);
-    expect(insertDispatch).toHaveBeenCalledTimes(2);
+    expect(dispatchToNanoclaw).toHaveBeenCalledTimes(2);
     expect(runClaudeCode).not.toHaveBeenCalled();
   });
 
@@ -222,8 +228,7 @@ describe("flowCodeGen", () => {
 
     expect(ensureRepo).toHaveBeenCalledWith("ws-1-docs");
     expect(readFileMock).toHaveBeenCalledWith("ws-1-docs", "tech-design/2026-04/feature-x.md");
-    expect(insertDispatch).toHaveBeenCalledWith(
-      fakeDb,
+    expect(dispatchToNanoclaw).toHaveBeenCalledWith(
       expect.objectContaining({
         input: expect.objectContaining({
           task_context: "file content",
@@ -243,8 +248,7 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    expect(insertDispatch).toHaveBeenCalledWith(
-      fakeDb,
+    expect(dispatchToNanoclaw).toHaveBeenCalledWith(
       expect.objectContaining({
         input: expect.objectContaining({
           figma_url: "https://figma.com/file/abc",
@@ -253,7 +257,7 @@ describe("flowCodeGen", () => {
     );
   });
 
-  it("marks workflow success after dispatch without sending chat success notification", async () => {
+  it("keeps workflow running after dispatch without sending chat success notification", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
@@ -263,8 +267,27 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    expect(updateWorkflowStatus).toHaveBeenCalledWith(42, "success");
+    expect(updateWorkflowStatus).not.toHaveBeenCalledWith(42, "success");
     expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  it("fails early for invalid target_repos", async () => {
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      target_repos: ["ios"],
+      plane_issue_id: "ISS-404",
+    });
+    await tick();
+
+    expect(createWorkflowSubtask).not.toHaveBeenCalled();
+    expect(dispatchToNanoclaw).not.toHaveBeenCalled();
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(
+      42,
+      "failed",
+      expect.stringContaining("invalid target repo"),
+    );
   });
 });
 
@@ -275,7 +298,7 @@ describe("error handling", () => {
   });
 
   it("sends failure notification when workflow errors with chat_id", async () => {
-    insertDispatch.mockImplementation(() => {
+    dispatchToNanoclaw.mockImplementation(() => {
       throw new Error("dispatch enqueue failed");
     });
 
@@ -294,7 +317,7 @@ describe("error handling", () => {
   });
 
   it("does not send notification when no chat_id", async () => {
-    insertDispatch.mockImplementation(() => {
+    dispatchToNanoclaw.mockImplementation(() => {
       throw new Error("fail");
     });
 

@@ -237,6 +237,39 @@ describe("nanoclaw dispatch", () => {
     expect(row?.timeout_at).toBeGreaterThan(Date.now());
   });
 
+  it("dispatches to NanoClaw WebChannel when NANOCLAW_URL is configured", async () => {
+    const { upsertUser } = await import("../db/queries");
+    dispatchUserId = upsertUser({
+      feishu_user_id: "dispatch-user-http",
+      name: "Dispatch User Http",
+    }).id;
+    process.env.NANOCLAW_URL = "http://nanoclaw.test/";
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const res = await app.request("/api/nanoclaw/dispatch", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({
+        skill: "arcflow-prd-to-tech",
+        workspace_id: "w",
+        user_id: dispatchUserId,
+        plane_issue_id: "PROJ-2",
+        input: { prd_path: "prd/y.md" },
+      }),
+    });
+
+    globalThis.fetch = originalFetch;
+    delete process.env.NANOCLAW_URL;
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://nanoclaw.test/api/chat");
+  });
+
   it("rejects unknown skill", async () => {
     const res = await app.request("/api/nanoclaw/dispatch", {
       method: "POST",

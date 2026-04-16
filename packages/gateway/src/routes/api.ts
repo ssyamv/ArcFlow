@@ -7,9 +7,8 @@ import {
   getWorkspaceMemberRole,
   buildMemorySnapshot,
   recordUserAction,
-  insertDispatch,
 } from "../db/queries";
-import { getDb } from "../db";
+import { dispatchToNanoclaw } from "../services/nanoclaw-dispatch";
 
 const ALLOWED_SKILLS = [
   "arcflow-prd-draft",
@@ -149,14 +148,14 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
   }
 
   const workspaceId = String(body.workspace_id);
-  const db = getDb();
-  const dispatchId = insertDispatch(db, {
+  const dispatchResult = await dispatchToNanoclaw({
     workspaceId,
     skill: body.skill,
     input: body.input ?? {},
     planeIssueId: body.plane_issue_id,
-    timeoutAt: Date.now() + 10 * 60 * 1000,
+    swallowDispatchError: true,
   });
+  const dispatchId = dispatchResult.dispatchId;
   recordUserAction({
     userId: body.user_id ?? 0,
     workspaceId: typeof body.workspace_id === "number" ? body.workspace_id : null,
@@ -178,35 +177,24 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
       reason: "NANOCLAW_URL not set — recorded only",
     });
   }
-
-  try {
-    const resp = await fetch(`${nanoclawUrl.replace(/\/+$/, "")}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-System-Secret": expected,
-      },
-      body: JSON.stringify({
-        client_id: `system-${dispatchId}`,
-        message: `[SYSTEM DISPATCH] run skill=${body.skill} workspace_id=${body.workspace_id} plane_issue_id=${body.plane_issue_id ?? ""}\n\n${JSON.stringify(body.input ?? {})}`,
-      }),
-    });
-    const ok = resp.ok;
-    return c.json({
-      ok,
-      dispatched: true,
-      dispatch_id: dispatchId,
-      nanoclaw_status: resp.status,
-    });
-  } catch (err) {
+  if (!dispatchResult.dispatched) {
     return c.json(
       {
         ok: false,
         dispatched: false,
         dispatch_id: dispatchId,
-        error: err instanceof Error ? err.message : "dispatch failed",
+        error: dispatchResult.error ?? "dispatch failed",
       },
       502,
     );
   }
+  return c.json({
+    ok:
+      dispatchResult.nanoclawStatus !== undefined
+        ? dispatchResult.nanoclawStatus >= 200 && dispatchResult.nanoclawStatus < 300
+        : false,
+    dispatched: true,
+    dispatch_id: dispatchId,
+    nanoclaw_status: dispatchResult.nanoclawStatus,
+  });
 });

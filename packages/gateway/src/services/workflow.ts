@@ -3,11 +3,10 @@ import {
   updateWorkflowStatus,
   getWorkspace,
   createWorkflowSubtask,
-  insertDispatch,
 } from "../db/queries";
 import type { WorkflowType, TriggerSource, Workspace } from "../types";
-import { getDb } from "../db";
 import { ensureRepo, readFile, registerRepoUrl } from "./git";
+import { dispatchToNanoclaw } from "./nanoclaw-dispatch";
 import { sendNotification } from "./feishu";
 
 interface TriggerParams {
@@ -70,12 +69,11 @@ async function executeWorkflow(executionId: number, params: TriggerParams): Prom
     switch (params.workflow_type) {
       case "code_gen":
         await flowCodeGen(executionId, params, ws);
-        break;
+        return;
       default:
         // prd_to_tech, tech_to_openapi, bug_analysis are now handled by NanoClaw skills.
         throw new Error(`workflow_type ${params.workflow_type} is no longer supported by Gateway`);
     }
-    updateWorkflowStatus(executionId, "success");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateWorkflowStatus(executionId, "failed", message);
@@ -97,8 +95,12 @@ async function flowCodeGen(
   ws: Workspace,
 ): Promise<void> {
   const targets = params.target_repos ?? ["backend"];
+  const repoMap = safeParseRepos(ws.git_repos);
+  const invalidTargets = targets.filter((target) => !repoMap[target]);
+  if (invalidTargets.length > 0) {
+    throw new Error(`invalid target repo: ${invalidTargets.join(", ")}`);
+  }
   const docsRepo = wsRepoName(ws.id, "docs");
-  const db = getDb();
 
   let taskContext = "";
   if (params.input_path) {
@@ -116,7 +118,7 @@ async function flowCodeGen(
       repo_name: target,
     });
 
-    insertDispatch(db, {
+    await dispatchToNanoclaw({
       workspaceId: String(ws.id),
       skill: "arcflow-code-gen",
       planeIssueId: params.plane_issue_id,
@@ -129,7 +131,6 @@ async function flowCodeGen(
         figma_url: params.figma_url,
         task_context: taskContext,
       },
-      timeoutAt: Date.now() + 10 * 60 * 1000,
     });
   }
 }
