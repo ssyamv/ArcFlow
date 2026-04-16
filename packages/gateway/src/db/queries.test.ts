@@ -201,6 +201,17 @@ describe("workflow_execution", () => {
     });
     expect(JSON.parse(links[0]!.metadata)).toEqual({ source_stage: "success" });
   });
+
+  it("enforces foreign keys for workflow subtasks", () => {
+    expect(() =>
+      createWorkflowSubtask({
+        execution_id: 999999,
+        stage: "dispatch",
+        target: "backend",
+        provider: "nanoclaw",
+      }),
+    ).toThrow();
+  });
 });
 
 describe("webhook_event", () => {

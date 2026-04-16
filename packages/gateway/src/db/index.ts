@@ -10,6 +10,7 @@ export function getDb(): Database {
       process.env.NODE_ENV === "test" ? ":memory:" : (process.env.DATABASE_PATH ?? "gateway.db");
     db = new Database(dbPath);
     db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA foreign_keys = ON;");
     const schema = readFileSync(join(import.meta.dir, "schema.sql"), "utf-8");
     db.exec(schema);
 
