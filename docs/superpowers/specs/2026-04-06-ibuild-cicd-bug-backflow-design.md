@@ -1,3 +1,5 @@
+> 文档状态：历史参考。此文档记录阶段性设计或已被后续方案替代，不应单独作为当前架构依据。当前事实请先看 `README.md`、`docs/AI研发运营一体化平台_技术架构方案.md`、`docs/documentation-status.md`。
+
 # iBuild CI/CD Bug 回流自动化 — 设计规格
 
 > Issue: #35  

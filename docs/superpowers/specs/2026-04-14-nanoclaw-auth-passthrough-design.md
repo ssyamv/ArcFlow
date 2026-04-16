@@ -1,3 +1,5 @@
+> 文档状态：当前阶段参考。此文档与当前 NanoClaw / Gateway 主线直接相关，但项目总览与最终口径仍以 `README.md`、`docs/AI研发运营一体化平台_技术架构方案.md` 为准。
+
 # NanoClaw 鉴权透传设计（Phase 0）
 
 > 日期：2026-04-14（v2，修订：HTTP+SSE 架构 + 容器 credentials 挂载）

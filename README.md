@@ -1,336 +1,163 @@
 # ArcFlow
 
-**AI 研发运营一体化平台** — 以 Markdown + Git 为数据底座、AI 为执行引擎，串联从 PRD 到代码生成的全流程。
+**AI 研发运营一体化平台**，以 `Markdown + Git` 为文档底座，以 `Gateway + NanoClaw` 为编排中枢，串联需求、文档、任务、AI 对话与后续代码生成流程。
 
 [![CI](https://github.com/ssyamv/ArcFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/ssyamv/ArcFlow/actions/workflows/ci.yml)
 [![Security](https://github.com/ssyamv/ArcFlow/actions/workflows/security.yml/badge.svg)](https://github.com/ssyamv/ArcFlow/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+## 当前有效说明
+
+- 以本文件和 [docs/AI研发运营一体化平台_技术架构方案.md](docs/AI研发运营一体化平台_技术架构方案.md) 作为当前架构与开发状态的权威说明。
+- `docs/superpowers/specs/`、`plans/`、`reports/` 中保留了完整演进记录，但其中一部分属于历史方案。请先查看 [docs/documentation-status.md](docs/documentation-status.md) 了解哪些文档是当前参考、哪些仅供历史追溯。
+
 ## 项目目标
 
 | 目标 | 说明 |
 |------|------|
-| **流程标准化** | PRD → 技术文档 → OpenAPI → 代码，全流程规范化，减少人工传递损耗 |
-| **AI 驱动研发** | Claude Opus/Sonnet 自动生成技术文档、API 规范和代码，Claude Code 无头模式执行代码生成 |
-| **知识管理** | Markdown + Git 统一存储，ArcFlow Web 内置文档管理（Tiptap/Markdown），Gateway 内置 sqlite-vec RAG 检索 |
-| **人机协同** | AI 生成 → 飞书通知 → 人工 Review → 审批通过 → 进入下一环节，关键节点必须人工把关 |
+| 流程标准化 | PRD → 技术设计 → OpenAPI → 代码生成 / 修复，尽量减少人工传递损耗 |
+| AI 驱动研发 | 通过 NanoClaw skill、Claude API、Claude Code 串起文档生成、问答、分析与代码执行 |
+| 知识管理 | 所有核心文档统一落在 Git 仓库，ArcFlow Web 提供文档管理，Gateway 提供 sqlite-vec RAG |
+| 人机协同 | AI 负责生成与执行，Plane / 飞书负责协作、通知、审批与人工把关 |
 
-## 架构总览
+## 当前架构
 
-六层架构，从上到下：
+当前生产与开发主线不再依赖 `Wiki.js / Dify / Weaviate`。当前实际架构是：
 
-```mermaid
-block-beta
-  columns 1
-  block:interaction["🤖 交互层 — 用户入口"]
-    NanoClaw["NanoClaw 飞书 AI 工作台"]
-    Web["Web 管理界面"]
-  end
-  block:notification["📢 通知层 — 状态推送"]
-    Feishu["飞书 — 消息卡片 + 审批按钮"]
-  end
-  block:orchestration["⚙️ 编排层 — AI 引擎"]
-    NanoEngine["NanoClaw + Claude Code — 对话调度 · 技能执行 · 代码生成"]
-  end
-  block:gateway["🔗 衔接层 — 核心枢纽"]
-    GW["Gateway 胶水服务 — Webhook 路由 · Git 读写 · 工作流编排 · Claude Code 调度"]
-  end
-  block:collab["👥 协作层 — 团队工具"]
-    Plane["Plane CE（任务管理）"]
-    Docs["ArcFlow 文档管理（Tiptap / Markdown）"]
-  end
-  block:data["💾 数据层 — 持久存储"]
-    Git["docs Git + 代码仓库"]
-    SQLite["SQLite（执行记录）"]
-    Vec["sqlite-vec（轻量向量检索）"]
-  end
+```text
+ArcFlow Web
+  ├─ 登录 / 工作空间 / 对话 / 文档 / 工作流视图
+  └─ 通过 REST 调 Gateway
 
-  interaction --> notification --> orchestration --> gateway --> collab --> data
+Gateway (Bun + Hono + SQLite/sqlite-vec)
+  ├─ 认证与工作空间隔离
+  ├─ docs Git 读写
+  ├─ Plane / 飞书 / iBuild / Git webhook 接入
+  ├─ NanoClaw dispatch / callback
+  ├─ workflow_execution / conversations / dispatch 等业务状态存储
+  └─ RAG 索引与检索
 
-  style interaction fill:#1a1a2e,color:#7ecfff
-  style notification fill:#1a1a2e,color:#a8e6a1
-  style orchestration fill:#1a1a2e,color:#f0a050
-  style gateway fill:#1a1a2e,color:#c9b1ff
-  style collab fill:#1a1a2e,color:#7ecfff
-  style data fill:#1a1a2e,color:#c2c2c2
+NanoClaw
+  ├─ Web / 飞书 AI 会话入口
+  ├─ skill 执行与工具编排
+  └─ 调用 Claude API / Claude Code，并通过 Gateway 落库或写回业务系统
+
+协作与数据层
+  ├─ Plane CE：任务和状态流转
+  ├─ 飞书：通知、审批链接、OAuth
+  ├─ docs Git + 代码仓库：文档与代码底座
+  └─ SQLite / sqlite-vec：执行状态、对话、RAG
 ```
 
-## 核心数据流
+## 当前主链路
 
-```mermaid
-flowchart TD
-  A["📝 PM 写 PRD<br/><i>ArcFlow Web / NanoClaw 对话</i>"] --> B["✅ Plane Issue<br/>标记 Approved"]
-  B --> C["🤖 AI 生成技术设计文档<br/>+ OpenAPI 规范<br/><i>Claude Opus → Sonnet</i>"]
-  C --> D{"📋 飞书通知<br/>研发 Review"}
-  D -->|通过| E["⚙️ 第一轮：后端代码生成<br/><i>Claude Code headless</i>"]
-  D -->|打回| A
-  E --> F["👀 研发 Review MR → 合并"]
-  F --> G{"🎨 Figma 设计稿<br/>是否已交付？"}
-  G -->|是| H["⚙️ 第二轮：UI 代码生成<br/><i>Claude Code + Figma MCP</i>"]
-  G -->|否| W["⏳ 等待设计师交付"]
-  W --> G
-  H --> I["👀 研发 Review / 微调"]
-  I --> J["🧪 CI/CD 测试"]
-  J -->|通过| K["📦 交付归档"]
-  J -->|失败| L{"🔄 自动修复<br/>≤ 2 次？"}
-  L -->|是| M["🤖 Claude Code<br/>自动修复"] --> J
-  L -->|否| N["👨‍💻 转人工处理"]
+已落地并作为当前主线推进的链路：
 
-  style A fill:#1d3557,color:#fff
-  style C fill:#2a4a3a,color:#a8e6a1
-  style E fill:#2a4a3a,color:#a8e6a1
-  style H fill:#2a4a3a,color:#a8e6a1
-  style K fill:#0e8a16,color:#fff
-  style N fill:#b60205,color:#fff
-```
+1. Web 或 NanoClaw 发起需求对话 / 草稿生成
+2. ArcFlow 将内容落为 PRD，并与 Plane Issue 建立关联
+3. Plane 审批或状态流转后，Gateway 触发 NanoClaw skill
+4. NanoClaw 生成技术设计文档、OpenAPI 或分析结果，并通过 Gateway 回写 docs / Plane / 飞书
+5. 后续进入代码生成、Code Review、CI / Bug 回流闭环
 
-## 外部服务集成
-
-Gateway 胶水服务是所有外部集成的中心枢纽：
-
-```mermaid
-graph LR
-    Web["🖥️ Web 管理界面"]
-    GW["🔗 Gateway"]
-    NC["🤖 NanoClaw"]
-
-    subgraph AI["AI 服务"]
-        NCWorker["NanoClaw<br/>会话编排 / skill 调度"]
-        CC["Claude Code<br/>代码生成"]
-        Vec["sqlite-vec<br/>向量检索"]
-    end
-
-    subgraph Collab["协作服务"]
-        Plane["Plane<br/>Issue 管理"]
-        Git["Gitea<br/>docs + 代码仓库"]
-    end
-
-    subgraph Notify["通知 & CI"]
-        FS["飞书<br/>OAuth + 消息"]
-        GH["GitHub Actions<br/>CI + AI Review"]
-        IB["iBuild<br/>构建日志"]
-    end
-
-    Web -->|"REST API"| GW
-    NC -->|"HTTP API"| GW
-    GW -->|"Dispatch API"| NCWorker
-    GW -->|"Bun.spawn"| CC
-    GW -->|"REST"| Plane
-    GW -->|"SSH"| Git
-    GW -->|"HTTP"| FS
-    GW -->|"HTTP"| IB
-    GW --- Vec
-    Plane -.->|"Webhook"| GW
-    Git -.->|"Webhook"| GW
-    FS -.->|"回调"| GW
-    IB -.->|"Webhook"| GW
-    GH -.->|"Webhook"| GW
-
-    style GW fill:#c9b1ff,stroke:#c9b1ff,color:#1e1e2e
-    style AI fill:#2a4a3a,color:#a8e6a1
-    style Collab fill:#1d3557,color:#7ecfff
-    style Notify fill:#3a2a1a,color:#f0a050
-```
-
-> 实线 = Gateway 主动调用 · 虚线 = Webhook 回调
-
-## AI 模型分配
-
-| 场景 | 模型 | 调用方式 |
-|------|------|---------|
-| PRD → 技术设计文档 | Claude Opus 4.6 | NanoClaw + Gateway 调度 |
-| 技术文档 → OpenAPI | Claude Sonnet 4.6 | NanoClaw + Gateway 调度 |
-| CI 日志分析 / Bug 报告 | Claude Sonnet 4.6 | NanoClaw + Gateway 调度 |
-| RAG 知识库问答 | Claude Sonnet 4.6 | Gateway sqlite-vec 检索 |
-| PRD 生成对话 | Claude Opus 4.6 | NanoClaw Web / 飞书会话 |
-| 代码生成 / Bug 修复 | Claude Sonnet 4.6 | Claude Code headless |
-| AI Code Review | Claude Sonnet 4.6 | GitHub Action |
-| NanoClaw 对话 | Claude Sonnet 4.6 | Agent SDK |
-
-## 技术栈
-
-| 层 | 技术选型 |
-|----|---------|
-| 后端（业务服务） | Java 17 + Spring Boot 3.x + MyBatis-Plus + MySQL 8.0 |
-| Web 管理界面 | Vue 3 + Tailwind CSS 4 + Pinia + Vue Router + Tiptap + Vite |
-| 移动端 | Flutter 3.x + GetX + Dio |
-| 客户端 | Kotlin Android（Jetpack Compose + XML） |
-| 胶水服务 | Bun + Hono + bun:sqlite（WAL 模式） |
-| AI 编排 | NanoClaw + Gateway（技能调度 / 工作流编排 / sqlite-vec RAG） |
-| AI 引擎 | Claude API（Opus / Sonnet）+ Claude Code（headless） |
-| 文档知识库 | ArcFlow Web 文档管理（Tiptap 富文本 + Markdown 预览 + 工作空间隔离） |
-| 任务管理 | Plane CE（Webhook + REST API） |
-| AI 工作台 | NanoClaw（Claude Agent SDK，飞书渠道） |
-| 向量检索 | sqlite-vec（Gateway 内置） |
-| CI/CD | GitHub Actions（CI + AI Review + Security）+ iBuild |
+其中“需求 → PRD → 技术设计 → OpenAPI”的前半段已完成真实环境联调验证，详见 [docs/superpowers/reports/2026-04-13-e2e-verification-report.md](docs/superpowers/reports/2026-04-13-e2e-verification-report.md)。
 
 ## 仓库结构
 
 ```text
-ArcFlow/                                    # Monorepo（npm workspaces）
+ArcFlow/
 ├── packages/
-│   ├── gateway/                            # 🔗 胶水服务（Bun + Hono + SQLite）
-│   │   ├── src/
-│   │   │   ├── index.ts                    # 应用入口（Hono 挂载）
-│   │   │   ├── config.ts                   # 环境变量配置（40+ 项）
-│   │   │   ├── scheduler.ts                # 定时调度（RAG 同步 5min / 去重清理 24h）
-│   │   │   ├── db/                         # SQLite 数据层（9 张表）
-│   │   │   ├── middleware/                 # auth（JWT）/ workspace / verify（HMAC）/ dedup / logger
-│   │   │   ├── routes/                     # health / auth / webhook / api / conversations / workspaces / docs
-│   │   │   ├── services/                   # 服务层（dify / plane / feishu / git / claude-code / workflow /
-│   │   │   │                               #   rag-sync / ibuild / prd / requirement / auth / workspace-sync / nanoclaw-dispatch 等）
-│   │   │   └── types/                      # TypeScript 类型定义
-│   │   └── Dockerfile                      # 多阶段构建 + 非 root + healthcheck
-│   └── web/                                # 🖥️ 管理界面（Vue 3 + Tailwind CSS 4）
-│       ├── src/
-│       │   ├── api/                        # 6 个 API 模块（auth / workspaces / workflow / conversations / docs / chat）
-│       │   ├── components/                 # AppLayout（侧边栏布局）/ DocTreeItem（递归文件树）
-│       │   ├── pages/                      # 11 个页面（Dashboard / Workflows / AiChat / Docs / Login 等）
-│       │   ├── router/                     # Vue Router（12 条路由 + 路由守卫）
-│       │   ├── stores/                     # 6 个 Pinia Store（auth / workspace / workflow / conversation / chat / docs）
-│       │   └── utils/                      # 工具函数
-│       └── Dockerfile                      # Nginx SPA 部署
-├── setup/                                  # 第三方服务部署配置
-│   ├── dify/                               # 历史部署残留（当前生产未启用）
-│   ├── plane/                              # Plane CE docker-compose + Webhook 配置指南
-│   ├── nanoclaw/                           # NanoClaw AI 工作台部署指南
-│   ├── gateway/                            # Gateway 扩展环境变量（iBuild 等）
-│   ├── claude-md/                          # 4 端 CLAUDE.md 模板（backend / vue3 / flutter / android）
-│   └── docs-repo/                          # docs 仓库目录脚手架
-├── docs/                                   # 技术文档
+│   ├── gateway/                    # Gateway 胶水服务（Bun + Hono + SQLite/sqlite-vec）
+│   └── web/                        # Web 管理界面（Vue 3 + Tailwind CSS 4 + Pinia + Tiptap）
+├── docs/
 │   ├── AI研发运营一体化平台_技术架构方案.md
-│   ├── claude-code-github-workflow-guide.md
-│   └── superpowers/
-│       ├── specs/                          # 10 份详细设计规格文档
-│       └── plans/                          # 实施计划文档
-├── .github/workflows/                      # CI/CD
-│   ├── ci.yml                              # lint + test + 覆盖率
-│   ├── ai-review.yml                       # AI Code Review（Claude Sonnet）
-│   └── security.yml                        # gitleaks + npm audit + license 检查
-├── docker-compose.yml                      # 核心服务编排（Gateway + Web）
-└── deploy.sh                               # 一键部署脚本
+│   ├── documentation-status.md
+│   └── superpowers/                # 历史设计、实施计划、联调记录
+├── setup/
+│   ├── docs-repo/                  # docs 仓库脚手架与 CLAUDE.md 模板
+│   ├── gateway/                    # Gateway 环境变量示例
+│   ├── nanoclaw/                   # NanoClaw 部署说明
+│   └── plane/                      # Plane 部署与 webhook 配置
+├── docker-compose.yml              # 当前仓库内主服务编排（web + gateway）
+└── package.json
 ```
 
-## 开发进度
+## 当前开发进度
 
-| Phase | 内容 | 状态 |
-|-------|------|------|
-| Phase 1 | 文档基础设施：docs 仓库 + CLAUDE.md + 设计规格文档 | ✅ 已完成 |
-| Phase 1.5 | 胶水服务核心框架 + Web 管理界面 + CI/CD 流水线 | ✅ 已完成 |
-| Phase 1.6 | Gateway Bug 修复与加固 + 服务层测试补全 | ✅ 已完成 |
-| Phase 1.7 | Web 前端 Tailwind 重构 + 统一错误处理 | ✅ 已完成 |
-| Phase 2.0 | 统一部署配置 + Plane CE 部署 | ✅ 已完成 |
-| Phase 2.1 | 历史 AI 编排部署实验 | ✅ 已下线 |
-| Phase 2.2 | iBuild CI/CD Bug 回流端点 | ✅ 已完成 |
-| Phase 2.3 | PRD 智能生成 + RAG 知识库同步 | ✅ 已完成 |
-| Phase 2.4 | Web 前端重设计（Linear 风格 + 飞书 OAuth + 多工作空间 + 对话 + 文档管理） | ✅ 已完成 |
-| Phase 2.5 | 文档系统工作空间隔离 + 旧文档系统下线（#75 #76 #77） | ✅ 已完成 |
-| Phase 3.0 | ArcFlow ↔ Plane 无缝集成（双向导航 + 统一 OAuth + 页面精简，#74） | ✅ 已完成 |
-| Phase 3.1 | 需求草稿系统（需求对话 → PRD 生成 → 飞书 Review 卡片 → Stage D 原子写入，#78–#83） | ✅ 已完成 |
-| Phase 3.2 | NanoClaw 接入：Web AiChat 切换 + 飞书审批链接改造 + memory snapshot + approval token（#90 #91 #93 #95–#97） | ✅ 已完成 |
-| Phase 3.3 | NanoClaw 上线救火：服务器盘点 + agent 镜像 build + 飞书凭证对齐（#85 #98 #102） | ✅ 已完成 |
-| Phase 3.4 | NanoClaw `arcflow-api` skill 从 0 开发（#86） | 🔜 下一步 |
-| Phase 3.5 | 端到端全链路联调：PRD → 技术设计 → OpenAPI → 代码生成 → CI | 📋 待启动 |
-| Phase 4 | 全链路端到端测试 + 生产部署 | 📋 待启动 |
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| Phase 1 | docs 仓库、CLAUDE.md、基础规格文档 | 已完成 |
+| Phase 1.5-2.5 | Gateway 核心框架、Web 管理界面、文档系统、多工作空间、RAG、CI/CD | 已完成 |
+| Phase 3.0 | ArcFlow ↔ Plane 集成 | 已完成 |
+| Phase 3.1 | 需求草稿 → PRD → 飞书 Review → Plane 原子写入 | 已完成 |
+| Phase 3.2 | Web AiChat 切 NanoClaw、鉴权透传、memory snapshot | 已完成 |
+| Phase 3.3 | NanoClaw 上线与生产环境对齐 | 已完成 |
+| Phase 3.4 | `arcflow-api` 交互链路：ArcFlow 侧 Gateway 契约与 Web artifact 渲染 | 已完成 |
+| Phase 3.4b | `arcflow-api` skill 包在 NanoClaw 仓内的发布、接线与验收 | 进行中 |
+| Phase 3.5 | 端到端全链路联调：PRD → 技术设计 → OpenAPI → 代码生成 → CI | 待完成 |
+| Phase 4 | 稳定性加固、生产验证与推广 | 待完成 |
 
-### 已完成亮点
+## 当前已实现能力
 
-<details>
-<summary><b>Gateway 胶水服务</b>（171 个测试）</summary>
+### Web
 
-- **5 条 Webhook 路由**：Plane / Git / CI-CD / 飞书 / iBuild
-- **4 种工作流编排**：PRD→技术文档 / 技术文档→OpenAPI / Bug 分析 / 代码生成
-- **核心服务模块**：Plane / 飞书 / Git / Claude Code / 工作流引擎 / RAG 同步 / iBuild / PRD 生成 / 需求草稿 / 认证 / 工作空间同步 / NanoClaw 调度等
-- **5 个中间件**：JWT 认证 / 工作空间权限 / HMAC 签名验证 / Webhook 去重 / 请求日志
-- **9 张 SQLite 表**：workflow_execution / bug_fix_retry / webhook_event / webhook_log / users / workspaces / workspace_members / conversations / messages
-- **定时调度**：RAG 增量同步（5 分钟）+ Webhook 去重缓存清理（24 小时）
-- **飞书 OAuth**：兼容标准 OIDC + 旧版端点 + 私有化部署
+- 飞书 OAuth 登录
+- 多工作空间切换
+- Dashboard 与工作流执行视图
+- NanoClaw SSE 对话界面
+- 文档树、富文本编辑、自动保存、全文搜索
 
-</details>
+### Gateway
 
-<details>
-<summary><b>Web 管理界面</b>（Vue 3 + Tailwind CSS 4）</summary>
+- `auth / workspaces / conversations / docs / plane / arcflow-tools / rag / workflow-callback` 路由
+- Plane / Git / 飞书 / iBuild / CI webhook 接入
+- SQLite 业务存储与 sqlite-vec RAG
+- NanoClaw dispatch 记账与 callback 回写
+- `arcflow-tools` 已提供 `issues` 与 `requirements/drafts` 交互端点
 
-- **飞书 OAuth 登录** + JWT 认证 + 路由守卫
-- **多工作空间** 切换 + Plane 项目同步
-- **Dashboard** — KPI 指标（总执行/运行中/成功/失败）+ Gateway 健康状态
-- **工作流管理** — 手动触发 + 执行列表（类型/状态筛选）+ 执行详情时间线
-- **AI 对话** — 多轮对话 + SSE 流式输出 + 对话管理（搜索/置顶/删除）
-- **文档管理** — Tiptap 富文本编辑 + Markdown 预览 + 文件树 CRUD + 全文搜索
-- **Linear 风格 UI** — CSS 变量设计令牌 + 暗色主题 + lucide 图标
+### 协作链路
 
-</details>
+- Plane 项目与状态流转
+- docs Git 仓库读写
+- 飞书通知与审批链接
+- GitHub Actions CI / 安全检查
 
-<details>
-<summary><b>NanoClaw / Gateway 工作流链路</b></summary>
+### 今日新增
 
-1. **PRD → 技术设计文档**（Claude Opus）— 数据库设计 / 接口设计 / 分层说明
-2. **技术文档 → OpenAPI**（Claude Sonnet）— RESTful / Result\<T\> 封装 / 分页模式
-3. **CI Bug 分析**（Claude Sonnet）— 根因分析 / 严重级别 P0-P2 / 修复建议
-4. **PRD 生成对话流**（Claude Opus）— 多轮对话 / 自动生成 PRD 模板
-5. **RAG 知识问答**（Claude Sonnet）— sqlite-vec + 关键词混合检索
+- ArcFlow 侧 `arcflow-api` 交互配套已落地：`/api/arcflow/issues`、`/api/arcflow/requirements/drafts`
+- Web AiChat 已支持 `arcflow_card / arcflow_status` 结构化 artifact 渲染
+- 对应提交：`d9b1fd3 feat(arcflow): add gateway tools and chat artifact rendering`
 
-</details>
+## 运行方式
 
-<details>
-<summary><b>CI/CD 流水线</b></summary>
-
-- **CI**：PR 触发 lint + test + 覆盖率检查（Gateway 50% 阈值）
-- **AI Code Review**：`ai-review` 标签触发 Claude Sonnet 审查（OWASP / 逻辑 / 性能）
-- **Security**：Gitleaks 密钥扫描 + npm audit + 许可证白名单检查
-- **安全策略**：Fork PR 需 `approved-for-ci` 标签，Dependabot 自动合并
-
-</details>
-
-## 下一步工作方向
-
-1. **NanoClaw `arcflow-api` skill 从 0 开发**（Phase 3.4）
-   - 原 #86 scope 需重估——服务器 fork 中只有 NanoClaw 官方 31 个通用 skill，无 ArcFlow 专用 skill
-   - 开发目标：把 Gateway 对外 REST 包装成 skill，让 Agent 能在飞书/Web 会话中直接触发工作流、读写 Plane / 文档
-
-2. **端到端全链路联调**（Phase 3.5）
-   - 配置 Plane Webhook + Approved State ID → 验证 Issue 审批触发工作流
-   - 验证 Gateway → NanoClaw → Claude Code 调度链路
-   - 验证飞书 OAuth + 消息卡片 + 审批回调 + Plane 联动
-   - 验证 NanoClaw 飞书渠道对接真实研发群
-
-3. **剩余技术债务**
-   - NanoClaw 服务器运维补丁（`container/Dockerfile` CN 镜像等）推回 ssyamv/nanoclaw fork（PR ssyamv/nanoclaw#6）
-   - sqlite-vec 工作空间级索引与同步策略仍需继续加固
-   - PRD 文件路径从 Issue 描述提取使用正则，需要更健壮的约定
-
-## 快速开始
+### 本仓库服务
 
 ```bash
-# 克隆仓库
-git clone https://github.com/qichen22/ArcFlow.git && cd ArcFlow
-
-# 安装依赖
 bun install
-
-# 启动 Gateway 开发服务器
-cd packages/gateway && cp .env.example .env && bun dev
-
-# 启动 Web 开发服务器（另一个终端）
-cd packages/web && cp .env.example .env && bun dev
-
-# 运行测试
-bun test
-
-# 部署 ArcFlow Gateway 独立栈
-cd setup && cp .env.example .env && ./deploy.sh up
-
-# 部署 Plane（独立栈）
-cd setup/plane && cp .env.example .env && docker compose up -d
-
-# NanoClaw 由服务器 PM2 管理
-ssh arcflow-server 'pm2 restart arcflow-nanoclaw'
+docker compose up -d
 ```
 
-## 参与开发
+默认包含：
 
-请阅读 [CONTRIBUTING.md](.github/CONTRIBUTING.md) 了解分支策略、PR 工作流和 Code Review 流程。
+- `web`
+- `gateway`
 
-## License
+### 外部依赖
 
-[MIT](LICENSE)
+当前项目依赖但不由根 `docker-compose.yml` 统一托管的服务：
+
+- `Plane CE`
+- `NanoClaw`（当前通过 PM2 在独立仓库运行）
+- 代码仓库 / docs 仓库
+- 飞书应用配置
+
+对应说明见：
+
+- [setup/plane](setup/plane)
+- [setup/nanoclaw/README.md](setup/nanoclaw/README.md)
+- [setup/docs-repo/README.md](setup/docs-repo/README.md)
+
+## 历史说明
+
+- `Wiki.js / Dify / Weaviate` 相关方案和计划已转为历史资料，不再代表当前主线。
+- 历史文档仍然保留，用于追溯架构演进、排查历史决策和联调背景。
+- 阅读历史文档前，建议先看 [docs/documentation-status.md](docs/documentation-status.md)。

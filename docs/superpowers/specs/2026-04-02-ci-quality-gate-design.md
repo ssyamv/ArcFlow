@@ -1,3 +1,5 @@
+> 文档状态：历史参考。此文档记录阶段性设计或已被后续方案替代，不应单独作为当前架构依据。当前事实请先看 `README.md`、`docs/AI研发运营一体化平台_技术架构方案.md`、`docs/documentation-status.md`。
+
 # CI 质量门禁设计规格
 
 > ArcFlow 平台仓库的 GitHub Actions CI/CD 质量门禁体系，确保所有合并代码经过自动化检查和人工审批。

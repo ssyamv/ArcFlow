@@ -1,3 +1,5 @@
+> 文档状态：历史参考。此文档记录阶段性设计或已被后续方案替代，不应单独作为当前架构依据。当前事实请先看 `README.md`、`docs/AI研发运营一体化平台_技术架构方案.md`、`docs/documentation-status.md`。
+
 # 胶水服务（Gateway Service）详细设计规格文档
 
 > 版本：v1.0 · 2026-04-02

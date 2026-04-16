@@ -1,3 +1,5 @@
+> 文档状态：当前阶段参考。此文档与当前 NanoClaw / Gateway 主线直接相关，但项目总览与最终口径仍以 `README.md`、`docs/AI研发运营一体化平台_技术架构方案.md` 为准。
+
 # NanoClaw arcflow-* Skills Contract
 
 > 版本：v1.0 · 2026-04-15
