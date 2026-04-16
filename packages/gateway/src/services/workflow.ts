@@ -118,7 +118,7 @@ async function flowCodeGen(
       repo_name: target,
     });
 
-    await dispatchToNanoclaw({
+    const dispatchResult = await dispatchToNanoclaw({
       workspaceId: String(ws.id),
       skill: "arcflow-code-gen",
       planeIssueId: params.plane_issue_id,
@@ -132,5 +132,15 @@ async function flowCodeGen(
         task_context: taskContext,
       },
     });
+
+    if (!dispatchResult.dispatched) {
+      throw new Error(dispatchResult.error ?? "NanoClaw dispatch did not start");
+    }
+    if (
+      dispatchResult.nanoclawStatus !== undefined &&
+      (dispatchResult.nanoclawStatus < 200 || dispatchResult.nanoclawStatus >= 300)
+    ) {
+      throw new Error(`NanoClaw dispatch returned status ${dispatchResult.nanoclawStatus}`);
+    }
   }
 }

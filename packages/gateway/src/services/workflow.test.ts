@@ -66,7 +66,8 @@ mock.module("../config", () => ({
 const dispatchToNanoclaw = mock(() =>
   Promise.resolve({
     dispatchId: "dispatch-1",
-    dispatched: false,
+    dispatched: true,
+    nanoclawStatus: 200,
   }),
 );
 mock.module("./nanoclaw-dispatch", () => ({
@@ -287,6 +288,50 @@ describe("flowCodeGen", () => {
       42,
       "failed",
       expect.stringContaining("invalid target repo"),
+    );
+  });
+
+  it("fails when dispatch result reports dispatched false", async () => {
+    dispatchToNanoclaw.mockResolvedValueOnce({
+      dispatchId: "dispatch-2",
+      dispatched: false,
+      error: "nanoclaw unavailable",
+    });
+
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-500",
+    });
+    await tick();
+
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(
+      42,
+      "failed",
+      expect.stringContaining("nanoclaw unavailable"),
+    );
+  });
+
+  it("fails when NanoClaw responds with non-2xx status", async () => {
+    dispatchToNanoclaw.mockResolvedValueOnce({
+      dispatchId: "dispatch-3",
+      dispatched: true,
+      nanoclawStatus: 500,
+    });
+
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-501",
+    });
+    await tick();
+
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(
+      42,
+      "failed",
+      expect.stringContaining("NanoClaw dispatch returned status 500"),
     );
   });
 });
