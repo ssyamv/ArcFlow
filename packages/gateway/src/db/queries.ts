@@ -264,21 +264,43 @@ export function updateWorkflowSubtaskStatusByStage(params: {
 export function findLatestCodegenExecution(
   planeIssueId: string,
   target: string,
+  options?: {
+    branchName?: string;
+    externalRunId?: string;
+  },
 ): WorkflowExecution | null {
   const db = getDb();
-  const row = db
+  const rows = db
     .query(
-      `SELECT we.*
+      `SELECT
+         we.*,
+         ws.branch_name AS subtask_branch_name,
+         ws.external_run_id AS subtask_external_run_id
        FROM workflow_execution we
        INNER JOIN workflow_subtask ws ON ws.execution_id = we.id
        WHERE we.workflow_type = 'code_gen'
-         AND we.plane_issue_id = ?
          AND ws.target = ?
-       ORDER BY we.id DESC, ws.id DESC
-       LIMIT 1`,
+       ORDER BY we.id DESC, ws.id DESC`,
     )
-    .get(planeIssueId, target) as WorkflowExecution | null;
-  return row ?? null;
+    .all(target) as Array<
+    WorkflowExecution & {
+      subtask_branch_name: string | null;
+      subtask_external_run_id: string | null;
+    }
+  >;
+
+  const matchedByRun = options?.externalRunId
+    ? rows.find((row) => row.subtask_external_run_id === options.externalRunId)
+    : undefined;
+  if (matchedByRun) return matchedByRun;
+
+  const matchedByBranch = options?.branchName
+    ? rows.find((row) => row.subtask_branch_name === options.branchName)
+    : undefined;
+  if (matchedByBranch) return matchedByBranch;
+
+  const matchedByIssue = rows.find((row) => row.plane_issue_id === planeIssueId);
+  return matchedByIssue ?? null;
 }
 
 // ─── workflow_link ───────────────────────────────────────────────────────────
@@ -312,6 +334,30 @@ export function listWorkflowLinks(targetExecutionId: number): WorkflowLink[] {
        ORDER BY created_at ASC, id ASC`,
     )
     .all(targetExecutionId) as WorkflowLink[];
+}
+
+export function listWorkflowLinksBySourceExecution(
+  sourceExecutionId: number,
+  linkType?: string,
+): WorkflowLink[] {
+  const db = getDb();
+  if (linkType) {
+    return db
+      .query(
+        `SELECT * FROM workflow_link
+         WHERE source_execution_id = ? AND link_type = ?
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(sourceExecutionId, linkType) as WorkflowLink[];
+  }
+
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(sourceExecutionId) as WorkflowLink[];
 }
 
 // ─── webhook_event ─────────────────────────────────────────────────────────────

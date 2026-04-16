@@ -213,6 +213,85 @@ describe("webhook routes", () => {
     );
   });
 
+  it("POST /webhook/cicd prefers branch metadata over latest issue execution", async () => {
+    const olderExecutionId = seedCodegenExecution({
+      planeIssueId: "ISS-201",
+      target: "backend",
+      branchName: "feature/ISS-201-backend-a",
+    });
+    const newerExecutionId = seedCodegenExecution({
+      planeIssueId: "ISS-201",
+      target: "backend",
+      branchName: "feature/ISS-201-backend-b",
+    });
+
+    const res = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "failed",
+        issue_id: "ISS-201",
+        repository: "backend",
+        branch: "feature/ISS-201-backend-a",
+        run_id: "run-201",
+        log_url: "https://ci.example/logs/run-201",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const olderSubtasks = listWorkflowSubtasks(olderExecutionId);
+    const newerSubtasks = listWorkflowSubtasks(newerExecutionId);
+    expect(
+      olderSubtasks.some(
+        (subtask) => subtask.stage === "ci_failed" && subtask.external_run_id === "run-201",
+      ),
+    ).toBe(true);
+    expect(newerSubtasks.some((subtask) => subtask.stage === "ci_failed")).toBe(false);
+  });
+
+  it("POST /webhook/cicd does not spawn duplicate bug_analysis for the same run", async () => {
+    const executionId = seedCodegenExecution({
+      planeIssueId: "ISS-202",
+      target: "backend",
+      branchName: "feature/ISS-202-backend",
+    });
+
+    const payload = JSON.stringify({
+      status: "failed",
+      issue_id: "ISS-202",
+      repository: "backend",
+      branch: "feature/ISS-202-backend",
+      run_id: "run-202",
+      log_url: "https://ci.example/logs/run-202",
+    });
+
+    const res1 = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    });
+    const res2 = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    });
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    const bugExecutions = listWorkflowExecutions({ workflow_type: "bug_analysis" }).data;
+    expect(bugExecutions).toHaveLength(1);
+
+    const links = listWorkflowLinks(bugExecutions[0]!.id);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      source_execution_id: executionId,
+      target_execution_id: bugExecutions[0]!.id,
+      link_type: "spawned_on_ci_failure",
+    });
+  });
+
   it("POST /webhook/cicd does not trigger on success status", async () => {
     await app.request("/webhook/cicd", {
       method: "POST",

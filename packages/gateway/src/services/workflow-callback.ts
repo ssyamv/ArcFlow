@@ -6,6 +6,7 @@ export interface DispatchRecord {
   skill: string;
   planeIssueId?: string;
   status: "pending" | "success" | "failed";
+  input?: unknown;
 }
 
 export interface CallbackDeps {
@@ -31,6 +32,7 @@ export interface CallbackDeps {
     branch_name?: string;
     repo_name?: string;
     log_url?: string;
+    error_message?: string;
   }) => Promise<void> | void;
 }
 
@@ -52,16 +54,34 @@ function parseCodegenResult(content: string) {
   };
 }
 
+function parseCodegenDispatchInput(input: unknown) {
+  if (!input || typeof input !== "object") {
+    throw new Error("code_gen dispatch input is missing");
+  }
+
+  const payload = input as Record<string, unknown>;
+  const executionId = Number(payload.execution_id);
+  const target = typeof payload.target === "string" ? payload.target : "";
+
+  if (!Number.isFinite(executionId) || !target) {
+    throw new Error("code_gen dispatch input is incomplete");
+  }
+
+  return {
+    execution_id: executionId,
+    target,
+    branch_name: typeof payload.branch_name === "string" ? payload.branch_name : undefined,
+    repo_name: typeof payload.repo_name === "string" ? payload.repo_name : undefined,
+    log_url: typeof payload.log_url === "string" ? payload.log_url : undefined,
+  };
+}
+
 export function createCallbackHandler(deps: CallbackDeps) {
   return {
     async handle(p: CallbackPayload): Promise<boolean> {
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
       if (rec.status !== "pending") return false;
-
-      const claimed = await deps.markDone(p.dispatch_id, p.status);
-      if (!claimed) return false;
-      if (p.status === "failed") return true;
 
       const content = p.result?.content ?? "";
       const piid = p.result?.planeIssueId ?? rec.planeIssueId;
@@ -74,6 +94,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
         branch_name?: string;
         repo_name?: string;
         log_url?: string;
+        error_message?: string;
       }) => {
         if (deps.markSubtaskProgress) {
           await deps.markSubtaskProgress(input);
@@ -82,7 +103,22 @@ export function createCallbackHandler(deps: CallbackDeps) {
         updateWorkflowSubtaskStatusByStage(input);
       };
 
-      if (p.skill === "arcflow-prd-to-tech") {
+      if (p.status === "failed") {
+        if (p.skill === "arcflow-code-gen") {
+          const dispatchInput = parseCodegenDispatchInput(rec.input);
+          await markSubtaskProgress({
+            execution_id: dispatchInput.execution_id,
+            target: dispatchInput.target,
+            stage: "generate_failed",
+            status: "failed",
+            provider: "nanoclaw",
+            branch_name: dispatchInput.branch_name,
+            repo_name: dispatchInput.repo_name,
+            log_url: dispatchInput.log_url,
+            error_message: p.error,
+          });
+        }
+      } else if (p.skill === "arcflow-prd-to-tech") {
         await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
       } else if (p.skill === "arcflow-tech-to-openapi") {
         await deps.writeOpenApi({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
@@ -108,7 +144,9 @@ export function createCallbackHandler(deps: CallbackDeps) {
           provider: "generic",
         });
       }
-      return true;
+
+      const claimed = await deps.markDone(p.dispatch_id, p.status);
+      return claimed;
     },
   };
 }

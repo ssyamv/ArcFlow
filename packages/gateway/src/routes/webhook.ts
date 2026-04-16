@@ -12,6 +12,7 @@ import {
   createWorkflowExecution,
   createWorkflowLink,
   findLatestCodegenExecution,
+  listWorkflowLinksBySourceExecution,
   updateWorkflowSubtaskStatusByStage,
 } from "../db/queries";
 import { getDb } from "../db";
@@ -27,6 +28,7 @@ interface UnifiedCiEvent {
   target: string;
   provider: "generic" | "ibuild";
   externalRunId: string;
+  branchName: string | null;
   status: UnifiedCiStatus;
   logUrl: string | null;
   rawPayload: Record<string, unknown>;
@@ -82,6 +84,14 @@ function mapCiEvent(body: Record<string, unknown>): UnifiedCiEvent | null {
     target: String(body.target ?? body.repository ?? body.repo ?? "backend"),
     provider: "generic",
     externalRunId: String(body.run_id ?? body.build_id ?? body.buildId ?? ""),
+    branchName:
+      typeof body.branch === "string"
+        ? body.branch
+        : typeof body.gitBranch === "string"
+          ? body.gitBranch
+          : typeof body.git_branch === "string"
+            ? body.git_branch
+            : null,
     status,
     logUrl:
       typeof body.log_url === "string"
@@ -95,10 +105,52 @@ function mapCiEvent(body: Record<string, unknown>): UnifiedCiEvent | null {
   };
 }
 
+function findExistingCiFailureSpawn(params: {
+  sourceExecutionId: number;
+  target: string;
+  provider: "generic" | "ibuild";
+  externalRunId?: string;
+  branchName?: string | null;
+}): number | null {
+  const links = listWorkflowLinksBySourceExecution(
+    params.sourceExecutionId,
+    "spawned_on_ci_failure",
+  );
+
+  for (const link of links) {
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(link.metadata) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (metadata.target !== params.target || metadata.provider !== params.provider) {
+      continue;
+    }
+
+    if (params.externalRunId) {
+      if (metadata.external_run_id === params.externalRunId) {
+        return link.target_execution_id;
+      }
+      continue;
+    }
+
+    if (params.branchName && metadata.branch_name === params.branchName) {
+      return link.target_execution_id;
+    }
+  }
+
+  return null;
+}
+
 function handleCiEvent(event: UnifiedCiEvent): boolean {
   if (!event.planeIssueId) return false;
 
-  const execution = findLatestCodegenExecution(event.planeIssueId, event.target);
+  const execution = findLatestCodegenExecution(event.planeIssueId, event.target, {
+    branchName: event.branchName ?? undefined,
+    externalRunId: event.externalRunId || undefined,
+  });
   if (!execution) return false;
 
   updateWorkflowSubtaskStatusByStage({
@@ -108,10 +160,22 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
     provider: event.provider,
     status: event.status === "failed" ? "failed" : "success",
     external_run_id: event.externalRunId || undefined,
+    branch_name: event.branchName ?? undefined,
     log_url: event.logUrl ?? undefined,
   });
 
   if (event.status === "failed") {
+    const existingBugExecutionId = findExistingCiFailureSpawn({
+      sourceExecutionId: execution.id,
+      target: event.target,
+      provider: event.provider,
+      externalRunId: event.externalRunId || undefined,
+      branchName: event.branchName,
+    });
+    if (existingBugExecutionId) {
+      return true;
+    }
+
     const bugExecutionId = createWorkflowExecution({
       workflow_type: "bug_analysis",
       trigger_source: event.provider === "ibuild" ? "ibuild_webhook" : "cicd_webhook",
@@ -122,7 +186,13 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
       source_execution_id: execution.id,
       target_execution_id: bugExecutionId,
       link_type: "spawned_on_ci_failure",
-      metadata: { target: event.target, provider: event.provider, payload: event.rawPayload },
+      metadata: {
+        target: event.target,
+        provider: event.provider,
+        external_run_id: event.externalRunId || undefined,
+        branch_name: event.branchName ?? undefined,
+        payload: event.rawPayload,
+      },
     });
   }
 
@@ -255,6 +325,7 @@ export function createWebhookRoutes(): Hono {
       target: targetRepo,
       provider: "ibuild",
       externalRunId: buildId,
+      branchName: gitBranch || null,
       status: normalizedStatus,
       logUrl: null,
       rawPayload: Object.fromEntries(

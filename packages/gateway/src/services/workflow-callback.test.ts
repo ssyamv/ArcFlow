@@ -2,6 +2,22 @@ import { describe, it, expect, mock } from "bun:test";
 import { createCallbackHandler } from "./workflow-callback";
 
 describe("workflow-callback dispatcher", () => {
+  function makeCodegenDispatchRecord(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "d-codegen",
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      planeIssueId: "ISS-120",
+      status: "pending" as const,
+      input: {
+        execution_id: 7,
+        target: "backend",
+        plane_issue_id: "ISS-120",
+      },
+      ...overrides,
+    };
+  }
+
   it("routes arcflow-prd-to-tech to writeTechDesign", async () => {
     const calls: unknown[] = [];
     const handler = createCallbackHandler({
@@ -95,20 +111,21 @@ describe("workflow-callback dispatcher", () => {
   });
 
   it("writes code_gen callback result into generate subtask and branch metadata", async () => {
+    const order: string[] = [];
     const markSubtaskProgress = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
-      markSubtaskProgress,
-      loadDispatch: async (id) => ({
-        id,
-        workspaceId: "w",
-        skill: "arcflow-code-gen",
-        planeIssueId: "ISS-120",
-        status: "pending",
-      }),
-      markDone: async () => true,
+      markSubtaskProgress: async (input) => {
+        order.push(`subtask:${input.stage}`);
+        await markSubtaskProgress(input);
+      },
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      markDone: async () => {
+        order.push("done:success");
+        return true;
+      },
     });
 
     const handled = await handler.handle({
@@ -147,5 +164,69 @@ describe("workflow-callback dispatcher", () => {
         status: "pending",
       }),
     );
+    expect(order).toEqual(["subtask:generate", "subtask:ci_pending", "done:success"]);
+  });
+
+  it("does not mark code_gen dispatch done when callback payload is malformed", async () => {
+    const markDone = mock(async () => true);
+    const markSubtaskProgress = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress,
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      markDone,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d-codegen-1",
+        skill: "arcflow-code-gen",
+        status: "success",
+        result: { content: "{not-json" },
+      }),
+    ).rejects.toThrow();
+
+    expect(markSubtaskProgress).not.toHaveBeenCalled();
+    expect(markDone).not.toHaveBeenCalled();
+  });
+
+  it("records generate_failed for failed code_gen callback before marking dispatch done", async () => {
+    const order: string[] = [];
+    const markSubtaskProgress = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async (input) => {
+        order.push(`subtask:${input.stage}`);
+        await markSubtaskProgress(input);
+      },
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      markDone: async () => {
+        order.push("done:failed");
+        return true;
+      },
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "failed",
+      error: "generator crashed",
+    });
+
+    expect(handled).toBe(true);
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "generate_failed",
+        status: "failed",
+        error_message: "generator crashed",
+      }),
+    );
+    expect(order).toEqual(["subtask:generate_failed", "done:failed"]);
   });
 });
