@@ -166,6 +166,21 @@ describe("triggerWorkflow", () => {
       expect.stringContaining("no longer supported"),
     );
   });
+
+  it("rejects tech_to_openapi with failed status", async () => {
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
+    await tick();
+
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(
+      42,
+      "failed",
+      expect.stringContaining("no longer supported"),
+    );
+  });
 });
 
 describe("flowCodeGen", () => {

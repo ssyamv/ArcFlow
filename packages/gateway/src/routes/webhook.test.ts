@@ -3,7 +3,9 @@ import { Hono } from "hono";
 import { closeDb, getDb } from "../db";
 import {
   createWorkflowExecution,
+  createWorkflowLink,
   createWorkflowSubtask,
+  getWorkflowExecutionDetail,
   listWorkflowExecutions,
   listWorkflowLinks,
   listWorkflowSubtasks,
@@ -551,6 +553,64 @@ describe("webhook routes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           source_execution_id: executionId,
+          target_execution_id: bugExecutions[0]!.id,
+          link_type: "spawned_on_ci_failure",
+        }),
+      ]),
+    );
+  });
+
+  it("closes the chain from tech_to_openapi to code_gen to bug_analysis", async () => {
+    const sourceExecutionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-120",
+    });
+
+    const codegenExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-120",
+    });
+
+    createWorkflowLink({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: codegenExecutionId,
+      link_type: "derived_from",
+    });
+
+    createWorkflowSubtask({
+      execution_id: codegenExecutionId,
+      target: "backend",
+      stage: "ci_failed",
+      provider: "ibuild",
+      status: "failed",
+      repo_name: "backend",
+    });
+
+    const res = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "failed",
+        issue_id: "ISS-120",
+        repository: "backend",
+        run_id: "run-120",
+        log_url: "https://ci.example/logs/run-120",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const detail = getWorkflowExecutionDetail(codegenExecutionId);
+    expect(detail?.links.some((link) => link.link_type === "derived_from")).toBe(true);
+
+    const bugExecutions = listWorkflowExecutions({ workflow_type: "bug_analysis" }).data;
+    expect(bugExecutions).toHaveLength(1);
+    expect(listWorkflowLinks(bugExecutions[0]!.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_execution_id: codegenExecutionId,
           target_execution_id: bugExecutions[0]!.id,
           link_type: "spawned_on_ci_failure",
         }),
