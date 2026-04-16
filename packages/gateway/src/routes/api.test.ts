@@ -102,6 +102,36 @@ describe("api routes", () => {
     );
   });
 
+  it("POST /api/workflow/trigger accepts legacy targets alias", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T3", slug: "t-ws-3" });
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(77);
+
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-6",
+        params: { targets: ["backend"] },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.execution_id).toBe(77);
+
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        trigger_source: "manual",
+        plane_issue_id: "ISSUE-6",
+        target_repos: ["backend"],
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions returns list", async () => {
     // Seed data by calling triggerWorkflow directly (bypassing mock)
     const { createWorkflowExecution } = await import("../db/queries");

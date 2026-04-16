@@ -40,7 +40,9 @@ apiRoutes.post("/workflow/trigger", async (c) => {
     trigger_source: "manual",
     plane_issue_id: body.plane_issue_id,
     input_path: body.params?.input_path,
-    target_repos: body.params?.target_repos,
+    target_repos:
+      body.params?.target_repos ??
+      (body.params as { target_repos?: string[]; targets?: string[] } | undefined)?.targets,
     figma_url: body.params?.figma_url,
     chat_id: body.params?.chat_id,
   });
@@ -155,16 +157,18 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
     planeIssueId: body.plane_issue_id,
     timeoutAt: Date.now() + 10 * 60 * 1000,
   });
-  recordUserAction({
-    userId: body.user_id ?? 0,
-    workspaceId: typeof body.workspace_id === "number" ? body.workspace_id : null,
-    actionType: `nanoclaw.dispatch.${body.skill}`,
-    payload: {
-      dispatch_id: dispatchId,
-      plane_issue_id: body.plane_issue_id,
-      input: body.input,
-    },
-  });
+  if (typeof body.user_id === "number" && body.user_id > 0) {
+    recordUserAction({
+      userId: body.user_id,
+      workspaceId: typeof body.workspace_id === "number" ? body.workspace_id : null,
+      actionType: `nanoclaw.dispatch.${body.skill}`,
+      payload: {
+        dispatch_id: dispatchId,
+        plane_issue_id: body.plane_issue_id,
+        input: body.input,
+      },
+    });
+  }
 
   const nanoclawUrl = process.env.NANOCLAW_URL;
   if (!nanoclawUrl) {

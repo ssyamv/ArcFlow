@@ -1,10 +1,14 @@
-import { createWorkflowExecution, updateWorkflowStatus, getWorkspace } from "../db/queries";
+import {
+  createWorkflowExecution,
+  updateWorkflowStatus,
+  getWorkspace,
+  createWorkflowSubtask,
+  insertDispatch,
+} from "../db/queries";
 import type { WorkflowType, TriggerSource, Workspace } from "../types";
-import { getConfig } from "../config";
-import { ensureRepo, readFile, createBranchAndPush, registerRepoUrl } from "./git";
+import { getDb } from "../db";
+import { ensureRepo, readFile, registerRepoUrl } from "./git";
 import { sendNotification } from "./feishu";
-import { runClaudeCode } from "./claude-code";
-import { join } from "path";
 
 interface TriggerParams {
   workspace_id: number;
@@ -88,49 +92,44 @@ async function executeWorkflow(executionId: number, params: TriggerParams): Prom
 }
 
 async function flowCodeGen(
-  _executionId: number,
+  executionId: number,
   params: TriggerParams,
   ws: Workspace,
 ): Promise<void> {
-  const repoBases = params.target_repos ?? ["backend"];
-  const config = getConfig();
+  const targets = params.target_repos ?? ["backend"];
   const docsRepo = wsRepoName(ws.id, "docs");
+  const db = getDb();
 
-  for (const repoBase of repoBases) {
-    const repoName = wsRepoName(ws.id, repoBase);
-    await ensureRepo(repoName);
+  let taskContext = "";
+  if (params.input_path) {
+    await ensureRepo(docsRepo);
+    taskContext = await readFile(docsRepo, params.input_path);
+  }
 
-    let taskContext = "";
-    if (params.input_path) {
-      await ensureRepo(docsRepo);
-      const techDoc = await readFile(docsRepo, params.input_path);
-      taskContext += `## 技术设计文档\n\n${techDoc}\n\n`;
-    }
-
-    const repoDir = join(config.gitWorkDir, repoName);
-    const taskDescription = `请根据以下上下文生成代码：\n\n${taskContext}`;
-
-    const result = await runClaudeCode(repoDir, taskDescription, {
-      figmaUrl: params.figma_url,
+  for (const target of targets) {
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "dispatch",
+      target,
+      provider: "nanoclaw",
+      status: "pending",
+      repo_name: target,
     });
 
-    if (result.success) {
-      const branchName = `feature/${params.plane_issue_id ?? "unknown"}-${repoBase}`;
-      await createBranchAndPush(
-        repoName,
-        branchName,
-        `feat: AI 代码生成 - ${params.plane_issue_id}`,
-      );
-
-      if (params.chat_id) {
-        sendNotification(
-          params.chat_id,
-          "✅ 代码生成完成",
-          `${repoBase} 代码已生成，分支 ${branchName} 已推送`,
-        ).catch(() => {});
-      }
-    } else {
-      throw new Error(`Code gen failed for ${repoBase}: ${result.error}`);
-    }
+    insertDispatch(db, {
+      workspaceId: String(ws.id),
+      skill: "arcflow-code-gen",
+      planeIssueId: params.plane_issue_id,
+      input: {
+        execution_id: executionId,
+        target,
+        workspace_id: ws.id,
+        plane_issue_id: params.plane_issue_id,
+        input_path: params.input_path,
+        figma_url: params.figma_url,
+        task_context: taskContext,
+      },
+      timeoutAt: Date.now() + 10 * 60 * 1000,
+    });
   }
 }

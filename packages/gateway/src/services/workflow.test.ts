@@ -22,11 +22,15 @@ const getWorkspace = mock(() => ({
   created_at: "",
   updated_at: "",
 }));
+const createWorkflowSubtask = mock(() => 1001);
+const insertDispatch = mock(() => "dispatch-1");
 
 mock.module("../db/queries", () => ({
   createWorkflowExecution,
   updateWorkflowStatus,
   getWorkspace,
+  createWorkflowSubtask,
+  insertDispatch,
   // Include all exports to avoid missing export errors for other importers
   recordWebhookEvent: mock(() => {}),
   isEventProcessed: mock(() => false),
@@ -59,6 +63,11 @@ mock.module("../config", () => ({
     }),
 }));
 
+const fakeDb = { tag: "db" } as const;
+mock.module("../db", () => ({
+  getDb: () => fakeDb,
+}));
+
 // --- Use spyOn for modules that have their own test files downstream ---
 const claudeCodeMod = await import("./claude-code");
 const feishuMod = await import("./feishu");
@@ -82,6 +91,8 @@ afterAll(() => {
 function clearAllMocks() {
   createWorkflowExecution.mockClear();
   updateWorkflowStatus.mockClear();
+  createWorkflowSubtask.mockClear();
+  insertDispatch.mockClear();
   ensureRepo.mockClear();
   readFileMock.mockClear();
   createBranchAndPush.mockClear();
@@ -153,26 +164,38 @@ describe("triggerWorkflow", () => {
 describe("flowCodeGen", () => {
   beforeEach(() => {
     clearAllMocks();
-    createWorkflowExecution.mockReturnValue(4);
+    createWorkflowExecution.mockReturnValue(42);
     runClaudeCode.mockReturnValue(Promise.resolve({ success: true, output: "code generated" }));
   });
 
-  it("generates code for default backend repo", async () => {
+  it("creates backend subtask and dispatches code_gen through NanoClaw", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
       trigger_source: "manual",
-      plane_issue_id: "ISS-10",
+      plane_issue_id: "ISS-120",
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledWith("ws-1-backend");
-    expect(runClaudeCode).toHaveBeenCalledTimes(1);
-    expect(createBranchAndPush).toHaveBeenCalledTimes(1);
-    expect(createBranchAndPush.mock.calls[0][1]).toContain("feature/ISS-10-backend");
+    expect(createWorkflowSubtask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 42,
+        target: "backend",
+        stage: "dispatch",
+        provider: "nanoclaw",
+      }),
+    );
+    expect(insertDispatch).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        skill: "arcflow-code-gen",
+        planeIssueId: "ISS-120",
+      }),
+    );
+    expect(runClaudeCode).not.toHaveBeenCalled();
   });
 
-  it("generates code for multiple repos", async () => {
+  it("creates one subtask and dispatch per target repo", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
@@ -182,12 +205,12 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    expect(ensureRepo).toHaveBeenCalledTimes(2);
-    expect(runClaudeCode).toHaveBeenCalledTimes(2);
-    expect(createBranchAndPush).toHaveBeenCalledTimes(2);
+    expect(createWorkflowSubtask).toHaveBeenCalledTimes(2);
+    expect(insertDispatch).toHaveBeenCalledTimes(2);
+    expect(runClaudeCode).not.toHaveBeenCalled();
   });
 
-  it("reads tech design doc when input_path provided", async () => {
+  it("reads docs input once and includes task_context in dispatch payload", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
@@ -199,9 +222,18 @@ describe("flowCodeGen", () => {
 
     expect(ensureRepo).toHaveBeenCalledWith("ws-1-docs");
     expect(readFileMock).toHaveBeenCalledWith("ws-1-docs", "tech-design/2026-04/feature-x.md");
+    expect(insertDispatch).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          task_context: "file content",
+          input_path: "tech-design/2026-04/feature-x.md",
+        }),
+      }),
+    );
   });
 
-  it("passes figma_url to runClaudeCode", async () => {
+  it("includes figma_url in dispatch payload", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
@@ -211,11 +243,17 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    const ccArgs = runClaudeCode.mock.calls[0];
-    expect(ccArgs[2]).toEqual({ figmaUrl: "https://figma.com/file/abc" });
+    expect(insertDispatch).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          figma_url: "https://figma.com/file/abc",
+        }),
+      }),
+    );
   });
 
-  it("sends notification on success when chat_id provided", async () => {
+  it("marks workflow success after dispatch without sending chat success notification", async () => {
     await triggerWorkflow({
       workspace_id: 1,
       workflow_type: "code_gen",
@@ -225,27 +263,8 @@ describe("flowCodeGen", () => {
     });
     await tick();
 
-    expect(sendNotification).toHaveBeenCalledTimes(1);
-    const msg = sendNotification.mock.calls[0][2] as string;
-    expect(msg).toContain("代码已生成");
-  });
-
-  it("fails when code gen fails", async () => {
-    runClaudeCode.mockReturnValue(Promise.resolve({ success: false, error: "syntax error" }));
-
-    await triggerWorkflow({
-      workspace_id: 1,
-      workflow_type: "code_gen",
-      trigger_source: "manual",
-      plane_issue_id: "ISS-15",
-    });
-    await tick();
-
-    expect(updateWorkflowStatus).toHaveBeenCalledWith(
-      4,
-      "failed",
-      expect.stringContaining("Code gen failed"),
-    );
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(42, "success");
+    expect(sendNotification).not.toHaveBeenCalled();
   });
 });
 
@@ -256,7 +275,9 @@ describe("error handling", () => {
   });
 
   it("sends failure notification when workflow errors with chat_id", async () => {
-    runClaudeCode.mockReturnValue(Promise.reject(new Error("claude timeout")));
+    insertDispatch.mockImplementation(() => {
+      throw new Error("dispatch enqueue failed");
+    });
 
     await triggerWorkflow({
       workspace_id: 1,
@@ -267,13 +288,15 @@ describe("error handling", () => {
     });
     await tick();
 
-    expect(updateWorkflowStatus).toHaveBeenCalledWith(99, "failed", "claude timeout");
+    expect(updateWorkflowStatus).toHaveBeenCalledWith(99, "failed", "dispatch enqueue failed");
     expect(sendNotification).toHaveBeenCalledTimes(1);
     expect(sendNotification.mock.calls[0][0]).toBe("chat-err");
   });
 
   it("does not send notification when no chat_id", async () => {
-    runClaudeCode.mockReturnValue(Promise.reject(new Error("fail")));
+    insertDispatch.mockImplementation(() => {
+      throw new Error("fail");
+    });
 
     await triggerWorkflow({
       workspace_id: 1,
