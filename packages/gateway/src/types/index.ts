@@ -162,3 +162,24 @@ export interface WorkspaceMember {
   role: "admin" | "member";
   created_at: string;
 }
+
+export interface ArcflowIssueItem {
+  id: string;
+  name: string;
+}
+
+export interface ArcflowIssueListResponse {
+  items: ArcflowIssueItem[];
+}
+
+export interface CreateRequirementDraftRequest {
+  title: string;
+  content: string;
+  dryRun?: boolean;
+}
+
+export interface CreateRequirementDraftResponse {
+  mode: "dry_run" | "created";
+  path: string;
+  preview: string;
+}

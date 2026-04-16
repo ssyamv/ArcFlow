@@ -9,7 +9,8 @@ mock.module("../config", () => ({
     }),
 }));
 
-const { getIssue, updateIssueState, createBugIssue } = await import("./plane");
+const { getIssue, updateIssueState, createBugIssue, listIssuesByAssignee } =
+  await import("./plane");
 
 describe("plane service", () => {
   const originalFetch = globalThis.fetch;
@@ -163,6 +164,26 @@ describe("plane service", () => {
       const issue = await getIssue("test-workspace", "proj-1", "issue-1");
       expect(issue.id).toBe("issue-retry");
       expect(callCount).toBe(2);
+    });
+  });
+  describe("listIssuesByAssignee", () => {
+    it("queries Plane issues by assignee email", async () => {
+      mockFetchFn = mock(async (url: string, init: RequestInit) => {
+        fetchCalls.push({ url, init });
+        return new Response(JSON.stringify({ results: [{ id: "ISS-1", name: "Need review" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+
+      const items = await listIssuesByAssignee("test-workspace", "proj-1", "me@example.com");
+
+      expect(fetchCalls.length).toBe(1);
+      expect(fetchCalls[0].url).toBe(
+        "http://localhost:8082/api/v1/workspaces/test-workspace/projects/proj-1/issues/?assignee__email=me%40example.com",
+      );
+      expect(items).toEqual([{ id: "ISS-1", name: "Need review" }]);
     });
   });
 });

@@ -159,26 +159,31 @@
               </div>
 
               <!-- Artifacts -->
-              <div
-                v-for="art in sidecarOf(msg.id)?.artifacts ?? []"
-                :key="art.id"
-                class="text-xs rounded-md border p-2"
-                style="
-                  border-color: var(--color-border-subtle);
-                  background-color: var(--color-surface-02);
-                "
-              >
-                <div class="font-medium mb-1" style="color: var(--color-text-primary)">
-                  📄 {{ art.title }}
-                  <span class="ml-1 text-[10px]" style="color: var(--color-text-quaternary)"
-                    >({{ art.type }})</span
+              <div v-for="art in sidecarOf(msg.id)?.artifacts ?? []" :key="art.id">
+                <AiArtifactCard
+                  v-if="art.type === 'arcflow_card' || art.type === 'arcflow_status'"
+                  :artifact="art"
+                />
+                <div
+                  v-else
+                  class="text-xs rounded-md border p-2"
+                  style="
+                    border-color: var(--color-border-subtle);
+                    background-color: var(--color-surface-02);
+                  "
+                >
+                  <div class="font-medium mb-1" style="color: var(--color-text-primary)">
+                    📄 {{ art.title }}
+                    <span class="ml-1 text-[10px]" style="color: var(--color-text-quaternary)"
+                      >({{ art.type }})</span
+                    >
+                  </div>
+                  <pre
+                    class="whitespace-pre-wrap text-[11px]"
+                    style="color: var(--color-text-secondary)"
+                    >{{ art.content }}</pre
                   >
                 </div>
-                <pre
-                  class="whitespace-pre-wrap text-[11px]"
-                  style="color: var(--color-text-secondary)"
-                  >{{ art.content }}</pre
-                >
               </div>
             </div>
           </div>
@@ -269,6 +274,7 @@ import { useChatStore } from "../stores/chat";
 import { marked } from "marked";
 import { PanelLeft } from "lucide-vue-next";
 import type { Conversation } from "../api/conversations";
+import AiArtifactCard from "../components/AiArtifactCard.vue";
 
 defineOptions({ name: "AiChatPage" });
 

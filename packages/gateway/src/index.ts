@@ -12,6 +12,7 @@ import { conversationRoutes } from "./routes/conversations";
 import { workspaceRoutes } from "./routes/workspaces";
 import { planeProxyRoutes } from "./routes/plane-proxy";
 import { docsRoutes } from "./routes/docs";
+import { arcflowToolRoutes } from "./routes/arcflow-tools";
 import { startScheduler } from "./scheduler";
 import { ragRoutes } from "./routes/rag";
 import { callbackRoutes } from "./routes/workflow-callback";
@@ -90,6 +91,7 @@ app.route("/api/conversations", conversationRoutes);
 app.route("/api/workspaces", workspaceRoutes);
 app.route("/api/plane", planeProxyRoutes);
 app.route("/api/docs", docsRoutes);
+app.route("/api/arcflow", arcflowToolRoutes);
 
 // ── RAG + callback routes ──────────────────────────────────────────────────────
 const systemSecret = process.env.SYSTEM_SECRET ?? process.env.NANOCLAW_DISPATCH_SECRET ?? "";

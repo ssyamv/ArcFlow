@@ -169,3 +169,22 @@ export async function getActiveCycles(slug: string, projectId: string): Promise<
   };
   return result.results ?? [];
 }
+
+export interface PlaneIssueListItem {
+  id: string;
+  name: string;
+}
+
+export async function listIssuesByAssignee(
+  slug: string,
+  projectId: string,
+  assigneeEmail: string,
+): Promise<PlaneIssueListItem[]> {
+  const result = (await planeRequest(
+    slug,
+    `/projects/${projectId}/issues/?assignee__email=${encodeURIComponent(assigneeEmail)}`,
+    {},
+    0,
+  )) as { results?: PlaneIssueListItem[] };
+  return result.results ?? [];
+}
