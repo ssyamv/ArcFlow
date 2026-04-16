@@ -2,6 +2,9 @@ import { Database } from "bun:sqlite";
 import { getDb } from "./index";
 import type {
   WorkflowExecution,
+  WorkflowExecutionDetail,
+  WorkflowExecutionListItem,
+  WorkflowExecutionSummary,
   WorkflowSubtask,
   WorkflowLink,
   WorkflowType,
@@ -78,6 +81,50 @@ export function listWorkflowExecutions(filters: {
     .all(...values, limit) as WorkflowExecution[];
 
   return { data, total };
+}
+
+function buildExecutionSummary(subtasks: WorkflowSubtask[]): WorkflowExecutionSummary {
+  return {
+    total_targets: new Set(subtasks.map((item) => item.target)).size,
+    completed_targets: new Set(
+      subtasks.filter((item) => item.stage === "ci_success").map((item) => item.target),
+    ).size,
+    latest_stage: subtasks.at(-1)?.stage ?? null,
+  };
+}
+
+export function listWorkflowExecutionsWithSummary(filters: {
+  workflow_type?: WorkflowType;
+  status?: WorkflowStatus;
+  limit?: number;
+}): { data: WorkflowExecutionListItem[]; total: number } {
+  const base = listWorkflowExecutions(filters);
+  return {
+    ...base,
+    data: base.data.map((execution) => ({
+      ...execution,
+      summary:
+        execution.workflow_type === "code_gen"
+          ? buildExecutionSummary(listWorkflowSubtasks(execution.id))
+          : null,
+    })),
+  };
+}
+
+export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail | null {
+  const execution = getWorkflowExecution(id);
+  if (!execution) return null;
+
+  const subtasks = listWorkflowSubtasks(id);
+  const links = listWorkflowLinks(id);
+  const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
+
+  return {
+    ...execution,
+    summary,
+    subtasks,
+    links,
+  };
 }
 
 export function updateWorkflowStatus(

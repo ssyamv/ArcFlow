@@ -148,6 +148,43 @@ describe("api routes", () => {
     expect(body.data.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("GET /api/workflow/executions returns code_gen summary", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SUMMARY",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_running",
+      target: "web",
+      provider: "ibuild",
+      status: "running",
+    });
+
+    const res = await app.request("/api/workflow/executions");
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.data[0]).toEqual(
+      expect.objectContaining({
+        workflow_type: "code_gen",
+        summary: expect.objectContaining({
+          total_targets: 2,
+          completed_targets: 1,
+          latest_stage: "ci_running",
+        }),
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns single execution", async () => {
     const { createWorkflowExecution } = await import("../db/queries");
     const id = createWorkflowExecution({
@@ -162,6 +199,49 @@ describe("api routes", () => {
     expect(body.id).toBe(id);
     expect(body.workflow_type).toBe("prd_to_tech");
     expect(body.plane_issue_id).toBe("ISSUE-DETAIL");
+  });
+
+  it("GET /api/workflow/executions/:id returns subtasks and links", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, createWorkflowLink } =
+      await import("../db/queries");
+    const sourceId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SOURCE",
+    });
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DETAIL-EXTENDED",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowLink({
+      source_execution_id: sourceId,
+      target_execution_id: id,
+      link_type: "derived_from",
+      metadata: { source_stage: "success" },
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.subtasks).toHaveLength(2);
+    expect(payload.links).toEqual(
+      expect.arrayContaining([expect.objectContaining({ link_type: "derived_from" })]),
+    );
   });
 
   it("GET /api/workflow/executions/:id returns 404 for non-existent", async () => {

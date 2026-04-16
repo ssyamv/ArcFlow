@@ -58,6 +58,22 @@ export interface WorkflowLink {
   created_at: string;
 }
 
+export interface WorkflowExecutionSummary {
+  total_targets: number;
+  completed_targets: number;
+  latest_stage: string | null;
+}
+
+export interface WorkflowExecutionListItem extends WorkflowExecution {
+  summary: WorkflowExecutionSummary | null;
+}
+
+export interface WorkflowExecutionDetail extends WorkflowExecution {
+  summary: WorkflowExecutionSummary | null;
+  subtasks: WorkflowSubtask[];
+  links: WorkflowLink[];
+}
+
 // Bug 修复重试记录
 export interface BugFixRetry {
   id: number;
@@ -96,7 +112,7 @@ export interface TriggerWorkflowResponse {
 }
 
 export interface ExecutionListResponse {
-  data: WorkflowExecution[];
+  data: WorkflowExecutionListItem[];
   total: number;
 }
 

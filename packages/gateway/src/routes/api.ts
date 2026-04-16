@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import {
-  getWorkflowExecution,
-  listWorkflowExecutions,
+  getWorkflowExecutionDetail,
+  listWorkflowExecutionsWithSummary,
   listWebhookLogs,
   getWorkspace,
   getWorkspaceMemberRole,
@@ -57,10 +57,10 @@ apiRoutes.get("/workflow/executions/:id", (c) => {
   const id = Number(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
 
-  const execution = getWorkflowExecution(id);
-  if (!execution) return c.json({ error: "Not found" }, 404);
+  const detail = getWorkflowExecutionDetail(id);
+  if (!detail) return c.json({ error: "Not found" }, 404);
 
-  return c.json(execution);
+  return c.json(detail);
 });
 
 apiRoutes.get("/workflow/executions", (c) => {
@@ -68,7 +68,7 @@ apiRoutes.get("/workflow/executions", (c) => {
   const status = c.req.query("status") as WorkflowStatus | undefined;
   const limit = Number(c.req.query("limit")) || 20;
 
-  const result = listWorkflowExecutions({ workflow_type: workflowType, status, limit });
+  const result = listWorkflowExecutionsWithSummary({ workflow_type: workflowType, status, limit });
   return c.json(result);
 });
 
