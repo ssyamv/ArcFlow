@@ -229,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { fetchExecution, type ExecutionDetail } from "../api/workflow";
 import { typeLabel } from "../utils/workflow";
@@ -237,10 +237,11 @@ import { typeLabel } from "../utils/workflow";
 defineOptions({ name: "WorkflowDetail" });
 
 const route = useRoute();
-const id = Number(route.params.id);
+const id = computed(() => Number(route.params.id));
 const execution = ref<ExecutionDetail | null>(null);
 const loading = ref(true);
 const error = ref("");
+let activeRequest = 0;
 
 const statusLabelMap: Record<string, string> = {
   pending: "待执行",
@@ -259,15 +260,36 @@ function statusColor(status: string) {
   return map[status] ?? "var(--color-text-quaternary)";
 }
 
-onMounted(async () => {
+async function loadExecution(executionId: number) {
+  activeRequest += 1;
+  const requestId = activeRequest;
+  loading.value = true;
+  error.value = "";
+  execution.value = null;
+
   try {
-    execution.value = await fetchExecution(id);
+    const result = await fetchExecution(executionId);
+    if (requestId === activeRequest) {
+      execution.value = result;
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "加载失败";
+    if (requestId === activeRequest) {
+      error.value = e instanceof Error ? e.message : "加载失败";
+    }
   } finally {
-    loading.value = false;
+    if (requestId === activeRequest) {
+      loading.value = false;
+    }
   }
-});
+}
+
+watch(
+  id,
+  (executionId) => {
+    void loadExecution(executionId);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
