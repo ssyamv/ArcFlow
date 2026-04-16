@@ -84,13 +84,52 @@ export function listWorkflowExecutions(filters: {
 }
 
 function buildExecutionSummary(subtasks: WorkflowSubtask[]): WorkflowExecutionSummary {
+  const latestSubtaskByTarget = new Map<string, WorkflowSubtask>();
+
+  for (const subtask of subtasks) {
+    latestSubtaskByTarget.set(subtask.target, subtask);
+  }
+
   return {
-    total_targets: new Set(subtasks.map((item) => item.target)).size,
-    completed_targets: new Set(
-      subtasks.filter((item) => item.stage === "ci_success").map((item) => item.target),
-    ).size,
+    total_targets: latestSubtaskByTarget.size,
+    completed_targets: Array.from(latestSubtaskByTarget.values()).filter(
+      (item) => item.stage === "ci_success",
+    ).length,
     latest_stage: subtasks.at(-1)?.stage ?? null,
   };
+}
+
+function listWorkflowExecutionSummaries(
+  executionIds: number[],
+): Map<number, WorkflowExecutionSummary | null> {
+  const summaries = new Map<number, WorkflowExecutionSummary | null>();
+  if (executionIds.length === 0) return summaries;
+
+  const db = getDb();
+  const placeholders = executionIds.map(() => "?").join(", ");
+  const subtasks = db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id IN (${placeholders})
+       ORDER BY execution_id ASC, created_at ASC, id ASC`,
+    )
+    .all(...executionIds) as WorkflowSubtask[];
+
+  const subtasksByExecutionId = new Map<number, WorkflowSubtask[]>();
+  for (const subtask of subtasks) {
+    const existing = subtasksByExecutionId.get(subtask.execution_id);
+    if (existing) {
+      existing.push(subtask);
+    } else {
+      subtasksByExecutionId.set(subtask.execution_id, [subtask]);
+    }
+  }
+
+  for (const executionId of executionIds) {
+    summaries.set(executionId, buildExecutionSummary(subtasksByExecutionId.get(executionId) ?? []));
+  }
+
+  return summaries;
 }
 
 export function listWorkflowExecutionsWithSummary(filters: {
@@ -99,13 +138,18 @@ export function listWorkflowExecutionsWithSummary(filters: {
   limit?: number;
 }): { data: WorkflowExecutionListItem[]; total: number } {
   const base = listWorkflowExecutions(filters);
+  const codeGenExecutionIds = base.data
+    .filter((execution) => execution.workflow_type === "code_gen")
+    .map((execution) => execution.id);
+  const summaries = listWorkflowExecutionSummaries(codeGenExecutionIds);
+
   return {
     ...base,
     data: base.data.map((execution) => ({
       ...execution,
       summary:
         execution.workflow_type === "code_gen"
-          ? buildExecutionSummary(listWorkflowSubtasks(execution.id))
+          ? (summaries.get(execution.id) ?? buildExecutionSummary([]))
           : null,
     })),
   };
@@ -116,7 +160,7 @@ export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail 
   if (!execution) return null;
 
   const subtasks = listWorkflowSubtasks(id);
-  const links = listWorkflowLinks(id);
+  const links = listWorkflowLinksForExecution(id);
   const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
 
   return {
@@ -382,6 +426,17 @@ export function listWorkflowLinks(targetExecutionId: number): WorkflowLink[] {
        ORDER BY created_at ASC, id ASC`,
     )
     .all(targetExecutionId) as WorkflowLink[];
+}
+
+export function listWorkflowLinksForExecution(executionId: number): WorkflowLink[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE target_execution_id = ? OR source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId, executionId) as WorkflowLink[];
 }
 
 export function listWorkflowLinksBySourceExecution(

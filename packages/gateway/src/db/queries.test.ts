@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { getDb, closeDb } from "./index";
 import {
   createWorkflowExecution,
   getWorkflowExecution,
   updateWorkflowStatus,
   listWorkflowExecutions,
+  listWorkflowExecutionsWithSummary,
   createWorkflowSubtask,
   listWorkflowSubtasks,
   updateWorkflowSubtaskStatusByStage,
@@ -12,6 +13,7 @@ import {
   createWorkflowLink,
   listWorkflowLinks,
   listWorkflowLinksBySourceExecution,
+  getWorkflowExecutionDetail,
   recordWebhookEvent,
   isEventProcessed,
   cleanExpiredEvents,
@@ -451,6 +453,120 @@ describe("workflow_execution", () => {
       target_execution_id: targetExecutionId,
       link_type: "spawned_on_ci_failure",
     });
+  });
+
+  it("returns inbound and outbound workflow links in execution detail", () => {
+    const parentExecutionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
+    const codeGenExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+    const bugExecutionId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+    });
+
+    createWorkflowLink({
+      source_execution_id: parentExecutionId,
+      target_execution_id: codeGenExecutionId,
+      link_type: "derived_from",
+    });
+    createWorkflowLink({
+      source_execution_id: codeGenExecutionId,
+      target_execution_id: bugExecutionId,
+      link_type: "spawned_on_ci_failure",
+    });
+
+    const detail = getWorkflowExecutionDetail(codeGenExecutionId);
+    expect(detail).not.toBeNull();
+    expect(detail!.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ link_type: "derived_from" }),
+        expect.objectContaining({ link_type: "spawned_on_ci_failure" }),
+      ]),
+    );
+  });
+
+  it("builds code_gen summary from each target's latest stage", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "ibuild",
+      status: "failed",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_success",
+      target: "web",
+      provider: "ibuild",
+      status: "success",
+    });
+
+    const result = listWorkflowExecutionsWithSummary({ workflow_type: "code_gen" });
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.summary).toEqual({
+      total_targets: 2,
+      completed_targets: 1,
+      latest_stage: "ci_success",
+    });
+  });
+
+  it("loads code_gen summaries without per-execution subtask lookups", () => {
+    const firstExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+    const secondExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowSubtask({
+      execution_id: firstExecutionId,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: secondExecutionId,
+      stage: "ci_failed",
+      target: "web",
+      provider: "ibuild",
+      status: "failed",
+    });
+
+    const db = getDb();
+    const querySpy = spyOn(db, "query");
+
+    const result = listWorkflowExecutionsWithSummary({ workflow_type: "code_gen" });
+
+    expect(result.data).toHaveLength(2);
+    const querySql = querySpy.mock.calls.map((call) => String(call[0]));
+    expect(
+      querySql.some(
+        (sql) => sql.includes("FROM workflow_subtask") && sql.includes("WHERE execution_id = ?"),
+      ),
+    ).toBe(false);
+    expect(
+      querySql.some((sql) => sql.includes("FROM workflow_subtask") && sql.includes(" IN ")),
+    ).toBe(true);
   });
 
   it("enforces foreign keys for workflow subtasks", () => {

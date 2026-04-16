@@ -185,6 +185,43 @@ describe("api routes", () => {
     );
   });
 
+  it("GET /api/workflow/executions summary counts only targets whose latest stage is ci_success", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SUMMARY-CONFLICT",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "ibuild",
+      status: "failed",
+    });
+
+    const res = await app.request("/api/workflow/executions");
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.data[0]).toEqual(
+      expect.objectContaining({
+        workflow_type: "code_gen",
+        summary: expect.objectContaining({
+          total_targets: 1,
+          completed_targets: 0,
+          latest_stage: "ci_failed",
+        }),
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns single execution", async () => {
     const { createWorkflowExecution } = await import("../db/queries");
     const id = createWorkflowExecution({
@@ -228,11 +265,22 @@ describe("api routes", () => {
       provider: "ibuild",
       status: "success",
     });
+    const bugAnalysisId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      plane_issue_id: "ISSUE-BUG",
+    });
     createWorkflowLink({
       source_execution_id: sourceId,
       target_execution_id: id,
       link_type: "derived_from",
       metadata: { source_stage: "success" },
+    });
+    createWorkflowLink({
+      source_execution_id: id,
+      target_execution_id: bugAnalysisId,
+      link_type: "spawned_on_ci_failure",
+      metadata: { external_run_id: "run-404" },
     });
 
     const res = await app.request(`/api/workflow/executions/${id}`);
@@ -240,7 +288,10 @@ describe("api routes", () => {
     const payload = await res.json();
     expect(payload.subtasks).toHaveLength(2);
     expect(payload.links).toEqual(
-      expect.arrayContaining([expect.objectContaining({ link_type: "derived_from" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ link_type: "derived_from" }),
+        expect.objectContaining({ link_type: "spawned_on_ci_failure" }),
+      ]),
     );
   });
 
