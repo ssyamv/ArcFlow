@@ -193,6 +193,7 @@ describe("api routes", () => {
 describe("nanoclaw dispatch", () => {
   let app: Hono;
   let db: ReturnType<typeof getDb>;
+  let dispatchUserId: number;
 
   beforeEach(() => {
     process.env.NODE_ENV = "test";
@@ -210,12 +211,19 @@ describe("nanoclaw dispatch", () => {
   });
 
   it("accepts arcflow-prd-to-tech with plane_issue_id and persists timeout_at", async () => {
+    const { upsertUser } = await import("../db/queries");
+    dispatchUserId = upsertUser({
+      feishu_user_id: "dispatch-user",
+      name: "Dispatch User",
+    }).id;
+
     const res = await app.request("/api/nanoclaw/dispatch", {
       method: "POST",
       headers: { "content-type": "application/json", "X-System-Secret": "s" },
       body: JSON.stringify({
         skill: "arcflow-prd-to-tech",
         workspace_id: "w",
+        user_id: dispatchUserId,
         plane_issue_id: "PROJ-1",
         input: { prd_path: "prd/x.md" },
       }),
