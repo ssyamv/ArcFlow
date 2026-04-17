@@ -38,7 +38,7 @@ function migrateDispatchColumns(db: Database): void {
     UPDATE dispatch
        SET status = 'running',
            started_at = COALESCE(started_at, created_at),
-           last_callback_at = COALESCE(last_callback_at, created_at),
+           last_callback_at = NULL,
            completed_at = NULL
      WHERE status = 'processing'
   `);

@@ -931,4 +931,38 @@ describe("dispatch", () => {
     expect(row.callback_replay_count).toBe(1);
     expect(row.error_message).toBeNull();
   });
+
+  it("claimDispatchForCallback can claim a legacy running dispatch without timeout_at", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+    });
+    db.prepare(
+      "UPDATE dispatch SET status = 'running', started_at = 1234, last_callback_at = NULL, timeout_at = NULL WHERE id = ?",
+    ).run(id);
+
+    const claimed = claimDispatchForCallback(db, id, 2_222, 5_000);
+
+    expect(claimed).toBe(true);
+    const row = db
+      .prepare(
+        "SELECT status, started_at, last_callback_at, timeout_at, callback_replay_count, error_message FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
+      status: string;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
+      callback_replay_count: number;
+      error_message: string | null;
+    };
+    expect(row.status).toBe("running");
+    expect(row.started_at).toBe(1234);
+    expect(row.last_callback_at).toBe(2_222);
+    expect(row.timeout_at).toBe(7_222);
+    expect(row.callback_replay_count).toBe(0);
+    expect(row.error_message).toBeNull();
+  });
 });

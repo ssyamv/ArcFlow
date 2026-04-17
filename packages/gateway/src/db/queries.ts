@@ -1045,6 +1045,7 @@ export function claimDispatchForCallback(
        AND (
          status = 'pending'
          OR status = 'timeout'
+         OR (status = 'running' AND timeout_at IS NULL)
        )`,
     [now, now, nextTimeoutAt, id],
   );

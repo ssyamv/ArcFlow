@@ -26,7 +26,7 @@ function createOldDispatchDb(path: string) {
     );
   `);
   db.exec(
-    "INSERT INTO dispatch (id, workspace_id, skill, input_json, status, created_at, timeout_at) VALUES ('legacy-1', 'w', 'arcflow-code-gen', '{}', 'processing', 1111, 2222)",
+    "INSERT INTO dispatch (id, workspace_id, skill, input_json, status, created_at, timeout_at) VALUES ('legacy-1', 'w', 'arcflow-code-gen', '{}', 'processing', 1111, NULL)",
   );
   db.close();
 }
@@ -70,7 +70,7 @@ describe("db startup migration", () => {
     }
   });
 
-  it("upgrades an old dispatch table without startup failure", () => {
+  it("upgrades an old dispatch table without startup failure", async () => {
     const db = getDb();
     const columns = db.prepare("PRAGMA table_info(dispatch)").all() as Array<{ name: string }>;
     const names = new Set(columns.map((column) => column.name));
@@ -85,22 +85,44 @@ describe("db startup migration", () => {
 
     const row = db
       .prepare(
-        "SELECT status, started_at, last_callback_at, error_message, result_summary, callback_replay_count FROM dispatch WHERE id = 'legacy-1'",
+        "SELECT status, started_at, last_callback_at, timeout_at, error_message, result_summary, callback_replay_count FROM dispatch WHERE id = 'legacy-1'",
       )
       .get() as {
       status: string;
       started_at: number | null;
       last_callback_at: number | null;
+      timeout_at: number | null;
       error_message: string | null;
       result_summary: string | null;
       callback_replay_count: number;
     };
     expect(row.status).toBe("running");
     expect(row.started_at).toBe(1111);
-    expect(row.last_callback_at).toBe(1111);
+    expect(row.last_callback_at).toBeNull();
+    expect(row.timeout_at).toBeNull();
     expect(row.error_message).toBeNull();
     expect(row.result_summary).toBeNull();
     expect(row.callback_replay_count).toBe(0);
+
+    const { claimDispatchForCallback } = await import("./queries");
+    const claimed = claimDispatchForCallback(db, "legacy-1", 2222, 5000);
+    expect(claimed).toBe(true);
+    const claimedRow = db
+      .prepare(
+        "SELECT status, started_at, last_callback_at, timeout_at, callback_replay_count FROM dispatch WHERE id = 'legacy-1'",
+      )
+      .get() as {
+      status: string;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
+      callback_replay_count: number;
+    };
+    expect(claimedRow.status).toBe("running");
+    expect(claimedRow.started_at).toBe(1111);
+    expect(claimedRow.last_callback_at).toBe(2222);
+    expect(claimedRow.timeout_at).toBe(7222);
+    expect(claimedRow.callback_replay_count).toBe(0);
 
     const index = db
       .prepare(
