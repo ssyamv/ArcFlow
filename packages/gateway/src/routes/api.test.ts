@@ -268,6 +268,40 @@ describe("api routes", () => {
     expect(body.plane_issue_id).toBe("ISSUE-DETAIL");
   });
 
+  it("GET /api/workflow/executions/:id returns bug_report_summary for bug_analysis", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      plane_issue_id: "ISS-BUG-1",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "analysis_ready",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      output_ref: JSON.stringify({
+        summary: "Type mismatch in webhook parser",
+        root_cause: "branch_name is assumed to exist",
+        suggested_fix: "Guard branch fallback lookup",
+        confidence: "high",
+        next_action: "auto_fix_candidate",
+      }),
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.bug_report_summary).toEqual({
+      summary: "Type mismatch in webhook parser",
+      root_cause: "branch_name is assumed to exist",
+      suggested_fix: "Guard branch fallback lookup",
+      confidence: "high",
+      next_action: "auto_fix_candidate",
+    });
+  });
+
   it("GET /api/workflow/executions/:id returns subtasks and links", async () => {
     const { createWorkflowExecution, createWorkflowSubtask, createWorkflowLink } =
       await import("../db/queries");

@@ -79,6 +79,14 @@ export interface CurrentStageSummary {
   status: string | null;
 }
 
+export interface WorkflowBugReportSummary {
+  summary: string;
+  root_cause: string;
+  suggested_fix: string;
+  confidence: "high" | "medium" | "low";
+  next_action: "auto_fix_candidate" | "manual_handoff";
+}
+
 export interface WorkflowDispatch {
   id: string;
   workspace_id: string;
@@ -138,6 +146,7 @@ export interface ExecutionDetail {
   completed_at: string | null;
   created_at: string;
   summary?: WorkflowSummary | null;
+  bug_report_summary?: WorkflowBugReportSummary | null;
   current_stage_summary?: CurrentStageSummary | null;
   subtasks?: WorkflowSubtask[];
   dispatches?: WorkflowDispatch[];

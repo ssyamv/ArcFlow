@@ -4,6 +4,7 @@ import { closeDb, getDb } from "../db";
 import {
   createWorkflowExecution,
   createWorkflowSubtask,
+  insertDispatch,
   getWorkflowExecution,
   getWorkflowExecutionDetail,
   listWorkflowExecutions,
@@ -49,6 +50,18 @@ describe("webhook routes", () => {
       status: "success",
       branch_name: overrides.branchName ?? "feature/ISS-120-backend",
       repo_name: overrides.repoName ?? "backend",
+    });
+
+    insertDispatch(getDb(), {
+      workspaceId: "ws-test",
+      skill: "arcflow-code-gen",
+      input: {
+        execution_id: executionId,
+        target: overrides.target ?? "backend",
+      },
+      planeIssueId: overrides.planeIssueId ?? "ISS-120",
+      sourceExecutionId: executionId,
+      sourceStage: "dispatch",
     });
 
     return executionId;
@@ -272,6 +285,62 @@ describe("webhook routes", () => {
       ]),
     );
     expect(getWorkflowExecution(executionId)?.status).toBe("failed");
+  });
+
+  it("POST /webhook/cicd dispatches arcflow-bug-analysis for spawned bug workflow", async () => {
+    const executionId = seedCodegenExecution({
+      planeIssueId: "ISS-300",
+      target: "backend",
+      branchName: "feature/ISS-300-backend",
+    });
+
+    const res = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "failed",
+        issue_id: "ISS-300",
+        repository: "backend",
+        branch: "feature/ISS-300-backend",
+        run_id: "run-300",
+        log_url: "https://ci.example/logs/run-300",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const row = getDb()
+      .prepare(
+        `SELECT id, skill, source_execution_id, plane_issue_id, input_json
+           FROM dispatch
+          WHERE skill = 'arcflow-bug-analysis'
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1`,
+      )
+      .get() as {
+      id: string;
+      skill: string;
+      source_execution_id: number | null;
+      plane_issue_id: string | null;
+      input_json: string;
+    } | null;
+
+    expect(row).not.toBeNull();
+    expect(row?.skill).toBe("arcflow-bug-analysis");
+    expect(row?.plane_issue_id).toBe("ISS-300");
+
+    const bugExecution = listWorkflowExecutions({ workflow_type: "bug_analysis" }).data[0];
+    expect(row?.source_execution_id).toBe(bugExecution?.id);
+    expect(row?.source_execution_id).not.toBe(executionId);
+    expect(JSON.parse(row?.input_json ?? "{}")).toEqual(
+      expect.objectContaining({
+        target: "backend",
+        source_execution_id: executionId,
+        branch_name: "feature/ISS-300-backend",
+        external_run_id: "run-300",
+        log_url: "https://ci.example/logs/run-300",
+      }),
+    );
   });
 
   it("POST /webhook/cicd prefers branch metadata over latest issue execution", async () => {

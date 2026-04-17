@@ -15,6 +15,7 @@ import {
   listWorkflowLinksBySourceExecution,
   syncCodegenExecutionStatus,
   updateWorkflowSubtaskStatusByStage,
+  findLatestDispatchWorkspaceIdByExecution,
 } from "../db/queries";
 import { getDb } from "../db";
 import { extractIssueIdFromBranch } from "../services/ibuild";
@@ -41,6 +42,8 @@ function dispatchToNanoclaw(params: {
   workspaceId: string;
   planeIssueId?: string;
   input: unknown;
+  sourceExecutionId?: number;
+  sourceStage?: string;
 }): string {
   const db = getDb();
   const dispatchId = insertDispatch(db, {
@@ -48,6 +51,8 @@ function dispatchToNanoclaw(params: {
     skill: params.skill,
     input: params.input,
     planeIssueId: params.planeIssueId,
+    sourceExecutionId: params.sourceExecutionId,
+    sourceStage: params.sourceStage,
     timeoutAt: Date.now() + 10 * 60 * 1000,
   });
   const nanoclawUrl = process.env.NANOCLAW_URL;
@@ -214,6 +219,26 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
         external_run_id: event.externalRunId || undefined,
         branch_name: event.branchName ?? undefined,
         payload: event.rawPayload,
+      },
+    });
+    const workspaceId = findLatestDispatchWorkspaceIdByExecution(execution.id) ?? "system";
+    dispatchToNanoclaw({
+      skill: "arcflow-bug-analysis",
+      workspaceId,
+      planeIssueId: effectivePlaneIssueId,
+      sourceExecutionId: bugExecutionId,
+      sourceStage: "analysis_dispatch",
+      input: {
+        execution_id: bugExecutionId,
+        source_execution_id: execution.id,
+        workspace_id: workspaceId,
+        target: event.target,
+        provider: event.provider,
+        external_run_id: event.externalRunId || undefined,
+        branch_name: event.branchName ?? undefined,
+        repo_name: event.target,
+        log_url: event.logUrl ?? undefined,
+        raw_payload: event.rawPayload,
       },
     });
   }

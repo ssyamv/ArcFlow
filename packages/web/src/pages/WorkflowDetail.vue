@@ -127,6 +127,46 @@
       </div>
 
       <div
+        v-if="execution.workflow_type === 'bug_analysis' && execution.bug_report_summary"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          Bug 报告摘要
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+          <div class="md:col-span-2">
+            <div class="field-label">摘要</div>
+            <div class="field-value">{{ execution.bug_report_summary.summary }}</div>
+          </div>
+          <div class="md:col-span-2">
+            <div class="field-label">根因</div>
+            <div class="field-value">{{ execution.bug_report_summary.root_cause }}</div>
+          </div>
+          <div class="md:col-span-2">
+            <div class="field-label">建议修复</div>
+            <div class="field-value">{{ execution.bug_report_summary.suggested_fix }}</div>
+          </div>
+          <div>
+            <div class="field-label">置信度</div>
+            <div class="field-value">{{ execution.bug_report_summary.confidence }}</div>
+          </div>
+          <div>
+            <div class="field-label">下一步</div>
+            <div class="field-value">
+              {{ bugNextActionLabel(execution.bug_report_summary.next_action) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="execution.current_stage_summary"
         class="rounded-lg p-5"
         style="
@@ -462,7 +502,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { fetchExecution, type ExecutionDetail } from "../api/workflow";
+import {
+  fetchExecution,
+  type ExecutionDetail,
+  type WorkflowBugReportSummary,
+} from "../api/workflow";
 import { typeLabel } from "../utils/workflow";
 
 defineOptions({ name: "WorkflowDetail" });
@@ -496,6 +540,10 @@ function statusColor(status: string) {
 function statusLabel(status: string | null | undefined) {
   if (!status) return "-";
   return statusLabelMap[status] ?? status;
+}
+
+function bugNextActionLabel(value: WorkflowBugReportSummary["next_action"]) {
+  return value === "auto_fix_candidate" ? "可进入自动修复" : "需人工接管";
 }
 
 function formatTimestamp(value: number | null) {

@@ -55,6 +55,8 @@ export interface CallbackDeps {
     stage: string;
     status: "pending" | "running" | "success" | "failed";
     provider?: string;
+    input_ref?: string;
+    output_ref?: string;
     branch_name?: string;
     repo_name?: string;
     log_url?: string;
@@ -139,6 +141,60 @@ function parseCodegenDispatchInput(input: unknown) {
   };
 }
 
+function parseBugAnalysisDispatchInput(input: unknown) {
+  if (!input || typeof input !== "object") {
+    throw new Error("bug_analysis dispatch input is missing");
+  }
+
+  const payload = input as Record<string, unknown>;
+  const executionId = Number(payload.execution_id);
+  const target = typeof payload.target === "string" ? payload.target : "";
+
+  if (!Number.isFinite(executionId) || !target) {
+    throw new Error("bug_analysis dispatch input is incomplete");
+  }
+
+  return {
+    execution_id: executionId,
+    target,
+    branch_name: typeof payload.branch_name === "string" ? payload.branch_name : undefined,
+    repo_name: typeof payload.repo_name === "string" ? payload.repo_name : undefined,
+    log_url: typeof payload.log_url === "string" ? payload.log_url : undefined,
+  };
+}
+
+function parseBugAnalysisResult(content: string) {
+  const parsed = JSON.parse(content) as {
+    summary?: unknown;
+    root_cause?: unknown;
+    suggested_fix?: unknown;
+    confidence?: unknown;
+    next_action?: unknown;
+  };
+
+  const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+  const rootCause = typeof parsed.root_cause === "string" ? parsed.root_cause.trim() : "";
+  const suggestedFix = typeof parsed.suggested_fix === "string" ? parsed.suggested_fix.trim() : "";
+
+  if (!summary || !rootCause || !suggestedFix) {
+    throw new Error("bug analysis result is incomplete");
+  }
+  if (!["high", "medium", "low"].includes(String(parsed.confidence))) {
+    throw new Error("bug analysis confidence is invalid");
+  }
+  if (!["auto_fix_candidate", "manual_handoff"].includes(String(parsed.next_action))) {
+    throw new Error("bug analysis next_action is invalid");
+  }
+
+  return {
+    summary,
+    root_cause: rootCause,
+    suggested_fix: suggestedFix,
+    confidence: parsed.confidence as "high" | "medium" | "low",
+    next_action: parsed.next_action as "auto_fix_candidate" | "manual_handoff",
+  };
+}
+
 export function createCallbackHandler(deps: CallbackDeps) {
   return {
     async handle(p: CallbackPayload): Promise<boolean> {
@@ -180,6 +236,8 @@ export function createCallbackHandler(deps: CallbackDeps) {
         stage: string;
         status: "pending" | "running" | "success" | "failed";
         provider?: string;
+        input_ref?: string;
+        output_ref?: string;
         branch_name?: string;
         repo_name?: string;
         log_url?: string;
@@ -253,6 +311,20 @@ export function createCallbackHandler(deps: CallbackDeps) {
               error_message: p.error,
             });
             await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
+          } else if (skill === "arcflow-bug-analysis") {
+            const dispatchInput = parseBugAnalysisDispatchInput(rec.input);
+            await markSubtaskProgress({
+              execution_id: dispatchInput.execution_id,
+              target: dispatchInput.target,
+              stage: "analysis_failed",
+              status: "failed",
+              provider: "nanoclaw",
+              branch_name: dispatchInput.branch_name,
+              repo_name: dispatchInput.repo_name,
+              log_url: dispatchInput.log_url,
+              error_message: p.error,
+            });
+            await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
           }
         } else if (skill === "arcflow-prd-to-tech") {
           await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
@@ -272,7 +344,21 @@ export function createCallbackHandler(deps: CallbackDeps) {
             });
           }
         } else if (skill === "arcflow-bug-analysis") {
+          const dispatchInput = parseBugAnalysisDispatchInput(rec.input);
+          const report = parseBugAnalysisResult(content);
+          await markSubtaskProgress({
+            execution_id: dispatchInput.execution_id,
+            target: dispatchInput.target,
+            stage: "analysis_ready",
+            status: "success",
+            provider: "nanoclaw",
+            branch_name: dispatchInput.branch_name,
+            repo_name: dispatchInput.repo_name,
+            log_url: dispatchInput.log_url,
+            output_ref: JSON.stringify(report),
+          });
           if (piid) await deps.commentPlaneIssue({ planeIssueId: piid, content });
+          await deps.updateExecutionStatus?.(dispatchInput.execution_id, "success");
         } else if (skill === "arcflow-code-gen") {
           const result = parseCodegenResult(content);
           await markSubtaskProgress({
@@ -295,6 +381,24 @@ export function createCallbackHandler(deps: CallbackDeps) {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (skill === "arcflow-bug-analysis") {
+          try {
+            const dispatchInput = parseBugAnalysisDispatchInput(rec.input);
+            await markSubtaskProgress({
+              execution_id: dispatchInput.execution_id,
+              target: dispatchInput.target,
+              stage: "analysis_failed",
+              status: "failed",
+              provider: "nanoclaw",
+              branch_name: dispatchInput.branch_name,
+              repo_name: dispatchInput.repo_name,
+              log_url: dispatchInput.log_url,
+              error_message: message,
+            });
+          } catch {
+            // Best-effort fallback only; keep propagating the original error path.
+          }
+        }
         await propagateSideEffectFailure(message);
         await deps.markDone(p.dispatch_id, {
           status: "failed",

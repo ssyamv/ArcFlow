@@ -18,6 +18,22 @@ describe("workflow-callback dispatcher", () => {
     };
   }
 
+  function makeBugAnalysisDispatchRecord(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "d-bug",
+      workspaceId: "3",
+      skill: "arcflow-bug-analysis",
+      planeIssueId: "ISS-401",
+      status: "pending" as const,
+      input: {
+        execution_id: 41,
+        target: "backend",
+      },
+      sourceExecutionId: 41,
+      ...overrides,
+    };
+  }
+
   it("routes arcflow-prd-to-tech to writeTechDesign", async () => {
     const calls: unknown[] = [];
     const handler = createCallbackHandler({
@@ -58,9 +74,9 @@ describe("workflow-callback dispatcher", () => {
       commentPlaneIssue: async () => {},
       markSubtaskProgress: async () => {},
       loadDispatch: async (id) => ({
+        ...makeBugAnalysisDispatchRecord(),
         id,
         workspaceId: "w",
-        skill: "arcflow-bug-analysis",
         status: done ? ("success" as const) : ("pending" as const),
       }),
       markDone: async (id, update) => {
@@ -74,13 +90,31 @@ describe("workflow-callback dispatcher", () => {
       dispatch_id: "d1",
       skill: "arcflow-bug-analysis",
       status: "success",
-      result: { content: "x", planeIssueId: "PROJ-9" },
+      result: {
+        content: JSON.stringify({
+          summary: "callback summary",
+          root_cause: "callback root cause",
+          suggested_fix: "callback suggested fix",
+          confidence: "high",
+          next_action: "auto_fix_candidate",
+        }),
+        planeIssueId: "PROJ-9",
+      },
     });
     const r2 = await handler.handle({
       dispatch_id: "d1",
       skill: "arcflow-bug-analysis",
       status: "success",
-      result: { content: "x", planeIssueId: "PROJ-9" },
+      result: {
+        content: JSON.stringify({
+          summary: "callback summary",
+          root_cause: "callback root cause",
+          suggested_fix: "callback suggested fix",
+          confidence: "high",
+          next_action: "auto_fix_candidate",
+        }),
+        planeIssueId: "PROJ-9",
+      },
     });
     expect(r1).toBe(true);
     expect(r2).toBe(false);
@@ -119,6 +153,89 @@ describe("workflow-callback dispatcher", () => {
       error: "oops",
     });
     expect(calls.length).toBe(0);
+  });
+
+  it("writes analysis_ready for successful arcflow-bug-analysis callbacks", async () => {
+    const markSubtaskProgress = mock(async () => {});
+    const commentPlaneIssue = mock(async () => {});
+    const updateExecutionStatus = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue,
+      markSubtaskProgress,
+      updateExecutionStatus,
+      loadDispatch: async () => makeBugAnalysisDispatchRecord(),
+      markDone: async () => true,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-bug",
+      skill: "arcflow-bug-analysis",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          summary: "Type mismatch in payload parser",
+          root_cause: "branch_name optionality was ignored",
+          suggested_fix: "Guard fallback lookup",
+          confidence: "medium",
+          next_action: "manual_handoff",
+        }),
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 41,
+        target: "backend",
+        stage: "analysis_ready",
+        status: "success",
+        output_ref: expect.stringContaining('"next_action":"manual_handoff"'),
+      }),
+    );
+    expect(commentPlaneIssue).toHaveBeenCalled();
+    expect(updateExecutionStatus).toHaveBeenCalledWith(41, "success");
+  });
+
+  it("marks analysis_failed when bug-analysis payload is malformed", async () => {
+    const markSubtaskProgress = mock(async () => {});
+    const updateExecutionStatus = mock(async () => {});
+    const markDone = mock(async () => true);
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress,
+      updateExecutionStatus,
+      loadDispatch: async () => makeBugAnalysisDispatchRecord({ execution_id: 42 }),
+      markDone,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d-bug",
+        skill: "arcflow-bug-analysis",
+        status: "success",
+        result: { content: '{"summary":"missing fields"}' },
+      }),
+    ).rejects.toThrow();
+
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 41,
+        target: "backend",
+        stage: "analysis_failed",
+        status: "failed",
+      }),
+    );
+    expect(updateExecutionStatus).toHaveBeenCalledWith(41, "failed", expect.any(String));
+    expect(markDone).toHaveBeenCalledWith(
+      "d-bug",
+      expect.objectContaining({
+        status: "failed",
+      }),
+    );
   });
 
   it("writes code_gen callback result into generate subtask and branch metadata", async () => {

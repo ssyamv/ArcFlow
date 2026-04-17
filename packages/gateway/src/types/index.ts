@@ -15,6 +15,8 @@ export type WorkflowDispatchStatus = "pending" | "running" | "success" | "failed
 
 // Bug 修复状态
 export type BugFixStatus = "pending" | "fixing" | "fixed" | "escalated";
+export type BugAnalysisNextAction = "auto_fix_candidate" | "manual_handoff";
+export type BugAnalysisConfidence = "high" | "medium" | "low";
 
 // 工作流执行记录
 export interface WorkflowExecution {
@@ -87,6 +89,14 @@ export interface WorkflowExecutionSummary {
   latest_stage: string | null;
 }
 
+export interface WorkflowBugReportSummary {
+  summary: string;
+  root_cause: string;
+  suggested_fix: string;
+  confidence: BugAnalysisConfidence;
+  next_action: BugAnalysisNextAction;
+}
+
 export interface WorkflowCurrentStageSummary {
   label: string;
   stage: string | null;
@@ -100,6 +110,7 @@ export interface WorkflowExecutionListItem extends WorkflowExecution {
 
 export interface WorkflowExecutionDetail extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
+  bug_report_summary: WorkflowBugReportSummary | null;
   current_stage_summary: WorkflowCurrentStageSummary | null;
   dispatches: WorkflowDispatch[];
   subtasks: WorkflowSubtask[];

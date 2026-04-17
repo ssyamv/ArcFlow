@@ -38,7 +38,7 @@ describe("WorkflowDetail", () => {
       history: createMemoryHistory(),
       routes: [
         { path: "/workflows", component: { template: "<div>list</div>" } },
-        { path: "/workflows/:id", component: WorkflowDetail },
+        { path: "/workflows/:id", component: { template: "<div>detail-route</div>" } },
       ],
     });
 
@@ -167,7 +167,7 @@ describe("WorkflowDetail", () => {
       history: createMemoryHistory(),
       routes: [
         { path: "/workflows", component: { template: "<div>list</div>" } },
-        { path: "/workflows/:id", component: WorkflowDetail },
+        { path: "/workflows/:id", component: { template: "<div>detail-route</div>" } },
       ],
     });
 
@@ -248,7 +248,7 @@ describe("WorkflowDetail", () => {
       history: createMemoryHistory(),
       routes: [
         { path: "/workflows", component: { template: "<div>list</div>" } },
-        { path: "/workflows/:id", component: WorkflowDetail },
+        { path: "/workflows/:id", component: { template: "<div>detail-route</div>" } },
       ],
     });
 
@@ -262,6 +262,51 @@ describe("WorkflowDetail", () => {
     expect(wrapper.text()).toContain("backend");
     expect(wrapper.text()).toContain("ci_failed");
     expect(wrapper.text()).toContain("spawned_on_ci_failure");
+  });
+
+  it("renders bug report summary and next-action label for bug_analysis", async () => {
+    vi.spyOn(api, "fetchExecution").mockResolvedValue({
+      id: 21,
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      plane_issue_id: "ISS-500",
+      input_path: "https://ci.example/logs/run-500",
+      status: "success",
+      error_message: null,
+      started_at: "2026-04-17 12:00:00",
+      completed_at: "2026-04-17 12:03:00",
+      created_at: "2026-04-17 11:59:00",
+      bug_report_summary: {
+        summary: "Webhook parsing regressed on optional branch fields",
+        root_cause: "The generic path assumed branch always exists",
+        suggested_fix: "Guard branch fallback lookup and preserve run-id matching",
+        confidence: "high",
+        next_action: "auto_fix_candidate",
+      },
+      subtasks: [],
+      links: [],
+      dispatches: [],
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/workflows", component: { template: "<div>list</div>" } },
+        { path: "/workflows/:id", component: { template: "<div>detail-route</div>" } },
+      ],
+    });
+
+    await router.push("/workflows/21");
+    await router.isReady();
+
+    const wrapper = mount(WorkflowDetail, { global: { plugins: [router] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Bug 报告摘要");
+    expect(wrapper.text()).toContain("Webhook parsing regressed on optional branch fields");
+    expect(wrapper.text()).toContain("The generic path assumed branch always exists");
+    expect(wrapper.text()).toContain("Guard branch fallback lookup and preserve run-id matching");
+    expect(wrapper.text()).toContain("可进入自动修复");
   });
 
   it("refetches when navigating to a related workflow", async () => {
@@ -320,7 +365,7 @@ describe("WorkflowDetail", () => {
       history: createMemoryHistory(),
       routes: [
         { path: "/workflows", component: { template: "<div>list</div>" } },
-        { path: "/workflows/:id", component: WorkflowDetail },
+        { path: "/workflows/:id", component: { template: "<div>detail-route</div>" } },
       ],
     });
 

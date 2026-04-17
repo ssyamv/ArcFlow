@@ -10,6 +10,7 @@ import type {
   WorkflowDispatch,
   WorkflowSubtask,
   WorkflowLink,
+  WorkflowBugReportSummary,
   WorkflowType,
   WorkflowStatus,
   TriggerSource,
@@ -224,6 +225,31 @@ function buildCurrentStageSummary(
   };
 }
 
+function parseBugReportSummary(subtasks: WorkflowSubtask[]): WorkflowBugReportSummary | null {
+  const latest = [...subtasks]
+    .reverse()
+    .find(
+      (item) => item.stage === "analysis_ready" && item.status === "success" && item.output_ref,
+    );
+  if (!latest?.output_ref) return null;
+
+  try {
+    const parsed = JSON.parse(latest.output_ref) as WorkflowBugReportSummary;
+    if (
+      typeof parsed.summary !== "string" ||
+      typeof parsed.root_cause !== "string" ||
+      typeof parsed.suggested_fix !== "string"
+    ) {
+      return null;
+    }
+    if (!["high", "medium", "low"].includes(parsed.confidence)) return null;
+    if (!["auto_fix_candidate", "manual_handoff"].includes(parsed.next_action)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function listWorkflowExecutionSummaries(
   executionIds: number[],
 ): Map<number, WorkflowExecutionSummary | null> {
@@ -292,11 +318,27 @@ export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail 
   return {
     ...execution,
     summary,
+    bug_report_summary:
+      execution.workflow_type === "bug_analysis" ? parseBugReportSummary(subtasks) : null,
     current_stage_summary: buildCurrentStageSummary(subtasks, dispatches),
     dispatches,
     subtasks,
     links,
   };
+}
+
+export function findLatestDispatchWorkspaceIdByExecution(executionId: number): string | null {
+  const db = getDb();
+  const row = db
+    .query(
+      `SELECT workspace_id
+         FROM dispatch
+        WHERE source_execution_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+    )
+    .get(executionId) as { workspace_id: string } | null;
+  return row?.workspace_id ?? null;
 }
 
 export function updateWorkflowStatus(
