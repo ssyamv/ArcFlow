@@ -38,6 +38,8 @@ apiRoutes.post("/workflow/trigger", async (c) => {
     workflow_type: body.workflow_type,
     trigger_source: "manual",
     plane_issue_id: body.plane_issue_id,
+    source_execution_id: body.source_execution_id,
+    source_stage: body.source_stage,
     input_path: body.params?.input_path,
     target_repos:
       body.params?.target_repos ??

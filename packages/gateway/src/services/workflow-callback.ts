@@ -1,4 +1,5 @@
 import { updateWorkflowSubtaskStatusByStage } from "../db/queries";
+import type { WorkflowStatus } from "../types";
 
 export interface DispatchRecord {
   id: string;
@@ -25,6 +26,21 @@ export interface CallbackDeps {
   claimDispatch?: (id: string) => Promise<boolean>;
   releaseClaim?: (id: string) => Promise<boolean>;
   markDone: (id: string, status: "success" | "failed") => Promise<boolean>;
+  updateExecutionStatus?: (
+    executionId: number,
+    status: WorkflowStatus,
+    errorMessage?: string,
+  ) => Promise<void> | void;
+  triggerWorkflow?: (params: {
+    workspace_id: number;
+    workflow_type: "code_gen";
+    trigger_source: "manual";
+    plane_issue_id?: string;
+    source_execution_id?: number;
+    source_stage?: string;
+    target_repos?: string[];
+    input_path?: string;
+  }) => Promise<number>;
   markSubtaskProgress?: (x: {
     execution_id: number;
     target: string;
@@ -44,6 +60,22 @@ export interface CallbackPayload {
   status: "success" | "failed";
   result?: { content: string; planeIssueId?: string };
   error?: string;
+}
+
+function parseExecutionContext(input: unknown) {
+  if (!input || typeof input !== "object") return {};
+  const payload = input as Record<string, unknown>;
+  return {
+    execution_id: Number.isFinite(Number(payload.execution_id))
+      ? Number(payload.execution_id)
+      : undefined,
+    target_repos: Array.isArray(payload.target_repos)
+      ? payload.target_repos.filter((value): value is string => typeof value === "string")
+      : Array.isArray(payload.targets)
+        ? payload.targets.filter((value): value is string => typeof value === "string")
+        : undefined,
+    input_path: typeof payload.input_path === "string" ? payload.input_path : undefined,
+  };
 }
 
 function parseCodegenResult(content: string) {
@@ -83,6 +115,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
     async handle(p: CallbackPayload): Promise<boolean> {
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
+      const skill = rec.skill;
 
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
       if (!claimed) return false;
@@ -109,7 +142,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
 
       try {
         if (p.status === "failed") {
-          if (p.skill === "arcflow-code-gen") {
+          if (skill === "arcflow-code-gen") {
             const dispatchInput = parseCodegenDispatchInput(rec.input);
             await markSubtaskProgress({
               execution_id: dispatchInput.execution_id,
@@ -122,14 +155,28 @@ export function createCallbackHandler(deps: CallbackDeps) {
               log_url: dispatchInput.log_url,
               error_message: p.error,
             });
+            await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
           }
-        } else if (p.skill === "arcflow-prd-to-tech") {
+        } else if (skill === "arcflow-prd-to-tech") {
           await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
-        } else if (p.skill === "arcflow-tech-to-openapi") {
+        } else if (skill === "arcflow-tech-to-openapi") {
           await deps.writeOpenApi({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
-        } else if (p.skill === "arcflow-bug-analysis") {
+          const context = parseExecutionContext(rec.input);
+          if (deps.triggerWorkflow && context.execution_id) {
+            await deps.triggerWorkflow({
+              workspace_id: Number(rec.workspaceId),
+              workflow_type: "code_gen",
+              trigger_source: "manual",
+              plane_issue_id: piid,
+              source_execution_id: context.execution_id,
+              source_stage: "success",
+              target_repos: context.target_repos,
+              input_path: context.input_path,
+            });
+          }
+        } else if (skill === "arcflow-bug-analysis") {
           if (piid) await deps.commentPlaneIssue({ planeIssueId: piid, content });
-        } else if (p.skill === "arcflow-code-gen") {
+        } else if (skill === "arcflow-code-gen") {
           const result = parseCodegenResult(content);
           await markSubtaskProgress({
             execution_id: result.execution_id,

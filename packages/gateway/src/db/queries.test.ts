@@ -402,6 +402,29 @@ describe("workflow_execution", () => {
     expect(execution!.id).toBe(intendedExecutionId);
   });
 
+  it("finds code_gen execution by branch metadata when issue id is absent", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-127",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/ISSUE-127-backend",
+      repo_name: "backend",
+    });
+
+    const execution = findLatestCodegenExecution("", "backend", {
+      branchName: "feature/ISSUE-127-backend",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(executionId);
+  });
+
   it("creates workflow links between executions", () => {
     const sourceExecutionId = createWorkflowExecution({
       workflow_type: "tech_to_openapi",

@@ -1,5 +1,6 @@
 import {
   createWorkflowExecution,
+  createWorkflowLink,
   updateWorkflowStatus,
   getWorkspace,
   createWorkflowSubtask,
@@ -18,6 +19,8 @@ interface TriggerParams {
   target_repos?: string[];
   figma_url?: string;
   chat_id?: string;
+  source_execution_id?: number;
+  source_stage?: string;
 }
 
 /** 加载 workspace 并注册其 git 仓库到动态注册表 */
@@ -50,6 +53,15 @@ export async function triggerWorkflow(params: TriggerParams): Promise<number> {
     plane_issue_id: params.plane_issue_id,
     input_path: params.input_path,
   });
+
+  if (params.source_execution_id) {
+    createWorkflowLink({
+      source_execution_id: params.source_execution_id,
+      target_execution_id: executionId,
+      link_type: "derived_from",
+      metadata: params.source_stage ? { source_stage: params.source_stage } : undefined,
+    });
+  }
 
   updateWorkflowStatus(executionId, "running");
 

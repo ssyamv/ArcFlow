@@ -353,7 +353,7 @@ export function updateWorkflowSubtaskStatusByStage(params: {
 }
 
 export function findLatestCodegenExecution(
-  planeIssueId: string,
+  planeIssueId: string | undefined,
   target: string,
   options?: {
     branchName?: string;
@@ -370,29 +370,73 @@ export function findLatestCodegenExecution(
        FROM workflow_execution we
        INNER JOIN workflow_subtask ws ON ws.execution_id = we.id
        WHERE we.workflow_type = 'code_gen'
-         AND we.plane_issue_id = ?
          AND ws.target = ?
        ORDER BY we.id DESC, ws.id DESC`,
     )
-    .all(planeIssueId, target) as Array<
+    .all(target) as Array<
     WorkflowExecution & {
       subtask_branch_name: string | null;
       subtask_external_run_id: string | null;
     }
   >;
+  const scopedRows = planeIssueId
+    ? rows.filter((row) => row.plane_issue_id === planeIssueId)
+    : rows;
 
   const matchedByRun = options?.externalRunId
-    ? rows.find((row) => row.subtask_external_run_id === options.externalRunId)
+    ? scopedRows.find((row) => row.subtask_external_run_id === options.externalRunId)
     : undefined;
   if (matchedByRun) return matchedByRun;
 
   const matchedByBranch = options?.branchName
-    ? rows.find((row) => row.subtask_branch_name === options.branchName)
+    ? scopedRows.find((row) => row.subtask_branch_name === options.branchName)
     : undefined;
   if (matchedByBranch) return matchedByBranch;
 
-  const matchedByIssue = rows.find((row) => row.plane_issue_id === planeIssueId);
+  if (!planeIssueId) return null;
+
+  const matchedByIssue = scopedRows[0];
   return matchedByIssue ?? null;
+}
+
+export function syncCodegenExecutionStatus(executionId: number): WorkflowStatus {
+  const execution = getWorkflowExecution(executionId);
+  if (!execution || execution.workflow_type !== "code_gen") {
+    return execution?.status ?? "pending";
+  }
+
+  const subtasks = listWorkflowSubtasks(executionId);
+  const latestByTarget = new Map<string, WorkflowSubtask>();
+  for (const subtask of subtasks) {
+    latestByTarget.set(subtask.target, subtask);
+  }
+
+  let nextStatus: WorkflowStatus = "running";
+  const latestSubtasks = Array.from(latestByTarget.values());
+  if (
+    latestSubtasks.some(
+      (subtask) =>
+        subtask.status === "failed" ||
+        subtask.stage === "generate_failed" ||
+        subtask.stage === "ci_failed",
+    )
+  ) {
+    nextStatus = "failed";
+  } else if (
+    latestSubtasks.length > 0 &&
+    latestSubtasks.every(
+      (subtask) => subtask.status === "success" && subtask.stage === "ci_success",
+    )
+  ) {
+    nextStatus = "success";
+  }
+
+  if (execution.status === nextStatus) {
+    return nextStatus;
+  }
+
+  updateWorkflowStatus(executionId, nextStatus);
+  return nextStatus;
 }
 
 // ─── workflow_link ───────────────────────────────────────────────────────────

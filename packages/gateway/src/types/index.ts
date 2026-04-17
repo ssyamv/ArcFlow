@@ -96,7 +96,9 @@ export interface WebhookEvent {
 export interface TriggerWorkflowRequest {
   workspace_id: number;
   workflow_type: WorkflowType;
-  plane_issue_id: string;
+  plane_issue_id?: string;
+  source_execution_id?: number;
+  source_stage?: string;
   params?: {
     input_path?: string;
     target_repos?: string[];

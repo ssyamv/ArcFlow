@@ -23,6 +23,7 @@ const getWorkspace = mock(() => ({
   updated_at: "",
 }));
 const createWorkflowSubtask = mock(() => 1001);
+const createWorkflowLink = mock(() => 2001);
 const insertDispatch = mock(() => "dispatch-1");
 
 mock.module("../db/queries", () => ({
@@ -30,6 +31,7 @@ mock.module("../db/queries", () => ({
   updateWorkflowStatus,
   getWorkspace,
   createWorkflowSubtask,
+  createWorkflowLink,
   insertDispatch,
   // Include all exports to avoid missing export errors for other importers
   recordWebhookEvent: mock(() => {}),
@@ -98,6 +100,7 @@ function clearAllMocks() {
   createWorkflowExecution.mockClear();
   updateWorkflowStatus.mockClear();
   createWorkflowSubtask.mockClear();
+  createWorkflowLink.mockClear();
   insertDispatch.mockClear();
   dispatchToNanoclaw.mockClear();
   ensureRepo.mockClear();
@@ -230,6 +233,25 @@ describe("flowCodeGen", () => {
     expect(createWorkflowSubtask).toHaveBeenCalledTimes(2);
     expect(dispatchToNanoclaw).toHaveBeenCalledTimes(2);
     expect(runClaudeCode).not.toHaveBeenCalled();
+  });
+
+  it("creates a derived_from link when source execution context is provided", async () => {
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-31",
+      source_execution_id: 31,
+      source_stage: "success",
+    });
+    await tick();
+
+    expect(createWorkflowLink).toHaveBeenCalledWith({
+      source_execution_id: 31,
+      target_execution_id: 42,
+      link_type: "derived_from",
+      metadata: { source_stage: "success" },
+    });
   });
 
   it("reads docs input once and includes task_context in dispatch payload", async () => {

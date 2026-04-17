@@ -3,8 +3,8 @@ import { Hono } from "hono";
 import { closeDb, getDb } from "../db";
 import {
   createWorkflowExecution,
-  createWorkflowLink,
   createWorkflowSubtask,
+  getWorkflowExecution,
   getWorkflowExecutionDetail,
   listWorkflowExecutions,
   listWorkflowLinks,
@@ -162,6 +162,64 @@ describe("webhook routes", () => {
     expect(body.source).toBe("cicd");
   });
 
+  it("POST /webhook/cicd maps running status into ci_running without requiring issue id", async () => {
+    const executionId = seedCodegenExecution({
+      planeIssueId: "ISS-98",
+      target: "backend",
+      branchName: "feature/ISS-98-backend",
+    });
+
+    const res = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "running",
+        repository: "backend",
+        branch: "feature/ISS-98-backend",
+        run_id: "run-98",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(listWorkflowSubtasks(executionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          execution_id: executionId,
+          target: "backend",
+          stage: "ci_running",
+          provider: "generic",
+          status: "running",
+          external_run_id: "run-98",
+          branch_name: "feature/ISS-98-backend",
+        }),
+      ]),
+    );
+    expect(getWorkflowExecution(executionId)?.status).toBe("running");
+  });
+
+  it("POST /webhook/cicd maps success into parent workflow success", async () => {
+    const executionId = seedCodegenExecution({ planeIssueId: "ISS-97", target: "backend" });
+
+    const res = await app.request("/webhook/cicd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "success",
+        issue_id: "ISS-97",
+        repository: "backend",
+        run_id: "run-97",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(getWorkflowExecution(executionId)).toEqual(
+      expect.objectContaining({
+        id: executionId,
+        status: "success",
+      }),
+    );
+  });
+
   it("POST /webhook/cicd maps failure into ci_failed and spawns bug_analysis", async () => {
     const executionId = seedCodegenExecution({ planeIssueId: "ISS-99", target: "backend" });
 
@@ -213,6 +271,7 @@ describe("webhook routes", () => {
         }),
       ]),
     );
+    expect(getWorkflowExecution(executionId)?.status).toBe("failed");
   });
 
   it("POST /webhook/cicd prefers branch metadata over latest issue execution", async () => {
@@ -406,14 +465,37 @@ describe("webhook routes", () => {
   });
 
   it("POST /webhook/ibuild does not trigger on PROCESSING status", async () => {
+    const executionId = seedCodegenExecution({
+      planeIssueId: "PROJ-1663",
+      target: "backend",
+      branchName: "feat/PROJ-1663-add-login",
+    });
     const res = await app.request("/webhook/ibuild?secret=", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: ibuildPayload({ status: "PROCESSING", buildId: "1663" }),
+      body: ibuildPayload({
+        status: "PROCESSING",
+        buildId: "1663",
+        gitBranch: "feat/PROJ-1663-add-login",
+        appKey: "backend",
+      }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.triggered).toBe(false);
+    expect(listWorkflowSubtasks(executionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          execution_id: executionId,
+          target: "backend",
+          stage: "ci_running",
+          provider: "ibuild",
+          status: "running",
+          external_run_id: "1663",
+          branch_name: "feat/PROJ-1663-add-login",
+        }),
+      ]),
+    );
   });
 
   it("POST /webhook/ibuild does not trigger on CANCEL status", async () => {
@@ -558,33 +640,45 @@ describe("webhook routes", () => {
         }),
       ]),
     );
+    expect(getWorkflowExecution(executionId)?.status).toBe("failed");
   });
 
   it("closes the chain from tech_to_openapi to code_gen to bug_analysis", async () => {
+    triggerSpy.mockRestore();
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({
+      name: "Closure WS",
+      slug: "closure-ws",
+      git_repos: JSON.stringify({
+        docs: "git@ex:docs.git",
+        backend: "git@ex:backend.git",
+      }),
+    });
     const sourceExecutionId = createWorkflowExecution({
       workflow_type: "tech_to_openapi",
       trigger_source: "manual",
       plane_issue_id: "ISS-120",
     });
 
-    const codegenExecutionId = createWorkflowExecution({
+    const { triggerWorkflow } = await import("../services/workflow");
+    const codegenExecutionId = await triggerWorkflow({
+      workspace_id: ws.id,
       workflow_type: "code_gen",
       trigger_source: "manual",
       plane_issue_id: "ISS-120",
+      source_execution_id: sourceExecutionId,
+      source_stage: "success",
     });
 
-    createWorkflowLink({
-      source_execution_id: sourceExecutionId,
-      target_execution_id: codegenExecutionId,
-      link_type: "derived_from",
-    });
+    await Bun.sleep(0);
 
     createWorkflowSubtask({
       execution_id: codegenExecutionId,
       target: "backend",
-      stage: "ci_failed",
-      provider: "ibuild",
-      status: "failed",
+      stage: "generate",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/ISS-120-backend",
       repo_name: "backend",
     });
 

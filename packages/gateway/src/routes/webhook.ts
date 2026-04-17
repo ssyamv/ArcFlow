@@ -13,6 +13,7 @@ import {
   createWorkflowLink,
   findLatestCodegenExecution,
   listWorkflowLinksBySourceExecution,
+  syncCodegenExecutionStatus,
   updateWorkflowSubtaskStatusByStage,
 } from "../db/queries";
 import { getDb } from "../db";
@@ -21,10 +22,10 @@ import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
 
-type UnifiedCiStatus = "success" | "failed";
+type UnifiedCiStatus = "pending" | "running" | "success" | "failed";
 
 interface UnifiedCiEvent {
-  planeIssueId: string;
+  planeIssueId?: string;
   target: string;
   provider: "generic" | "ibuild";
   externalRunId: string;
@@ -66,6 +67,12 @@ function dispatchToNanoclaw(params: {
 
 function normalizeCiStatus(raw: string): UnifiedCiStatus | null {
   const normalized = raw.trim().toLowerCase();
+  if (["pending", "queued", "queueing", "waiting"].includes(normalized)) {
+    return "pending";
+  }
+  if (["running", "processing", "in_progress", "in-progress"].includes(normalized)) {
+    return "running";
+  }
   if (["success", "succeed", "succeeded", "passed", "pass", "ok"].includes(normalized)) {
     return "success";
   }
@@ -80,7 +87,12 @@ function mapCiEvent(body: Record<string, unknown>): UnifiedCiEvent | null {
   if (!status) return null;
 
   return {
-    planeIssueId: String(body.issue_id ?? body.plane_issue_id ?? ""),
+    planeIssueId:
+      typeof body.issue_id === "string"
+        ? body.issue_id
+        : typeof body.plane_issue_id === "string"
+          ? body.plane_issue_id
+          : undefined,
     target: String(body.target ?? body.repository ?? body.repo ?? "backend"),
     provider: "generic",
     externalRunId: String(body.run_id ?? body.build_id ?? body.buildId ?? ""),
@@ -145,24 +157,34 @@ function findExistingCiFailureSpawn(params: {
 }
 
 function handleCiEvent(event: UnifiedCiEvent): boolean {
-  if (!event.planeIssueId) return false;
-
   const execution = findLatestCodegenExecution(event.planeIssueId, event.target, {
     branchName: event.branchName ?? undefined,
     externalRunId: event.externalRunId || undefined,
   });
   if (!execution) return false;
 
+  const effectivePlaneIssueId = event.planeIssueId ?? execution.plane_issue_id ?? undefined;
+  const stage =
+    event.status === "failed"
+      ? "ci_failed"
+      : event.status === "success"
+        ? "ci_success"
+        : event.status === "running"
+          ? "ci_running"
+          : "ci_pending";
+
   updateWorkflowSubtaskStatusByStage({
     execution_id: execution.id,
     target: event.target,
-    stage: event.status === "failed" ? "ci_failed" : "ci_success",
+    stage,
     provider: event.provider,
-    status: event.status === "failed" ? "failed" : "success",
+    status: event.status,
     external_run_id: event.externalRunId || undefined,
     branch_name: event.branchName ?? undefined,
     log_url: event.logUrl ?? undefined,
   });
+
+  syncCodegenExecutionStatus(execution.id);
 
   if (event.status === "failed") {
     const existingBugExecutionId = findExistingCiFailureSpawn({
@@ -179,7 +201,7 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
     const bugExecutionId = createWorkflowExecution({
       workflow_type: "bug_analysis",
       trigger_source: event.provider === "ibuild" ? "ibuild_webhook" : "cicd_webhook",
-      plane_issue_id: event.planeIssueId,
+      plane_issue_id: effectivePlaneIssueId,
       input_path: event.logUrl ?? undefined,
     });
     createWorkflowLink({
@@ -318,7 +340,7 @@ export function createWebhookRoutes(): Hono {
     }
 
     // 5. 提取 Plane Issue ID + 映射仓库
-    const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? "";
+    const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? undefined;
     const targetRepo = config.ibuildAppRepoMap[appKey] ?? appKey ?? "backend";
     const baseEvent: UnifiedCiEvent = {
       planeIssueId,

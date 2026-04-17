@@ -167,6 +167,44 @@ describe("workflow-callback dispatcher", () => {
     expect(order).toEqual(["subtask:generate", "subtask:ci_pending", "done:success"]);
   });
 
+  it("routes using the persisted dispatch skill even when the callback payload skill mismatches", async () => {
+    const writeOpenApi = mock(async () => {});
+    const markSubtaskProgress = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi,
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress,
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      markDone: async () => true,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-tech-to-openapi",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+          branch_name: "feature/ISS-120-backend",
+          repo_name: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(writeOpenApi).not.toHaveBeenCalled();
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "generate",
+        status: "success",
+      }),
+    );
+  });
+
   it("does not mark code_gen dispatch done when callback payload is malformed", async () => {
     const markDone = mock(async () => true);
     const markSubtaskProgress = mock(async () => {});
@@ -195,6 +233,7 @@ describe("workflow-callback dispatcher", () => {
   it("records generate_failed for failed code_gen callback before marking dispatch done", async () => {
     const order: string[] = [];
     const markSubtaskProgress = mock(async () => {});
+    const updateExecutionStatus = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -204,6 +243,7 @@ describe("workflow-callback dispatcher", () => {
         await markSubtaskProgress(input);
       },
       loadDispatch: async () => makeCodegenDispatchRecord(),
+      updateExecutionStatus,
       markDone: async () => {
         order.push("done:failed");
         return true;
@@ -227,7 +267,50 @@ describe("workflow-callback dispatcher", () => {
         error_message: "generator crashed",
       }),
     );
+    expect(updateExecutionStatus).toHaveBeenCalledWith(7, "failed", "generator crashed");
     expect(order).toEqual(["subtask:generate_failed", "done:failed"]);
+  });
+
+  it("spawns downstream code_gen from successful tech_to_openapi callbacks with derived_from context", async () => {
+    const triggerWorkflow = mock(async () => 88);
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d-openapi",
+        workspaceId: "5",
+        skill: "arcflow-tech-to-openapi",
+        planeIssueId: "ISS-500",
+        status: "pending" as const,
+        input: {
+          execution_id: 31,
+          target_repos: ["backend"],
+        },
+      }),
+      triggerWorkflow,
+      markDone: async () => true,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-openapi",
+      skill: "arcflow-tech-to-openapi",
+      status: "success",
+      result: { content: "openapi: 3.1.0" },
+    });
+
+    expect(handled).toBe(true);
+    expect(triggerWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: 5,
+        workflow_type: "code_gen",
+        trigger_source: "manual",
+        plane_issue_id: "ISS-500",
+        source_execution_id: 31,
+        source_stage: "success",
+      }),
+    );
   });
 
   it("claims callback work before side effects so concurrent deliveries do not double-apply", async () => {

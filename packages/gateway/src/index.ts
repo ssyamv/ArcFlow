@@ -22,6 +22,7 @@ import { createRagSearch } from "./services/rag-search";
 import { createGitAdapter } from "./services/rag-git-adapter";
 import { createCallbackHandler } from "./services/workflow-callback";
 import { createScheduler } from "./services/scheduler";
+import { triggerWorkflow } from "./services/workflow";
 
 // ── sqlite-vec: must call setCustomSQLite before any Database() on macOS ──────
 if (process.platform === "darwin") {
@@ -175,6 +176,11 @@ const callbackHandler = createCallbackHandler({
     const { updateDispatchStatus } = await import("./db/queries");
     return updateDispatchStatus(getDb(), id, status);
   },
+  updateExecutionStatus: async (executionId, status, errorMessage) => {
+    const { updateWorkflowStatus } = await import("./db/queries");
+    updateWorkflowStatus(executionId, status, errorMessage);
+  },
+  triggerWorkflow,
 });
 
 app.route("/api/workflow/callback", callbackRoutes({ handler: callbackHandler, systemSecret }));

@@ -132,6 +132,36 @@ describe("api routes", () => {
     );
   });
 
+  it("POST /api/workflow/trigger forwards optional source execution context", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T4", slug: "t-ws-4" });
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(78);
+
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-7",
+        source_execution_id: 31,
+        source_stage: "success",
+        params: { target_repos: ["backend"] },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-7",
+        source_execution_id: 31,
+        source_stage: "success",
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions returns list", async () => {
     // Seed data by calling triggerWorkflow directly (bypassing mock)
     const { createWorkflowExecution } = await import("../db/queries");
