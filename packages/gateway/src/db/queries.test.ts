@@ -804,6 +804,30 @@ describe("dispatch", () => {
     expect(second).toBe(false); // already completed returns false
   });
 
+  it("updateDispatchStatus can finalize a timeout dispatch", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
+    });
+    db.prepare("UPDATE dispatch SET status = 'timeout' WHERE id = ?").run(id);
+
+    const updated = updateDispatchStatus(db, id, "failed", "late callback ignored");
+
+    expect(updated).toBe(true);
+    const row = db
+      .prepare("SELECT status, completed_at, error_message FROM dispatch WHERE id = ?")
+      .get(id) as {
+      status: string;
+      completed_at: number | null;
+      error_message: string | null;
+    };
+    expect(row.status).toBe("failed");
+    expect(row.completed_at).not.toBeNull();
+    expect(row.error_message).toBe("late callback ignored");
+  });
+
   it("claimDispatchForCallback transitions pending dispatch to running once", () => {
     const db = getDb();
     const id = insertDispatch(db, {

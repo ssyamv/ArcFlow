@@ -994,7 +994,7 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
 export function updateDispatchStatus(
   db: Database,
   id: string,
-  status: WorkflowDispatchStatus,
+  status: Exclude<WorkflowDispatchStatus, "pending" | "running">,
   errorMessage?: string,
 ): boolean {
   const res = db.run(
@@ -1007,7 +1007,7 @@ export function updateDispatchStatus(
               WHEN ? = 'timeout' THEN COALESCE(error_message, 'callback timeout')
               ELSE error_message
             END
-      WHERE id = ? AND status IN ('pending', 'running')`,
+      WHERE id = ? AND status IN ('pending', 'running', 'timeout')`,
     [status, Date.now(), status, errorMessage ?? null, errorMessage ?? null, status, id],
   );
   return res.changes === 1;
