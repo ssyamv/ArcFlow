@@ -18,6 +18,17 @@ function setupRepo() {
   return dir;
 }
 
+function setupRepoWithUnicodePath() {
+  const dir = mkdtempSync(join(tmpdir(), "rag-git-unicode-"));
+  execSync("git init -q", { cwd: dir });
+  execSync('git config user.email "t@x"', { cwd: dir });
+  execSync('git config user.name "t"', { cwd: dir });
+  mkdirSync(join(dir, "产品文档"), { recursive: true });
+  writeFileSync(join(dir, "产品文档/home.md"), "# Homture");
+  execSync("git add -A && git commit -q -m c1", { cwd: dir });
+  return dir;
+}
+
 describe("rag-git-adapter", () => {
   it("lists tracked markdown files under given globs with sha per file", async () => {
     const dir = setupRepo();
@@ -37,6 +48,42 @@ describe("rag-git-adapter", () => {
     try {
       const adapter = createGitAdapter({ rootDir: dir, globs: ["prd/**/*.md"] });
       expect(await adapter.readDoc("prd/a.md")).toContain("# A");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports whole-docs indexing globs including root and nested non-PRD docs", async () => {
+    const dir = setupRepo();
+    try {
+      mkdirSync(join(dir, "产品文档"), { recursive: true });
+      writeFileSync(join(dir, "产品文档/home.md"), "# Homture");
+      writeFileSync(join(dir, "api.yaml"), "openapi: 3.0.0");
+      execSync("git add -A && git commit -q -m c2", { cwd: dir });
+
+      const adapter = createGitAdapter({
+        rootDir: dir,
+        globs: ["**/*.md", "**/*.yaml", "**/*.yml"],
+      });
+      const docs = await adapter.listDocs();
+      const paths = docs.map((d) => d.path).sort();
+
+      expect(paths).toContain("README.md");
+      expect(paths).toContain("产品文档/home.md");
+      expect(paths).toContain("api.yaml");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves non-ASCII tracked paths from git ls-files output", async () => {
+    const dir = setupRepoWithUnicodePath();
+    try {
+      const adapter = createGitAdapter({ rootDir: dir, globs: ["**/*.md"] });
+      const docs = await adapter.listDocs();
+      const paths = docs.map((d) => d.path);
+
+      expect(paths).toContain("产品文档/home.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

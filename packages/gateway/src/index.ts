@@ -114,7 +114,9 @@ if (ragDb) {
     const ragIndex = createRagIndex({ db: ragDb, embedder, dim: config.ragEmbeddingDim });
     const gitAdapter = createGitAdapter({
       rootDir: process.env.RAG_GIT_ROOT,
-      globs: ["prd/**/*.md", "tech-design/**/*.md", "api/**/*.yaml", "arch/**/*.md"],
+      // Index the full docs repo so project overviews and general knowledge
+      // pages are available to workspace Q&A, not only PRD/tech/API artifacts.
+      globs: ["**/*.md", "**/*.yaml", "**/*.yml"],
     });
     const workspaceId = process.env.RAG_WORKSPACE_ID ?? "default";
     ragScheduler = createScheduler();

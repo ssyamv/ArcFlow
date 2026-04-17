@@ -12,9 +12,11 @@ export interface GitAdapterConfig {
 export function createGitAdapter(cfg: GitAdapterConfig): GitAdapter {
   return {
     async listDocs() {
-      const out = execSync("git ls-files -s", { cwd: cfg.rootDir, encoding: "utf8" });
+      // Use NUL-delimited output so non-ASCII paths are emitted verbatim
+      // instead of Git's quoted/escaped display format.
+      const out = execSync("git ls-files -s -z", { cwd: cfg.rootDir, encoding: "utf8" });
       return out
-        .split("\n")
+        .split("\0")
         .filter(Boolean)
         .map((line) => {
           // e.g. 100644 <sha> 0\tpath
