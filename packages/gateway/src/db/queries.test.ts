@@ -868,13 +868,14 @@ describe("dispatch", () => {
       timeoutAt: startedAt + 1_000,
     });
     claimDispatchForCallback(db, id, startedAt, 5_000);
+    db.prepare("UPDATE dispatch SET error_message = 'callback timeout' WHERE id = ?").run(id);
 
     const released = releaseDispatchClaim(db, id);
 
     expect(released).toBe(true);
     const row = db
       .prepare(
-        "SELECT status, completed_at, started_at, last_callback_at, timeout_at FROM dispatch WHERE id = ?",
+        "SELECT status, completed_at, started_at, last_callback_at, timeout_at, error_message FROM dispatch WHERE id = ?",
       )
       .get(id) as {
       status: string;
@@ -882,12 +883,14 @@ describe("dispatch", () => {
       started_at: number | null;
       last_callback_at: number | null;
       timeout_at: number | null;
+      error_message: string | null;
     };
     expect(row.status).toBe("pending");
     expect(row.completed_at).toBeNull();
     expect(row.started_at).toBe(startedAt);
     expect(row.last_callback_at).toBe(startedAt);
     expect(row.timeout_at).toBeNull();
+    expect(row.error_message).toBeNull();
   });
 
   it("claimDispatchForCallback can recover an expired running dispatch", () => {
@@ -900,13 +903,16 @@ describe("dispatch", () => {
       timeoutAt: startedAt + 1_000,
     });
     claimDispatchForCallback(db, id, startedAt, 5_000);
+    db.prepare(
+      "UPDATE dispatch SET status = 'timeout', error_message = 'callback timeout' WHERE id = ?",
+    ).run(id);
 
     const reclaimed = claimDispatchForCallback(db, id, startedAt + 10_000, 5_000);
 
     expect(reclaimed).toBe(true);
     const row = db
       .prepare(
-        "SELECT status, completed_at, started_at, last_callback_at, timeout_at, callback_replay_count FROM dispatch WHERE id = ?",
+        "SELECT status, completed_at, started_at, last_callback_at, timeout_at, callback_replay_count, error_message FROM dispatch WHERE id = ?",
       )
       .get(id) as {
       status: string;
@@ -915,6 +921,7 @@ describe("dispatch", () => {
       last_callback_at: number | null;
       timeout_at: number | null;
       callback_replay_count: number;
+      error_message: string | null;
     };
     expect(row.status).toBe("running");
     expect(row.completed_at).toBeNull();
@@ -922,5 +929,6 @@ describe("dispatch", () => {
     expect(row.last_callback_at).toBe(startedAt + 10_000);
     expect(row.timeout_at).toBe(startedAt + 15_000);
     expect(row.callback_replay_count).toBe(1);
+    expect(row.error_message).toBeNull();
   });
 });

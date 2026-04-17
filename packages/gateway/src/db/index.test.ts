@@ -25,6 +25,9 @@ function createOldDispatchDb(path: string) {
       timeout_at INTEGER
     );
   `);
+  db.exec(
+    "INSERT INTO dispatch (id, workspace_id, skill, input_json, status, created_at, timeout_at) VALUES ('legacy-1', 'w', 'arcflow-code-gen', '{}', 'processing', 1111, 2222)",
+  );
   db.close();
 }
 
@@ -33,14 +36,23 @@ process.env.NODE_ENV = "development";
 describe("db startup migration", () => {
   let closeDb: () => void;
   let getDb: () => Database;
+  let prevNodeEnv: string | undefined;
+  let hadNodeEnv = false;
+  let prevDatabasePath: string | undefined;
+  let hadDatabasePath = false;
 
   beforeEach(async () => {
+    hadNodeEnv = Object.prototype.hasOwnProperty.call(process.env, "NODE_ENV");
+    prevNodeEnv = process.env.NODE_ENV;
+    hadDatabasePath = Object.prototype.hasOwnProperty.call(process.env, "DATABASE_PATH");
+    prevDatabasePath = process.env.DATABASE_PATH;
     tempDir = mkdtempSync(join(tmpdir(), "arcflow-db-migration-"));
     dbPath = join(tempDir, "gateway.db");
     createOldDispatchDb(dbPath);
     process.env.DATABASE_PATH = dbPath;
+    process.env.NODE_ENV = "development";
 
-    const mod = await import("./index");
+    const mod = await import(`./index?migration=${Date.now()}`);
     getDb = mod.getDb;
     closeDb = mod.closeDb;
   });
@@ -48,6 +60,16 @@ describe("db startup migration", () => {
   afterEach(() => {
     closeDb();
     rmSync(tempDir, { recursive: true, force: true });
+    if (hadNodeEnv) {
+      process.env.NODE_ENV = prevNodeEnv;
+    } else {
+      delete process.env.NODE_ENV;
+    }
+    if (hadDatabasePath) {
+      process.env.DATABASE_PATH = prevDatabasePath;
+    } else {
+      delete process.env.DATABASE_PATH;
+    }
   });
 
   it("upgrades an old dispatch table without startup failure", () => {
@@ -62,6 +84,25 @@ describe("db startup migration", () => {
     expect(names.has("error_message")).toBe(true);
     expect(names.has("result_summary")).toBe(true);
     expect(names.has("callback_replay_count")).toBe(true);
+
+    const row = db
+      .prepare(
+        "SELECT status, started_at, last_callback_at, error_message, result_summary, callback_replay_count FROM dispatch WHERE id = 'legacy-1'",
+      )
+      .get() as {
+      status: string;
+      started_at: number | null;
+      last_callback_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+    };
+    expect(row.status).toBe("running");
+    expect(row.started_at).toBe(1111);
+    expect(row.last_callback_at).toBe(1111);
+    expect(row.error_message).toBeNull();
+    expect(row.result_summary).toBeNull();
+    expect(row.callback_replay_count).toBe(0);
 
     const index = db
       .prepare(

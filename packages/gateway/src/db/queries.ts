@@ -1038,6 +1038,7 @@ export function claimDispatchForCallback(
          started_at = COALESCE(started_at, ?),
          last_callback_at = ?,
          callback_replay_count = callback_replay_count + CASE WHEN status = 'timeout' THEN 1 ELSE 0 END,
+         error_message = NULL,
          timeout_at = ?,
          completed_at = NULL
      WHERE id = ?
@@ -1053,7 +1054,7 @@ export function claimDispatchForCallback(
 export function releaseDispatchClaim(db: Database, id: string): boolean {
   const res = db.run(
     `UPDATE dispatch
-     SET status = 'pending', completed_at = NULL, timeout_at = NULL
+     SET status = 'pending', completed_at = NULL, timeout_at = NULL, error_message = NULL
      WHERE id = ? AND status = 'running'`,
     [id],
   );

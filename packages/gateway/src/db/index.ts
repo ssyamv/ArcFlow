@@ -33,6 +33,15 @@ function migrateDispatchColumns(db: Database): void {
       db.exec(sql);
     }
   }
+
+  db.exec(`
+    UPDATE dispatch
+       SET status = 'running',
+           started_at = COALESCE(started_at, created_at),
+           last_callback_at = COALESCE(last_callback_at, created_at),
+           completed_at = NULL
+     WHERE status = 'processing'
+  `);
 }
 
 export function getDb(): Database {
