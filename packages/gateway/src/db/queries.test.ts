@@ -903,6 +903,60 @@ describe("dispatch", () => {
     expect(row.callback_replay_count).toBe(1);
   });
 
+  it("updateDispatchStatus rejects stale terminal writers after another writer finalizes first", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
+    });
+    const staleSnapshot = db
+      .prepare(
+        `SELECT status, completed_at, error_message, result_summary, last_callback_at, callback_replay_count
+           FROM dispatch
+          WHERE id = ?`,
+      )
+      .get(id) as {
+      status: "pending" | "running" | "success" | "failed" | "timeout";
+      completed_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      last_callback_at: number | null;
+      callback_replay_count: number;
+    };
+
+    expect(updateDispatchStatus(db, id, "success")).toBe(true);
+    const staleWrite = updateDispatchStatus(
+      db,
+      id,
+      {
+        status: "failed",
+        errorMessage: "stale writer should not win",
+        resultSummary: "callback:failed",
+      },
+      undefined,
+      staleSnapshot,
+    );
+
+    expect(staleWrite).toBe(false);
+    const row = db
+      .prepare(
+        "SELECT status, completed_at, error_message, result_summary, callback_replay_count FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
+      status: string;
+      completed_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+    };
+    expect(row.status).toBe("success");
+    expect(row.completed_at).not.toBeNull();
+    expect(row.error_message).toBeNull();
+    expect(row.result_summary).toBeNull();
+    expect(row.callback_replay_count).toBe(0);
+  });
+
   it("claimDispatchForCallback transitions pending dispatch to running once", () => {
     const db = getDb();
     const startedAt = 1_700_000_000_000;

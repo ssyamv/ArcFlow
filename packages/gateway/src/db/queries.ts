@@ -1004,23 +1004,33 @@ export function updateDispatchStatus(
         replayIncrement?: boolean;
       },
   errorMessage?: string,
-): boolean {
-  const update =
-    typeof statusOrUpdate === "string" ? { status: statusOrUpdate, errorMessage } : statusOrUpdate;
-  const row = db
-    .query(
-      `SELECT status, completed_at, error_message, result_summary, last_callback_at, callback_replay_count
-         FROM dispatch
-        WHERE id = ?`,
-    )
-    .get(id) as {
+  expectedCurrent?: {
     status: WorkflowDispatchStatus;
     completed_at: number | null;
     error_message: string | null;
     result_summary: string | null;
     last_callback_at: number | null;
     callback_replay_count: number;
-  } | null;
+  },
+): boolean {
+  const update =
+    typeof statusOrUpdate === "string" ? { status: statusOrUpdate, errorMessage } : statusOrUpdate;
+  const row =
+    expectedCurrent ??
+    (db
+      .query(
+        `SELECT status, completed_at, error_message, result_summary, last_callback_at, callback_replay_count
+           FROM dispatch
+          WHERE id = ?`,
+      )
+      .get(id) as {
+      status: WorkflowDispatchStatus;
+      completed_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      last_callback_at: number | null;
+      callback_replay_count: number;
+    } | null);
   if (!row) return false;
 
   const canFinalize =
@@ -1064,7 +1074,13 @@ export function updateDispatchStatus(
             result_summary = ?,
             last_callback_at = ?,
             callback_replay_count = ?
-      WHERE id = ?`,
+      WHERE id = ?
+        AND status IS ?
+        AND completed_at IS ?
+        AND error_message IS ?
+        AND result_summary IS ?
+        AND last_callback_at IS ?
+        AND callback_replay_count = ?`,
     [
       nextStatus,
       nextCompletedAt,
@@ -1073,6 +1089,12 @@ export function updateDispatchStatus(
       nextLastCallbackAt,
       nextReplayCount,
       id,
+      row.status,
+      row.completed_at,
+      row.error_message,
+      row.result_summary,
+      row.last_callback_at,
+      row.callback_replay_count,
     ],
   );
   return res.changes === 1;
