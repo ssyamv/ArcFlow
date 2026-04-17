@@ -31,8 +31,6 @@ function createOldDispatchDb(path: string) {
   db.close();
 }
 
-process.env.NODE_ENV = "development";
-
 describe("db startup migration", () => {
   let closeDb: () => void;
   let getDb: () => Database;
