@@ -325,6 +325,188 @@ describe("api routes", () => {
     );
   });
 
+  it("GET /api/workflow/executions/:id returns pre-callback dispatch summary for the real codegen flow", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DISPATCH-DETAIL",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "pending",
+    });
+    const dispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-detail",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DISPATCH-DETAIL",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.current_stage_summary).toEqual({
+      label: "backend 等待 callback",
+      stage: "dispatch_running",
+      target: "backend",
+      status: "pending",
+    });
+    expect(body.dispatches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: dispatchId,
+          status: "pending",
+          source_execution_id: id,
+          source_stage: "dispatch",
+          diagnostic_flags: [],
+        }),
+      ]),
+    );
+  });
+
+  it("GET /api/workflow/executions/:id prefers dispatch timeout diagnostics over stale running dispatch subtask", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch, updateDispatchStatus } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DISPATCH-TIMEOUT",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "running",
+    });
+    const dispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-timeout",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DISPATCH-TIMEOUT",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+    updateDispatchStatus(getDb(), dispatchId, {
+      status: "timeout",
+      lastCallbackAt: 22_222,
+      resultSummary: "late_callback_ignored",
+      errorMessage: "callback timeout",
+      replayIncrement: true,
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.current_stage_summary).toEqual(
+      expect.objectContaining({
+        stage: "dispatch_timeout",
+        target: "backend",
+        status: "timeout",
+      }),
+    );
+    expect(body.dispatches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: dispatchId,
+          status: "timeout",
+          diagnostic_flags: expect.arrayContaining(["timed_out", "late_callback_ignored"]),
+        }),
+      ]),
+    );
+  });
+
+  it("GET /api/workflow/executions/:id uses target-relevant dispatch diagnostics in multi-target executions", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch, updateDispatchStatus } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DISPATCH-MULTI-TARGET",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "running",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "web",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const backendDispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-multi-target",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DISPATCH-MULTI-TARGET",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+    updateDispatchStatus(getDb(), backendDispatchId, {
+      status: "timeout",
+      lastCallbackAt: 22_222,
+      resultSummary: "late_callback_ignored",
+      errorMessage: "callback timeout",
+      replayIncrement: true,
+    });
+
+    const webDispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-multi-target",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "web" },
+      planeIssueId: "ISSUE-DISPATCH-MULTI-TARGET",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 18_000,
+    });
+    getDb()
+      .prepare("UPDATE dispatch SET status = 'running', started_at = 12_346 WHERE id = ?")
+      .run(webDispatchId);
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.current_stage_summary).toEqual(
+      expect.objectContaining({
+        stage: "dispatch_timeout",
+        target: "backend",
+        status: "timeout",
+      }),
+    );
+    expect(body.current_stage_summary.label).toContain("backend");
+    expect(body.dispatches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: backendDispatchId,
+          status: "timeout",
+          diagnostic_flags: expect.arrayContaining(["timed_out", "late_callback_ignored"]),
+        }),
+        expect.objectContaining({
+          id: webDispatchId,
+          status: "running",
+        }),
+      ]),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns 404 for non-existent", async () => {
     const res = await app.request("/api/workflow/executions/99999");
     expect(res.status).toBe(404);

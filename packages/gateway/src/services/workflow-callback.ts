@@ -1,13 +1,21 @@
 import { updateWorkflowSubtaskStatusByStage } from "../db/queries";
-import type { WorkflowStatus } from "../types";
+import type { WorkflowDispatchStatus, WorkflowStatus } from "../types";
 
 export interface DispatchRecord {
   id: string;
   workspaceId: string;
   skill: string;
   planeIssueId?: string;
-  status: "pending" | "processing" | "success" | "failed";
+  status: WorkflowDispatchStatus;
   input?: unknown;
+  startedAt?: number | null;
+  lastCallbackAt?: number | null;
+  timeoutAt?: number | null;
+  errorMessage?: string | null;
+  resultSummary?: string | null;
+  callbackReplayCount?: number;
+  sourceExecutionId?: number | null;
+  sourceStage?: string | null;
 }
 
 export interface CallbackDeps {
@@ -25,7 +33,7 @@ export interface CallbackDeps {
   loadDispatch: (id: string) => Promise<DispatchRecord | null>;
   claimDispatch?: (id: string) => Promise<boolean>;
   releaseClaim?: (id: string) => Promise<boolean>;
-  markDone: (id: string, status: "success" | "failed") => Promise<boolean>;
+  markDone: (id: string, update: DispatchFinalizeUpdate) => Promise<boolean>;
   updateExecutionStatus?: (
     executionId: number,
     status: WorkflowStatus,
@@ -60,6 +68,27 @@ export interface CallbackPayload {
   status: "success" | "failed";
   result?: { content: string; planeIssueId?: string };
   error?: string;
+}
+
+export interface DispatchFinalizeUpdate {
+  status: Exclude<WorkflowDispatchStatus, "pending" | "running">;
+  errorMessage?: string | null;
+  resultSummary?: string | null;
+  lastCallbackAt?: number | null;
+  replayIncrement?: boolean;
+}
+
+function summarizeCallbackPayload(payload: CallbackPayload, ...flags: string[]) {
+  const parts = [`callback:${payload.status}`];
+  if (payload.error) parts.push(`error=${payload.error}`);
+  if (payload.result?.planeIssueId) parts.push(`planeIssueId=${payload.result.planeIssueId}`);
+  if (payload.result?.content) parts.push(`contentLength=${payload.result.content.length}`);
+  for (const flag of flags) parts.push(flag);
+  return parts.join("; ");
+}
+
+function isLateCallback(rec: DispatchRecord, now: number) {
+  return rec.timeoutAt != null && now > rec.timeoutAt;
 }
 
 function parseExecutionContext(input: unknown) {
@@ -113,10 +142,32 @@ function parseCodegenDispatchInput(input: unknown) {
 export function createCallbackHandler(deps: CallbackDeps) {
   return {
     async handle(p: CallbackPayload): Promise<boolean> {
+      const lastCallbackAt = Date.now();
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
       if (p.skill && p.skill !== rec.skill) return false;
       const skill = rec.skill;
+
+      if (rec.status === "success" || rec.status === "failed") {
+        await deps.markDone(p.dispatch_id, {
+          status: rec.status,
+          lastCallbackAt,
+          replayIncrement: true,
+          resultSummary: summarizeCallbackPayload(p, "duplicate_callback_ignored"),
+        });
+        return false;
+      }
+
+      if (isLateCallback(rec, lastCallbackAt)) {
+        await deps.markDone(p.dispatch_id, {
+          status: "timeout",
+          lastCallbackAt,
+          replayIncrement: true,
+          errorMessage: "late callback ignored",
+          resultSummary: summarizeCallbackPayload(p, "late_callback_ignored"),
+        });
+        return false;
+      }
 
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
       if (!claimed) return false;
@@ -139,6 +190,51 @@ export function createCallbackHandler(deps: CallbackDeps) {
           return;
         }
         updateWorkflowSubtaskStatusByStage(input);
+      };
+
+      const propagateSideEffectFailure = async (message: string) => {
+        if (skill === "arcflow-code-gen") {
+          try {
+            const dispatchInput = parseCodegenDispatchInput(rec.input);
+            try {
+              await markSubtaskProgress({
+                execution_id: dispatchInput.execution_id,
+                target: dispatchInput.target,
+                stage: "generate_failed",
+                status: "failed",
+                provider: "nanoclaw",
+                branch_name: dispatchInput.branch_name,
+                repo_name: dispatchInput.repo_name,
+                log_url: dispatchInput.log_url,
+                error_message: message,
+              });
+            } catch {
+              try {
+                updateWorkflowSubtaskStatusByStage({
+                  execution_id: dispatchInput.execution_id,
+                  target: dispatchInput.target,
+                  stage: "generate_failed",
+                  status: "failed",
+                  provider: "nanoclaw",
+                  branch_name: dispatchInput.branch_name,
+                  repo_name: dispatchInput.repo_name,
+                  log_url: dispatchInput.log_url,
+                  error_message: message,
+                });
+              } catch {
+                // Best-effort fallback only; execution failure propagation must still continue.
+              }
+            }
+            await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", message);
+            return;
+          } catch {
+            // Fall through to sourceExecutionId propagation when dispatch input is unusable.
+          }
+        }
+
+        if (rec.sourceExecutionId) {
+          await deps.updateExecutionStatus?.(rec.sourceExecutionId, "failed", message);
+        }
       };
 
       try {
@@ -198,11 +294,23 @@ export function createCallbackHandler(deps: CallbackDeps) {
           });
         }
       } catch (error) {
-        await deps.releaseClaim?.(p.dispatch_id);
+        const message = error instanceof Error ? error.message : String(error);
+        await propagateSideEffectFailure(message);
+        await deps.markDone(p.dispatch_id, {
+          status: "failed",
+          lastCallbackAt,
+          errorMessage: `side effect failed: ${message}`,
+          resultSummary: summarizeCallbackPayload(p, "side_effect_failed"),
+        });
         throw error;
       }
 
-      const finalized = await deps.markDone(p.dispatch_id, p.status);
+      const finalized = await deps.markDone(p.dispatch_id, {
+        status: p.status,
+        lastCallbackAt,
+        errorMessage: p.status === "failed" ? (p.error ?? null) : null,
+        resultSummary: summarizeCallbackPayload(p),
+      });
       return finalized;
     },
   };

@@ -10,6 +10,9 @@ export type TriggerSource = "plane_webhook" | "cicd_webhook" | "ibuild_webhook" 
 // 工作流执行状态
 export type WorkflowStatus = "pending" | "running" | "success" | "failed";
 
+// Dispatch 状态
+export type WorkflowDispatchStatus = "pending" | "running" | "success" | "failed" | "timeout";
+
 // Bug 修复状态
 export type BugFixStatus = "pending" | "fixing" | "fixed" | "escalated";
 
@@ -58,10 +61,37 @@ export interface WorkflowLink {
   created_at: string;
 }
 
+export interface WorkflowDispatch {
+  id: string;
+  workspace_id: string;
+  skill: string;
+  input_json: string;
+  status: WorkflowDispatchStatus;
+  created_at: number;
+  completed_at: number | null;
+  plane_issue_id: string | null;
+  source_execution_id: number | null;
+  source_stage: string | null;
+  started_at: number | null;
+  last_callback_at: number | null;
+  error_message: string | null;
+  result_summary: string | null;
+  callback_replay_count: number;
+  timeout_at: number | null;
+  diagnostic_flags: string[];
+}
+
 export interface WorkflowExecutionSummary {
   total_targets: number;
   completed_targets: number;
   latest_stage: string | null;
+}
+
+export interface WorkflowCurrentStageSummary {
+  label: string;
+  stage: string | null;
+  target: string | null;
+  status: WorkflowStatus | WorkflowDispatchStatus;
 }
 
 export interface WorkflowExecutionListItem extends WorkflowExecution {
@@ -70,6 +100,8 @@ export interface WorkflowExecutionListItem extends WorkflowExecution {
 
 export interface WorkflowExecutionDetail extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
+  current_stage_summary: WorkflowCurrentStageSummary | null;
+  dispatches: WorkflowDispatch[];
   subtasks: WorkflowSubtask[];
   links: WorkflowLink[];
 }

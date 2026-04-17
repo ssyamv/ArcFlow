@@ -51,6 +51,7 @@ describe("workflow-callback dispatcher", () => {
 
   it("idempotent: second callback returns false", async () => {
     let done = false;
+    const markDone = mock(async () => true);
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -62,7 +63,8 @@ describe("workflow-callback dispatcher", () => {
         skill: "arcflow-bug-analysis",
         status: done ? ("success" as const) : ("pending" as const),
       }),
-      markDone: async () => {
+      markDone: async (id, update) => {
+        await markDone(id, update);
         if (done) return false;
         done = true;
         return true;
@@ -82,6 +84,15 @@ describe("workflow-callback dispatcher", () => {
     });
     expect(r1).toBe(true);
     expect(r2).toBe(false);
+    expect(markDone).toHaveBeenNthCalledWith(
+      2,
+      "d1",
+      expect.objectContaining({
+        status: "success",
+        replayIncrement: true,
+        resultSummary: expect.stringContaining("duplicate_callback_ignored"),
+      }),
+    );
   });
 
   it("failed status records failure without writing", async () => {
@@ -233,14 +244,16 @@ describe("workflow-callback dispatcher", () => {
     );
   });
 
-  it("does not mark code_gen dispatch done when callback payload is malformed", async () => {
+  it("marks dispatch failed when callback payload is malformed", async () => {
     const markDone = mock(async () => true);
     const markSubtaskProgress = mock(async () => {});
+    const updateExecutionStatus = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
       markSubtaskProgress,
+      updateExecutionStatus,
       loadDispatch: async () => makeCodegenDispatchRecord(),
       markDone,
     });
@@ -254,8 +267,23 @@ describe("workflow-callback dispatcher", () => {
       }),
     ).rejects.toThrow();
 
-    expect(markSubtaskProgress).not.toHaveBeenCalled();
-    expect(markDone).not.toHaveBeenCalled();
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "generate_failed",
+        status: "failed",
+      }),
+    );
+    expect(updateExecutionStatus).toHaveBeenCalledWith(7, "failed", expect.any(String));
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: expect.stringContaining("side effect failed:"),
+        resultSummary: expect.stringContaining("side_effect_failed"),
+      }),
+    );
   });
 
   it("records generate_failed for failed code_gen callback before marking dispatch done", async () => {
@@ -400,9 +428,179 @@ describe("workflow-callback dispatcher", () => {
     expect(released).toBe(false);
   });
 
-  it("releases the callback claim when side effects fail", async () => {
+  it("ignores late callbacks for timeout dispatches", async () => {
+    const markDone = mock(async () => true);
+    let claimed = false;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {
+        throw new Error("should not write tech design for timed out dispatch");
+      },
+      writeOpenApi: async () => {
+        throw new Error("should not write openapi for timed out dispatch");
+      },
+      commentPlaneIssue: async () => {
+        throw new Error("should not comment on timed out dispatch");
+      },
+      markSubtaskProgress: async () => {
+        throw new Error("should not update subtasks for timed out dispatch");
+      },
+      loadDispatch: async () => ({
+        ...makeCodegenDispatchRecord({
+          status: "timeout",
+          startedAt: 1700000000000,
+          lastCallbackAt: 1700000005000,
+          timeoutAt: 1700000010000,
+        }),
+      }),
+      claimDispatch: async () => {
+        claimed = true;
+        return true;
+      },
+      markDone,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(false);
+    expect(claimed).toBe(false);
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "timeout",
+        replayIncrement: true,
+        errorMessage: "late callback ignored",
+        resultSummary: expect.stringContaining("late_callback_ignored"),
+      }),
+    );
+  });
+
+  it("treats expired running dispatch callbacks as late and skips side effects", async () => {
+    const markDone = mock(async () => true);
+    let claimed = false;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {
+        throw new Error("should not write tech design for expired running dispatch");
+      },
+      writeOpenApi: async () => {
+        throw new Error("should not write openapi for expired running dispatch");
+      },
+      commentPlaneIssue: async () => {
+        throw new Error("should not comment for expired running dispatch");
+      },
+      markSubtaskProgress: async () => {
+        throw new Error("should not update subtasks for expired running dispatch");
+      },
+      loadDispatch: async () => ({
+        ...makeCodegenDispatchRecord({
+          status: "running",
+          startedAt: 1700000000000,
+          lastCallbackAt: 1700000005000,
+          timeoutAt: Date.now() - 1_000,
+        }),
+      }),
+      claimDispatch: async () => {
+        claimed = true;
+        return true;
+      },
+      markDone,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(false);
+    expect(claimed).toBe(false);
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "timeout",
+        replayIncrement: true,
+        errorMessage: "late callback ignored",
+        resultSummary: expect.stringContaining("late_callback_ignored"),
+      }),
+    );
+  });
+
+  it("treats expired pending dispatch callbacks as late and skips side effects", async () => {
+    const markDone = mock(async () => true);
+    let claimed = false;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {
+        throw new Error("should not write tech design for expired pending dispatch");
+      },
+      writeOpenApi: async () => {
+        throw new Error("should not write openapi for expired pending dispatch");
+      },
+      commentPlaneIssue: async () => {
+        throw new Error("should not comment for expired pending dispatch");
+      },
+      markSubtaskProgress: async () => {
+        throw new Error("should not update subtasks for expired pending dispatch");
+      },
+      loadDispatch: async () => ({
+        ...makeCodegenDispatchRecord({
+          status: "pending",
+          startedAt: null,
+          lastCallbackAt: null,
+          timeoutAt: Date.now() - 1_000,
+        }),
+      }),
+      claimDispatch: async () => {
+        claimed = true;
+        return true;
+      },
+      markDone,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(false);
+    expect(claimed).toBe(false);
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "timeout",
+        replayIncrement: true,
+        errorMessage: "late callback ignored",
+        resultSummary: expect.stringContaining("late_callback_ignored"),
+      }),
+    );
+  });
+
+  it("marks dispatch failed when side effects fail after callback success", async () => {
     let claimCount = 0;
     let releaseCount = 0;
+    const markDone = mock(async () => true);
+    const updateExecutionStatus = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -410,6 +608,7 @@ describe("workflow-callback dispatcher", () => {
       markSubtaskProgress: async () => {
         throw new Error("db write failed");
       },
+      updateExecutionStatus,
       loadDispatch: async () => makeCodegenDispatchRecord(),
       claimDispatch: async () => {
         claimCount += 1;
@@ -419,7 +618,10 @@ describe("workflow-callback dispatcher", () => {
         releaseCount += 1;
         return true;
       },
-      markDone: async () => true,
+      markDone: async (id, update) => {
+        await markDone(id, update);
+        return true;
+      },
     });
 
     await expect(
@@ -437,6 +639,61 @@ describe("workflow-callback dispatcher", () => {
     ).rejects.toThrow("db write failed");
 
     expect(claimCount).toBe(1);
-    expect(releaseCount).toBe(1);
+    expect(releaseCount).toBe(0);
+    expect(updateExecutionStatus).toHaveBeenCalledWith(7, "failed", "db write failed");
+    expect(markDone).toHaveBeenLastCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "side effect failed: db write failed",
+        resultSummary: expect.stringContaining("side_effect_failed"),
+      }),
+    );
+  });
+
+  it("marks parent execution failed when openapi side effects fail after callback success", async () => {
+    const markDone = mock(async () => true);
+    const updateExecutionStatus = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {
+        throw new Error("openapi write failed");
+      },
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      updateExecutionStatus,
+      loadDispatch: async () => ({
+        id: "d-openapi",
+        workspaceId: "5",
+        skill: "arcflow-tech-to-openapi",
+        planeIssueId: "ISS-500",
+        status: "pending" as const,
+        input: {
+          execution_id: 31,
+          target_repos: ["backend"],
+        },
+        sourceExecutionId: 31,
+        sourceStage: "success",
+      }),
+      markDone,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d-openapi",
+        skill: "arcflow-tech-to-openapi",
+        status: "success",
+        result: { content: "openapi: 3.1.0" },
+      }),
+    ).rejects.toThrow("openapi write failed");
+
+    expect(updateExecutionStatus).toHaveBeenCalledWith(31, "failed", "openapi write failed");
+    expect(markDone).toHaveBeenCalledWith(
+      "d-openapi",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "side effect failed: openapi write failed",
+      }),
+    );
   });
 });

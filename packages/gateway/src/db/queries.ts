@@ -5,6 +5,9 @@ import type {
   WorkflowExecutionDetail,
   WorkflowExecutionListItem,
   WorkflowExecutionSummary,
+  WorkflowCurrentStageSummary,
+  WorkflowDispatchStatus,
+  WorkflowDispatch,
   WorkflowSubtask,
   WorkflowLink,
   WorkflowType,
@@ -99,6 +102,128 @@ function buildExecutionSummary(subtasks: WorkflowSubtask[]): WorkflowExecutionSu
   };
 }
 
+function buildDispatchDiagnosticFlags(
+  dispatch: Omit<WorkflowDispatch, "diagnostic_flags">,
+): string[] {
+  const flags: string[] = [];
+
+  if (dispatch.status === "timeout") {
+    flags.push("timed_out");
+  }
+  if (dispatch.result_summary?.includes("duplicate_callback_ignored")) {
+    flags.push("duplicate_callback_ignored");
+  }
+  if (dispatch.result_summary?.includes("late_callback_ignored")) {
+    flags.push("late_callback_ignored");
+  }
+  if (
+    dispatch.result_summary?.includes("side_effect_failed") ||
+    dispatch.error_message?.includes("side_effect_failed")
+  ) {
+    flags.push("side_effect_failed");
+  }
+
+  return flags;
+}
+
+function getDispatchTarget(dispatch: Pick<WorkflowDispatch, "input_json">): string | null {
+  try {
+    const input = JSON.parse(dispatch.input_json) as {
+      target?: unknown;
+      repo?: unknown;
+      target_repo?: unknown;
+    };
+    if (typeof input.target === "string" && input.target.length > 0) return input.target;
+    if (typeof input.repo === "string" && input.repo.length > 0) return input.repo;
+    if (typeof input.target_repo === "string" && input.target_repo.length > 0)
+      return input.target_repo;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function listDispatchesForExecution(executionId: number): WorkflowDispatch[] {
+  const db = getDb();
+  const rows = db
+    .query(
+      `SELECT *
+       FROM dispatch
+       WHERE source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId) as Omit<WorkflowDispatch, "diagnostic_flags">[];
+
+  return rows.map((row) => ({
+    ...row,
+    diagnostic_flags: buildDispatchDiagnosticFlags(row),
+  }));
+}
+
+function buildCurrentStageSummary(
+  subtasks: WorkflowSubtask[],
+  dispatches: WorkflowDispatch[],
+): WorkflowCurrentStageSummary | null {
+  const latestBlockingSubtask = [...subtasks]
+    .reverse()
+    .find(
+      (item) => item.status === "pending" || item.status === "running" || item.status === "failed",
+    );
+  const isPreCallbackDispatchStage =
+    latestBlockingSubtask?.stage === "dispatch" &&
+    (latestBlockingSubtask.status === "pending" || latestBlockingSubtask.status === "running");
+  const latestDispatch = dispatches.at(-1);
+  const targetRelevantDiagnosticDispatch = latestBlockingSubtask
+    ? [...dispatches].reverse().find((dispatch) => {
+        return (
+          getDispatchTarget(dispatch) === latestBlockingSubtask.target &&
+          (dispatch.status === "timeout" ||
+            dispatch.diagnostic_flags.includes("late_callback_ignored"))
+        );
+      })
+    : null;
+
+  if (isPreCallbackDispatchStage && targetRelevantDiagnosticDispatch) {
+    return {
+      label: `${latestBlockingSubtask.target} ${targetRelevantDiagnosticDispatch.status}`,
+      stage:
+        targetRelevantDiagnosticDispatch.status === "timeout"
+          ? "dispatch_timeout"
+          : targetRelevantDiagnosticDispatch.source_stage,
+      target: latestBlockingSubtask.target,
+      status: targetRelevantDiagnosticDispatch.status,
+    };
+  }
+
+  if (latestBlockingSubtask) {
+    if (isPreCallbackDispatchStage) {
+      return {
+        label: `${latestBlockingSubtask.target} 等待 callback`,
+        stage: "dispatch_running",
+        target: latestBlockingSubtask.target,
+        status: latestBlockingSubtask.status,
+      };
+    }
+
+    return {
+      label: `${latestBlockingSubtask.target} ${latestBlockingSubtask.stage}`,
+      stage: latestBlockingSubtask.stage,
+      target: latestBlockingSubtask.target,
+      status: latestBlockingSubtask.status,
+    };
+  }
+
+  if (!latestDispatch) return null;
+
+  return {
+    label: `${latestDispatch.skill} ${latestDispatch.status}`,
+    stage: latestDispatch.source_stage,
+    target: null,
+    status: latestDispatch.status,
+  };
+}
+
 function listWorkflowExecutionSummaries(
   executionIds: number[],
 ): Map<number, WorkflowExecutionSummary | null> {
@@ -160,12 +285,15 @@ export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail 
   if (!execution) return null;
 
   const subtasks = listWorkflowSubtasks(id);
+  const dispatches = listDispatchesForExecution(id);
   const links = listWorkflowLinksForExecution(id);
   const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
 
   return {
     ...execution,
     summary,
+    current_stage_summary: buildCurrentStageSummary(subtasks, dispatches),
+    dispatches,
     subtasks,
     links,
   };
@@ -961,14 +1089,18 @@ export interface InsertDispatchInput {
   skill: string;
   input: unknown;
   planeIssueId?: string;
+  sourceExecutionId?: number;
+  sourceStage?: string;
   timeoutAt?: number;
 }
 
 export function insertDispatch(db: Database, x: InsertDispatchInput): string {
   const id = crypto.randomUUID();
   db.run(
-    `INSERT INTO dispatch(id, workspace_id, skill, input_json, status, created_at, plane_issue_id, timeout_at)
-     VALUES(?,?,?,?,?,?,?,?)`,
+    `INSERT INTO dispatch(
+       id, workspace_id, skill, input_json, status, created_at, plane_issue_id,
+       source_execution_id, source_stage, callback_replay_count, timeout_at
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       x.workspaceId,
@@ -977,6 +1109,9 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
       "pending",
       Date.now(),
       x.planeIssueId ?? null,
+      x.sourceExecutionId ?? null,
+      x.sourceStage ?? null,
+      0,
       x.timeoutAt ?? null,
     ],
   );
@@ -986,11 +1121,108 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
 export function updateDispatchStatus(
   db: Database,
   id: string,
-  status: "success" | "failed",
+  statusOrUpdate:
+    | Exclude<WorkflowDispatchStatus, "pending" | "running">
+    | {
+        status: Exclude<WorkflowDispatchStatus, "pending" | "running">;
+        errorMessage?: string | null;
+        resultSummary?: string | null;
+        lastCallbackAt?: number | null;
+        replayIncrement?: boolean;
+      },
+  errorMessage?: string,
+  expectedCurrent?: {
+    status: WorkflowDispatchStatus;
+    completed_at: number | null;
+    error_message: string | null;
+    result_summary: string | null;
+    last_callback_at: number | null;
+    callback_replay_count: number;
+  },
 ): boolean {
+  const update =
+    typeof statusOrUpdate === "string" ? { status: statusOrUpdate, errorMessage } : statusOrUpdate;
+  const row =
+    expectedCurrent ??
+    (db
+      .query(
+        `SELECT status, completed_at, error_message, result_summary, last_callback_at, callback_replay_count
+           FROM dispatch
+          WHERE id = ?`,
+      )
+      .get(id) as {
+      status: WorkflowDispatchStatus;
+      completed_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      last_callback_at: number | null;
+      callback_replay_count: number;
+    } | null);
+  if (!row) return false;
+
+  const canFinalize =
+    row.status === "pending" || row.status === "running" || row.status === "timeout";
+  const hasReplayDiagnostics =
+    update.replayIncrement === true ||
+    update.resultSummary !== undefined ||
+    update.lastCallbackAt !== undefined ||
+    (typeof statusOrUpdate !== "string" && statusOrUpdate.errorMessage !== undefined);
+
+  if (!canFinalize && !hasReplayDiagnostics) return false;
+
+  const nextStatus = canFinalize ? update.status : row.status;
+  const nextCompletedAt =
+    nextStatus === "pending" || nextStatus === "running" ? null : (row.completed_at ?? Date.now());
+  const nextErrorMessage =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.errorMessage !== undefined
+      ? (statusOrUpdate.errorMessage ?? null)
+      : nextStatus === "success"
+        ? null
+        : update.errorMessage !== undefined
+          ? (update.errorMessage ?? null)
+          : nextStatus === "timeout"
+            ? (row.error_message ?? "callback timeout")
+            : row.error_message;
+  const nextResultSummary =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.resultSummary !== undefined
+      ? (statusOrUpdate.resultSummary ?? null)
+      : row.result_summary;
+  const nextLastCallbackAt =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.lastCallbackAt !== undefined
+      ? (statusOrUpdate.lastCallbackAt ?? null)
+      : row.last_callback_at;
+  const nextReplayCount = row.callback_replay_count + (update.replayIncrement ? 1 : 0);
+
   const res = db.run(
-    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status IN ('pending', 'processing')`,
-    [status, Date.now(), id],
+    `UPDATE dispatch
+        SET status = ?,
+            completed_at = ?,
+            error_message = ?,
+            result_summary = ?,
+            last_callback_at = ?,
+            callback_replay_count = ?
+      WHERE id = ?
+        AND status IS ?
+        AND completed_at IS ?
+        AND error_message IS ?
+        AND result_summary IS ?
+        AND last_callback_at IS ?
+        AND callback_replay_count = ?`,
+    [
+      nextStatus,
+      nextCompletedAt,
+      nextErrorMessage,
+      nextResultSummary,
+      nextLastCallbackAt,
+      nextReplayCount,
+      id,
+      row.status,
+      row.completed_at,
+      row.error_message,
+      row.result_summary,
+      row.last_callback_at,
+      row.callback_replay_count,
+    ],
   );
   return res.changes === 1;
 }
@@ -1001,16 +1233,35 @@ export function claimDispatchForCallback(
   now = Date.now(),
   processingLeaseMs = 60_000,
 ): boolean {
+  db.run(
+    `UPDATE dispatch
+        SET status = 'timeout',
+            completed_at = ?,
+            error_message = COALESCE(error_message, 'callback timeout')
+      WHERE id = ?
+        AND status = 'running'
+        AND timeout_at IS NOT NULL
+        AND timeout_at < ?`,
+    [now, id, now],
+  );
+
   const nextTimeoutAt = now + processingLeaseMs;
   const res = db.run(
     `UPDATE dispatch
-     SET status = 'processing', timeout_at = ?, completed_at = NULL
+     SET status = 'running',
+         started_at = COALESCE(started_at, ?),
+         last_callback_at = ?,
+         callback_replay_count = callback_replay_count + CASE WHEN status = 'timeout' THEN 1 ELSE 0 END,
+         error_message = NULL,
+         timeout_at = ?,
+         completed_at = NULL
      WHERE id = ?
        AND (
          status = 'pending'
-         OR (status = 'processing' AND timeout_at IS NOT NULL AND timeout_at < ?)
+         OR status = 'timeout'
+         OR (status = 'running' AND timeout_at IS NULL)
        )`,
-    [nextTimeoutAt, id, now],
+    [now, now, nextTimeoutAt, id],
   );
   return res.changes === 1;
 }
@@ -1018,8 +1269,8 @@ export function claimDispatchForCallback(
 export function releaseDispatchClaim(db: Database, id: string): boolean {
   const res = db.run(
     `UPDATE dispatch
-     SET status = 'pending', completed_at = NULL
-     WHERE id = ? AND status = 'processing'`,
+     SET status = 'pending', completed_at = NULL, timeout_at = NULL, error_message = NULL
+     WHERE id = ? AND status = 'running'`,
     [id],
   );
   return res.changes === 1;

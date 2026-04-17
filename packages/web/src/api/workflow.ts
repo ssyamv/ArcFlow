@@ -45,14 +45,22 @@ export interface WorkflowSummary {
 
 export interface WorkflowSubtask {
   id: number;
+  execution_id?: number;
   target: string;
   stage: string;
   provider: string;
   status: string;
+  input_ref?: string | null;
+  output_ref?: string | null;
+  external_run_id?: string | null;
   branch_name?: string | null;
   repo_name?: string | null;
   log_url?: string | null;
   error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WorkflowLink {
@@ -60,6 +68,35 @@ export interface WorkflowLink {
   source_execution_id: number;
   target_execution_id: number;
   link_type: string;
+  metadata?: string;
+  created_at?: string;
+}
+
+export interface CurrentStageSummary {
+  label: string;
+  target: string | null;
+  stage: string | null;
+  status: string | null;
+}
+
+export interface WorkflowDispatch {
+  id: string;
+  workspace_id: string;
+  skill: string;
+  input_json: string;
+  status: string;
+  created_at: number;
+  completed_at: number | null;
+  plane_issue_id: string | null;
+  source_execution_id: number | null;
+  source_stage: string | null;
+  started_at: number | null;
+  last_callback_at: number | null;
+  error_message: string | null;
+  result_summary: string | null;
+  callback_replay_count: number;
+  timeout_at: number | null;
+  diagnostic_flags: string[];
 }
 
 export interface ExecutionListItem {
@@ -101,7 +138,9 @@ export interface ExecutionDetail {
   completed_at: string | null;
   created_at: string;
   summary?: WorkflowSummary | null;
+  current_stage_summary?: CurrentStageSummary | null;
   subtasks?: WorkflowSubtask[];
+  dispatches?: WorkflowDispatch[];
   links?: WorkflowLink[];
 }
 

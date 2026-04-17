@@ -148,10 +148,18 @@ CREATE TABLE IF NOT EXISTS dispatch (
   created_at INTEGER NOT NULL,
   completed_at INTEGER,
   plane_issue_id TEXT,
+  source_execution_id INTEGER REFERENCES workflow_execution(id) ON DELETE CASCADE,
+  source_stage TEXT,
+  started_at INTEGER,
+  last_callback_at INTEGER,
+  error_message TEXT,
+  result_summary TEXT,
+  callback_replay_count INTEGER NOT NULL DEFAULT 0,
   timeout_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_dispatch_plane_issue ON dispatch(plane_issue_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_source_execution ON dispatch(source_execution_id, created_at);
 
 -- RAG 索引元数据
 CREATE TABLE IF NOT EXISTS rag_docs (
