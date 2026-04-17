@@ -745,19 +745,49 @@ describe("dispatch", () => {
     closeDb();
   });
 
-  it("insertDispatch persists plane_issue_id and timeout_at", () => {
+  it("insertDispatch persists execution linkage and diagnostic fields", () => {
     const db = getDb();
+    const executionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
     const id = insertDispatch(db, {
       workspaceId: "w",
-      skill: "arcflow-prd-to-tech",
-      input: { x: 1 },
-      planeIssueId: "PROJ-7",
+      skill: "arcflow-tech-to-openapi",
+      input: { execution_id: executionId },
+      planeIssueId: "ISS-121",
+      sourceExecutionId: executionId,
+      sourceStage: "dispatch",
       timeoutAt: 9999,
     });
     const row = db
-      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
-      .get(id) as { plane_issue_id: string; timeout_at: number };
-    expect(row.plane_issue_id).toBe("PROJ-7");
+      .prepare(
+        `SELECT status, plane_issue_id, source_execution_id, source_stage, started_at,
+                last_callback_at, error_message, result_summary, callback_replay_count,
+                timeout_at
+           FROM dispatch WHERE id=?`,
+      )
+      .get(id) as {
+      status: string;
+      plane_issue_id: string;
+      source_execution_id: number | null;
+      source_stage: string | null;
+      started_at: number | null;
+      last_callback_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+      timeout_at: number;
+    };
+    expect(row.status).toBe("pending");
+    expect(row.plane_issue_id).toBe("ISS-121");
+    expect(row.source_execution_id).toBe(executionId);
+    expect(row.source_stage).toBe("dispatch");
+    expect(row.started_at).toBeNull();
+    expect(row.last_callback_at).toBeNull();
+    expect(row.error_message).toBeNull();
+    expect(row.result_summary).toBeNull();
+    expect(row.callback_replay_count).toBe(0);
     expect(row.timeout_at).toBe(9999);
   });
 
@@ -774,7 +804,7 @@ describe("dispatch", () => {
     expect(second).toBe(false); // already completed returns false
   });
 
-  it("claimDispatchForCallback transitions pending dispatch to processing once", () => {
+  it("claimDispatchForCallback transitions pending dispatch to running once", () => {
     const db = getDb();
     const id = insertDispatch(db, {
       workspaceId: "w",
@@ -791,10 +821,10 @@ describe("dispatch", () => {
     const row = db.prepare("SELECT status FROM dispatch WHERE id = ?").get(id) as {
       status: string;
     };
-    expect(row.status).toBe("processing");
+    expect(row.status).toBe("running");
   });
 
-  it("releaseDispatchClaim returns processing dispatch to pending", () => {
+  it("releaseDispatchClaim returns running dispatch to pending", () => {
     const db = getDb();
     const id = insertDispatch(db, {
       workspaceId: "w",
@@ -815,7 +845,7 @@ describe("dispatch", () => {
     expect(row.completed_at).toBeNull();
   });
 
-  it("claimDispatchForCallback can recover an expired processing dispatch", () => {
+  it("claimDispatchForCallback can recover an expired running dispatch", () => {
     const db = getDb();
     const id = insertDispatch(db, {
       workspaceId: "w",
@@ -832,49 +862,13 @@ describe("dispatch", () => {
       status: string;
       completed_at: number | null;
     };
-    expect(row.status).toBe("processing");
+    expect(row.status).toBe("running");
     expect(row.completed_at).toBeNull();
-  });
-});
-
-import { insertDispatch, updateDispatchStatus } from "./queries";
-
-describe("dispatch", () => {
-  beforeEach(() => {
-    process.env.NODE_ENV = "test";
-    getDb();
-  });
-
-  afterEach(() => {
-    closeDb();
-  });
-
-  it("insertDispatch persists plane_issue_id and timeout_at", () => {
-    const db = getDb();
-    const id = insertDispatch(db, {
-      workspaceId: "w",
-      skill: "arcflow-prd-to-tech",
-      input: { x: 1 },
-      planeIssueId: "PROJ-7",
-      timeoutAt: 9999,
-    });
-    const row = db
-      .prepare("SELECT plane_issue_id, timeout_at FROM dispatch WHERE id=?")
-      .get(id) as { plane_issue_id: string; timeout_at: number };
-    expect(row.plane_issue_id).toBe("PROJ-7");
-    expect(row.timeout_at).toBe(9999);
-  });
-
-  it("updateDispatchStatus marks success idempotently", () => {
-    const db = getDb();
-    const id = insertDispatch(db, {
-      workspaceId: "w",
-      skill: "arcflow-prd-to-tech",
-      input: {},
-    });
-    const first = updateDispatchStatus(db, id, "success");
-    const second = updateDispatchStatus(db, id, "success");
-    expect(first).toBe(true);
-    expect(second).toBe(false);
+    const replayRow = db
+      .prepare("SELECT callback_replay_count FROM dispatch WHERE id = ?")
+      .get(id) as {
+      callback_replay_count: number;
+    };
+    expect(replayRow.callback_replay_count).toBe(1);
   });
 });

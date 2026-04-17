@@ -10,6 +10,9 @@ export type TriggerSource = "plane_webhook" | "cicd_webhook" | "ibuild_webhook" 
 // 工作流执行状态
 export type WorkflowStatus = "pending" | "running" | "success" | "failed";
 
+// Dispatch 状态
+export type WorkflowDispatchStatus = "pending" | "running" | "success" | "failed" | "timeout";
+
 // Bug 修复状态
 export type BugFixStatus = "pending" | "fixing" | "fixed" | "escalated";
 
@@ -56,6 +59,25 @@ export interface WorkflowLink {
   link_type: string;
   metadata: string;
   created_at: string;
+}
+
+export interface WorkflowDispatch {
+  id: string;
+  workspace_id: string;
+  skill: string;
+  input_json: string;
+  status: WorkflowDispatchStatus;
+  created_at: number;
+  completed_at: number | null;
+  plane_issue_id: string | null;
+  source_execution_id: number | null;
+  source_stage: string | null;
+  started_at: number | null;
+  last_callback_at: number | null;
+  error_message: string | null;
+  result_summary: string | null;
+  callback_replay_count: number;
+  timeout_at: number | null;
 }
 
 export interface WorkflowExecutionSummary {

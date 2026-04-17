@@ -5,6 +5,7 @@ import type {
   WorkflowExecutionDetail,
   WorkflowExecutionListItem,
   WorkflowExecutionSummary,
+  WorkflowDispatchStatus,
   WorkflowSubtask,
   WorkflowLink,
   WorkflowType,
@@ -961,14 +962,18 @@ export interface InsertDispatchInput {
   skill: string;
   input: unknown;
   planeIssueId?: string;
+  sourceExecutionId?: number;
+  sourceStage?: string;
   timeoutAt?: number;
 }
 
 export function insertDispatch(db: Database, x: InsertDispatchInput): string {
   const id = crypto.randomUUID();
   db.run(
-    `INSERT INTO dispatch(id, workspace_id, skill, input_json, status, created_at, plane_issue_id, timeout_at)
-     VALUES(?,?,?,?,?,?,?,?)`,
+    `INSERT INTO dispatch(
+       id, workspace_id, skill, input_json, status, created_at, plane_issue_id,
+       source_execution_id, source_stage, callback_replay_count, timeout_at
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       x.workspaceId,
@@ -977,6 +982,9 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
       "pending",
       Date.now(),
       x.planeIssueId ?? null,
+      x.sourceExecutionId ?? null,
+      x.sourceStage ?? null,
+      0,
       x.timeoutAt ?? null,
     ],
   );
@@ -986,11 +994,21 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
 export function updateDispatchStatus(
   db: Database,
   id: string,
-  status: "success" | "failed",
+  status: WorkflowDispatchStatus,
+  errorMessage?: string,
 ): boolean {
   const res = db.run(
-    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status IN ('pending', 'processing')`,
-    [status, Date.now(), id],
+    `UPDATE dispatch
+        SET status = ?,
+            completed_at = ?,
+            error_message = CASE
+              WHEN ? = 'success' THEN NULL
+              WHEN ? IS NOT NULL THEN ?
+              WHEN ? = 'timeout' THEN COALESCE(error_message, 'callback timeout')
+              ELSE error_message
+            END
+      WHERE id = ? AND status IN ('pending', 'running')`,
+    [status, Date.now(), status, errorMessage ?? null, errorMessage ?? null, status, id],
   );
   return res.changes === 1;
 }
@@ -1001,16 +1019,33 @@ export function claimDispatchForCallback(
   now = Date.now(),
   processingLeaseMs = 60_000,
 ): boolean {
+  db.run(
+    `UPDATE dispatch
+        SET status = 'timeout',
+            completed_at = ?,
+            error_message = COALESCE(error_message, 'callback timeout')
+      WHERE id = ?
+        AND status = 'running'
+        AND timeout_at IS NOT NULL
+        AND timeout_at < ?`,
+    [now, id, now],
+  );
+
   const nextTimeoutAt = now + processingLeaseMs;
   const res = db.run(
     `UPDATE dispatch
-     SET status = 'processing', timeout_at = ?, completed_at = NULL
+     SET status = 'running',
+         started_at = COALESCE(started_at, ?),
+         last_callback_at = ?,
+         callback_replay_count = callback_replay_count + CASE WHEN status = 'timeout' THEN 1 ELSE 0 END,
+         timeout_at = ?,
+         completed_at = NULL
      WHERE id = ?
        AND (
          status = 'pending'
-         OR (status = 'processing' AND timeout_at IS NOT NULL AND timeout_at < ?)
+         OR status = 'timeout'
        )`,
-    [nextTimeoutAt, id, now],
+    [now, now, nextTimeoutAt, id],
   );
   return res.changes === 1;
 }
@@ -1018,8 +1053,8 @@ export function claimDispatchForCallback(
 export function releaseDispatchClaim(db: Database, id: string): boolean {
   const res = db.run(
     `UPDATE dispatch
-     SET status = 'pending', completed_at = NULL
-     WHERE id = ? AND status = 'processing'`,
+     SET status = 'pending', completed_at = NULL, timeout_at = NULL
+     WHERE id = ? AND status = 'running'`,
     [id],
   );
   return res.changes === 1;
