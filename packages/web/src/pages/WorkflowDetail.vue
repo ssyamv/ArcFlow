@@ -316,10 +316,14 @@
             style="border: 1px solid var(--color-border-subtle)"
           >
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-              <span style="font-weight: 510; color: var(--color-text-primary)">
+              <span
+                data-testid="trajectory-target"
+                style="font-weight: 510; color: var(--color-text-primary)"
+              >
                 {{ targetGroup.target }}
               </span>
               <span
+                data-testid="trajectory-status"
                 class="status-pill"
                 style="border-color: var(--color-border-solid)"
                 :style="{
@@ -331,13 +335,25 @@
               </span>
             </div>
             <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
-              <div class="text-xs" style="color: var(--color-text-quaternary)">
+              <div
+                data-testid="trajectory-provider"
+                class="text-xs"
+                style="color: var(--color-text-quaternary)"
+              >
                 Provider · {{ targetGroup.provider }}
               </div>
-              <div class="text-xs" style="color: var(--color-text-quaternary)">
+              <div
+                data-testid="trajectory-repo"
+                class="text-xs"
+                style="color: var(--color-text-quaternary)"
+              >
                 Repo · {{ targetGroup.repo_name ?? "-" }}
               </div>
-              <div class="text-xs" style="color: var(--color-text-quaternary)">
+              <div
+                data-testid="trajectory-branch"
+                class="text-xs"
+                style="color: var(--color-text-quaternary)"
+              >
                 Branch · {{ targetGroup.branch_name ?? "-" }}
               </div>
             </div>
@@ -505,6 +521,7 @@ const groupedSubtasks = computed(() => {
       repo_name: string | null;
       branch_name: string | null;
       status: string;
+      latestSubtaskId: number;
       subtasks: typeof subtasks;
     }
   >();
@@ -513,14 +530,16 @@ const groupedSubtasks = computed(() => {
     const existing = groups.get(subtask.target);
     if (existing) {
       existing.subtasks.push(subtask);
-      if (existing.status !== "failed" && existing.status !== "timeout") {
-        if (
-          subtask.status === "failed" ||
-          subtask.status === "timeout" ||
-          (subtask.status === "running" && existing.status !== "running")
-        ) {
-          existing.status = subtask.status;
-        }
+      if (subtask.id > existing.latestSubtaskId) {
+        existing.latestSubtaskId = subtask.id;
+        existing.status = subtask.status;
+        existing.provider = subtask.provider;
+      }
+      if (!existing.repo_name && subtask.repo_name) {
+        existing.repo_name = subtask.repo_name;
+      }
+      if (!existing.branch_name && subtask.branch_name) {
+        existing.branch_name = subtask.branch_name;
       }
       continue;
     }
@@ -531,6 +550,7 @@ const groupedSubtasks = computed(() => {
       repo_name: subtask.repo_name ?? null,
       branch_name: subtask.branch_name ?? null,
       status: subtask.status,
+      latestSubtaskId: subtask.id,
       subtasks: [subtask],
     });
   }

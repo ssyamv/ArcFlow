@@ -78,8 +78,8 @@ describe("WorkflowDetail", () => {
           stage: "dispatch",
           status: "failed",
           provider: "nanoclaw",
-          repo_name: "acme/backend",
-          branch_name: "feature/fix-timeout",
+          repo_name: null,
+          branch_name: null,
           log_url: "https://logs.example.com/backend/3",
           output_ref: "repos/backend/feature/fix-timeout",
           error_message: "command exited 1",
@@ -94,8 +94,8 @@ describe("WorkflowDetail", () => {
         {
           id: 4,
           target: "backend",
-          stage: "ci_failed",
-          status: "failed",
+          stage: "rerun_dispatch",
+          status: "running",
           provider: "nanoclaw",
           repo_name: "acme/backend",
           branch_name: "feature/fix-timeout",
@@ -191,6 +191,20 @@ describe("WorkflowDetail", () => {
     expect(wrapper.text()).toContain("repos/backend/feature/fix-timeout");
     expect(wrapper.text()).toContain("reports/backend/ci.log");
     expect(wrapper.findAll('[data-testid="trajectory-card"]').length).toBe(2);
+    const trajectoryCards = wrapper.findAll('[data-testid="trajectory-card"]');
+    expect(trajectoryCards[0]?.find('[data-testid="trajectory-target"]').text()).toContain(
+      "backend",
+    );
+    expect(trajectoryCards[0]?.find('[data-testid="trajectory-status"]').text()).toContain(
+      "运行中",
+    );
+    expect(trajectoryCards[0]?.find('[data-testid="trajectory-repo"]').text()).toContain(
+      "acme/backend",
+    );
+    expect(trajectoryCards[0]?.find('[data-testid="trajectory-branch"]').text()).toContain(
+      "feature/fix-timeout",
+    );
+    expect(trajectoryCards[0]?.text()).toContain("rerun_dispatch");
     expect(wrapper.find('a[href="https://logs.example.com/backend/3"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("spawned_on_ci_failure");
   });
