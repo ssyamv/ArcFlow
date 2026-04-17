@@ -192,6 +192,51 @@ export function createCallbackHandler(deps: CallbackDeps) {
         updateWorkflowSubtaskStatusByStage(input);
       };
 
+      const propagateSideEffectFailure = async (message: string) => {
+        if (skill === "arcflow-code-gen") {
+          try {
+            const dispatchInput = parseCodegenDispatchInput(rec.input);
+            try {
+              await markSubtaskProgress({
+                execution_id: dispatchInput.execution_id,
+                target: dispatchInput.target,
+                stage: "generate_failed",
+                status: "failed",
+                provider: "nanoclaw",
+                branch_name: dispatchInput.branch_name,
+                repo_name: dispatchInput.repo_name,
+                log_url: dispatchInput.log_url,
+                error_message: message,
+              });
+            } catch {
+              try {
+                updateWorkflowSubtaskStatusByStage({
+                  execution_id: dispatchInput.execution_id,
+                  target: dispatchInput.target,
+                  stage: "generate_failed",
+                  status: "failed",
+                  provider: "nanoclaw",
+                  branch_name: dispatchInput.branch_name,
+                  repo_name: dispatchInput.repo_name,
+                  log_url: dispatchInput.log_url,
+                  error_message: message,
+                });
+              } catch {
+                // Best-effort fallback only; execution failure propagation must still continue.
+              }
+            }
+            await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", message);
+            return;
+          } catch {
+            // Fall through to sourceExecutionId propagation when dispatch input is unusable.
+          }
+        }
+
+        if (rec.sourceExecutionId) {
+          await deps.updateExecutionStatus?.(rec.sourceExecutionId, "failed", message);
+        }
+      };
+
       try {
         if (p.status === "failed") {
           if (skill === "arcflow-code-gen") {
@@ -250,6 +295,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        await propagateSideEffectFailure(message);
         await deps.markDone(p.dispatch_id, {
           status: "failed",
           lastCallbackAt,

@@ -247,11 +247,13 @@ describe("workflow-callback dispatcher", () => {
   it("marks dispatch failed when callback payload is malformed", async () => {
     const markDone = mock(async () => true);
     const markSubtaskProgress = mock(async () => {});
+    const updateExecutionStatus = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
       commentPlaneIssue: async () => {},
       markSubtaskProgress,
+      updateExecutionStatus,
       loadDispatch: async () => makeCodegenDispatchRecord(),
       markDone,
     });
@@ -265,7 +267,15 @@ describe("workflow-callback dispatcher", () => {
       }),
     ).rejects.toThrow();
 
-    expect(markSubtaskProgress).not.toHaveBeenCalled();
+    expect(markSubtaskProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_id: 7,
+        target: "backend",
+        stage: "generate_failed",
+        status: "failed",
+      }),
+    );
+    expect(updateExecutionStatus).toHaveBeenCalledWith(7, "failed", expect.any(String));
     expect(markDone).toHaveBeenCalledWith(
       "d-codegen-1",
       expect.objectContaining({
@@ -590,6 +600,7 @@ describe("workflow-callback dispatcher", () => {
     let claimCount = 0;
     let releaseCount = 0;
     const markDone = mock(async () => true);
+    const updateExecutionStatus = mock(async () => {});
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -597,6 +608,7 @@ describe("workflow-callback dispatcher", () => {
       markSubtaskProgress: async () => {
         throw new Error("db write failed");
       },
+      updateExecutionStatus,
       loadDispatch: async () => makeCodegenDispatchRecord(),
       claimDispatch: async () => {
         claimCount += 1;
@@ -628,12 +640,59 @@ describe("workflow-callback dispatcher", () => {
 
     expect(claimCount).toBe(1);
     expect(releaseCount).toBe(0);
+    expect(updateExecutionStatus).toHaveBeenCalledWith(7, "failed", "db write failed");
     expect(markDone).toHaveBeenLastCalledWith(
       "d-codegen-1",
       expect.objectContaining({
         status: "failed",
         errorMessage: "side effect failed: db write failed",
         resultSummary: expect.stringContaining("side_effect_failed"),
+      }),
+    );
+  });
+
+  it("marks parent execution failed when openapi side effects fail after callback success", async () => {
+    const markDone = mock(async () => true);
+    const updateExecutionStatus = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {
+        throw new Error("openapi write failed");
+      },
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      updateExecutionStatus,
+      loadDispatch: async () => ({
+        id: "d-openapi",
+        workspaceId: "5",
+        skill: "arcflow-tech-to-openapi",
+        planeIssueId: "ISS-500",
+        status: "pending" as const,
+        input: {
+          execution_id: 31,
+          target_repos: ["backend"],
+        },
+        sourceExecutionId: 31,
+        sourceStage: "success",
+      }),
+      markDone,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d-openapi",
+        skill: "arcflow-tech-to-openapi",
+        status: "success",
+        result: { content: "openapi: 3.1.0" },
+      }),
+    ).rejects.toThrow("openapi write failed");
+
+    expect(updateExecutionStatus).toHaveBeenCalledWith(31, "failed", "openapi write failed");
+    expect(markDone).toHaveBeenCalledWith(
+      "d-openapi",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "side effect failed: openapi write failed",
       }),
     );
   });
