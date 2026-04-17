@@ -88,11 +88,7 @@ function summarizeCallbackPayload(payload: CallbackPayload, ...flags: string[]) 
 }
 
 function isLateCallback(rec: DispatchRecord, now: number) {
-  return (
-    rec.timeoutAt != null &&
-    now > rec.timeoutAt &&
-    (rec.status === "running" || rec.status === "timeout")
-  );
+  return rec.timeoutAt != null && now > rec.timeoutAt;
 }
 
 function parseExecutionContext(input: unknown) {

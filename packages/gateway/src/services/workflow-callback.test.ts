@@ -530,6 +530,62 @@ describe("workflow-callback dispatcher", () => {
     );
   });
 
+  it("treats expired pending dispatch callbacks as late and skips side effects", async () => {
+    const markDone = mock(async () => true);
+    let claimed = false;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {
+        throw new Error("should not write tech design for expired pending dispatch");
+      },
+      writeOpenApi: async () => {
+        throw new Error("should not write openapi for expired pending dispatch");
+      },
+      commentPlaneIssue: async () => {
+        throw new Error("should not comment for expired pending dispatch");
+      },
+      markSubtaskProgress: async () => {
+        throw new Error("should not update subtasks for expired pending dispatch");
+      },
+      loadDispatch: async () => ({
+        ...makeCodegenDispatchRecord({
+          status: "pending",
+          startedAt: null,
+          lastCallbackAt: null,
+          timeoutAt: Date.now() - 1_000,
+        }),
+      }),
+      claimDispatch: async () => {
+        claimed = true;
+        return true;
+      },
+      markDone,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(false);
+    expect(claimed).toBe(false);
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "timeout",
+        replayIncrement: true,
+        errorMessage: "late callback ignored",
+        resultSummary: expect.stringContaining("late_callback_ignored"),
+      }),
+    );
+  });
+
   it("marks dispatch failed when side effects fail after callback success", async () => {
     let claimCount = 0;
     let releaseCount = 0;
