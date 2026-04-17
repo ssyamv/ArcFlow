@@ -830,69 +830,97 @@ describe("dispatch", () => {
 
   it("claimDispatchForCallback transitions pending dispatch to running once", () => {
     const db = getDb();
+    const startedAt = 1_700_000_000_000;
+    const leaseAt = 5_000;
     const id = insertDispatch(db, {
       workspaceId: "w",
       skill: "arcflow-code-gen",
       input: {},
-      timeoutAt: Date.now() + 1_000,
+      timeoutAt: startedAt + 1_000,
     });
 
-    const first = claimDispatchForCallback(db, id, Date.now(), 5_000);
-    const second = claimDispatchForCallback(db, id, Date.now(), 5_000);
+    const first = claimDispatchForCallback(db, id, startedAt, leaseAt);
+    const second = claimDispatchForCallback(db, id, startedAt, leaseAt);
 
     expect(first).toBe(true);
     expect(second).toBe(false);
-    const row = db.prepare("SELECT status FROM dispatch WHERE id = ?").get(id) as {
+    const row = db
+      .prepare("SELECT status, started_at, last_callback_at, timeout_at FROM dispatch WHERE id = ?")
+      .get(id) as {
       status: string;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
     };
     expect(row.status).toBe("running");
+    expect(row.started_at).toBe(startedAt);
+    expect(row.last_callback_at).toBe(startedAt);
+    expect(row.timeout_at).toBe(startedAt + leaseAt);
   });
 
   it("releaseDispatchClaim returns running dispatch to pending", () => {
     const db = getDb();
+    const startedAt = 1_700_000_010_000;
     const id = insertDispatch(db, {
       workspaceId: "w",
       skill: "arcflow-code-gen",
       input: {},
-      timeoutAt: Date.now() + 1_000,
+      timeoutAt: startedAt + 1_000,
     });
-    claimDispatchForCallback(db, id, Date.now(), 5_000);
+    claimDispatchForCallback(db, id, startedAt, 5_000);
 
     const released = releaseDispatchClaim(db, id);
 
     expect(released).toBe(true);
-    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+    const row = db
+      .prepare(
+        "SELECT status, completed_at, started_at, last_callback_at, timeout_at FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
       status: string;
       completed_at: number | null;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
     };
     expect(row.status).toBe("pending");
     expect(row.completed_at).toBeNull();
+    expect(row.started_at).toBe(startedAt);
+    expect(row.last_callback_at).toBe(startedAt);
+    expect(row.timeout_at).toBeNull();
   });
 
   it("claimDispatchForCallback can recover an expired running dispatch", () => {
     const db = getDb();
+    const startedAt = 1_700_000_020_000;
     const id = insertDispatch(db, {
       workspaceId: "w",
       skill: "arcflow-code-gen",
       input: {},
-      timeoutAt: Date.now() + 1_000,
+      timeoutAt: startedAt + 1_000,
     });
-    claimDispatchForCallback(db, id, Date.now(), 5_000);
+    claimDispatchForCallback(db, id, startedAt, 5_000);
 
-    const reclaimed = claimDispatchForCallback(db, id, Date.now() + 10_000, 5_000);
+    const reclaimed = claimDispatchForCallback(db, id, startedAt + 10_000, 5_000);
 
     expect(reclaimed).toBe(true);
-    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+    const row = db
+      .prepare(
+        "SELECT status, completed_at, started_at, last_callback_at, timeout_at, callback_replay_count FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
       status: string;
       completed_at: number | null;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
+      callback_replay_count: number;
     };
     expect(row.status).toBe("running");
     expect(row.completed_at).toBeNull();
-    const replayRow = db
-      .prepare("SELECT callback_replay_count FROM dispatch WHERE id = ?")
-      .get(id) as {
-      callback_replay_count: number;
-    };
-    expect(replayRow.callback_replay_count).toBe(1);
+    expect(row.started_at).toBe(startedAt);
+    expect(row.last_callback_at).toBe(startedAt + 10_000);
+    expect(row.timeout_at).toBe(startedAt + 15_000);
+    expect(row.callback_replay_count).toBe(1);
   });
 });

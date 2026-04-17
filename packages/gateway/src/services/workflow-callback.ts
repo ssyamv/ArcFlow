@@ -1,13 +1,21 @@
 import { updateWorkflowSubtaskStatusByStage } from "../db/queries";
-import type { WorkflowStatus } from "../types";
+import type { WorkflowDispatchStatus, WorkflowStatus } from "../types";
 
 export interface DispatchRecord {
   id: string;
   workspaceId: string;
   skill: string;
   planeIssueId?: string;
-  status: "pending" | "processing" | "success" | "failed";
+  status: WorkflowDispatchStatus;
   input?: unknown;
+  startedAt?: number | null;
+  lastCallbackAt?: number | null;
+  timeoutAt?: number | null;
+  errorMessage?: string | null;
+  resultSummary?: string | null;
+  callbackReplayCount?: number;
+  sourceExecutionId?: number | null;
+  sourceStage?: string | null;
 }
 
 export interface CallbackDeps {
@@ -25,7 +33,10 @@ export interface CallbackDeps {
   loadDispatch: (id: string) => Promise<DispatchRecord | null>;
   claimDispatch?: (id: string) => Promise<boolean>;
   releaseClaim?: (id: string) => Promise<boolean>;
-  markDone: (id: string, status: "success" | "failed") => Promise<boolean>;
+  markDone: (
+    id: string,
+    status: Exclude<WorkflowDispatchStatus, "pending" | "running">,
+  ) => Promise<boolean>;
   updateExecutionStatus?: (
     executionId: number,
     status: WorkflowStatus,
@@ -116,6 +127,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
       if (p.skill && p.skill !== rec.skill) return false;
+      if (rec.status === "timeout") return false;
       const skill = rec.skill;
 
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;

@@ -4,6 +4,37 @@ import { join } from "path";
 
 let db: Database | null = null;
 
+function migrateDispatchColumns(db: Database): void {
+  const tableExists = db
+    .query("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dispatch'")
+    .get() as { ok: number } | null;
+  if (!tableExists) return;
+
+  const columns = db.query("PRAGMA table_info(dispatch)").all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map((column) => column.name));
+  const migrations = [
+    [
+      "source_execution_id",
+      "ALTER TABLE dispatch ADD COLUMN source_execution_id INTEGER REFERENCES workflow_execution(id) ON DELETE CASCADE",
+    ],
+    ["source_stage", "ALTER TABLE dispatch ADD COLUMN source_stage TEXT"],
+    ["started_at", "ALTER TABLE dispatch ADD COLUMN started_at INTEGER"],
+    ["last_callback_at", "ALTER TABLE dispatch ADD COLUMN last_callback_at INTEGER"],
+    ["error_message", "ALTER TABLE dispatch ADD COLUMN error_message TEXT"],
+    ["result_summary", "ALTER TABLE dispatch ADD COLUMN result_summary TEXT"],
+    [
+      "callback_replay_count",
+      "ALTER TABLE dispatch ADD COLUMN callback_replay_count INTEGER NOT NULL DEFAULT 0",
+    ],
+  ] as const;
+
+  for (const [columnName, sql] of migrations) {
+    if (!columnNames.has(columnName)) {
+      db.exec(sql);
+    }
+  }
+}
+
 export function getDb(): Database {
   if (!db) {
     const dbPath =
@@ -11,8 +42,12 @@ export function getDb(): Database {
     db = new Database(dbPath);
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA foreign_keys = ON;");
+    migrateDispatchColumns(db);
     const schema = readFileSync(join(import.meta.dir, "schema.sql"), "utf-8");
     db.exec(schema);
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_dispatch_source_execution ON dispatch(source_execution_id, created_at)",
+    );
 
     // Migrations — add columns that may not exist yet
     const cols = db.query("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;

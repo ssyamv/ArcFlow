@@ -23,6 +23,7 @@ import { createGitAdapter } from "./services/rag-git-adapter";
 import { createCallbackHandler } from "./services/workflow-callback";
 import { createScheduler } from "./services/scheduler";
 import { triggerWorkflow } from "./services/workflow";
+import type { WorkflowDispatchStatus } from "./types";
 
 // ── sqlite-vec: must call setCustomSQLite before any Database() on macOS ──────
 if (process.platform === "darwin") {
@@ -146,7 +147,22 @@ const callbackHandler = createCallbackHandler({
     const db = getDb();
     const row = db
       .prepare(
-        "SELECT id, workspace_id, skill, plane_issue_id, status, input_json FROM dispatch WHERE id=?",
+        `SELECT id,
+                workspace_id,
+                skill,
+                plane_issue_id,
+                status,
+                input_json,
+                started_at,
+                last_callback_at,
+                timeout_at,
+                error_message,
+                result_summary,
+                callback_replay_count,
+                source_execution_id,
+                source_stage
+           FROM dispatch
+          WHERE id=?`,
       )
       .get(id) as {
       id: string;
@@ -155,6 +171,14 @@ const callbackHandler = createCallbackHandler({
       plane_issue_id: string | null;
       status: string;
       input_json: string;
+      started_at: number | null;
+      last_callback_at: number | null;
+      timeout_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+      source_execution_id: number | null;
+      source_stage: string | null;
     } | null;
     if (!row) return null;
     return {
@@ -162,8 +186,16 @@ const callbackHandler = createCallbackHandler({
       workspaceId: row.workspace_id,
       skill: row.skill,
       planeIssueId: row.plane_issue_id ?? undefined,
-      status: row.status as "pending" | "processing" | "success" | "failed",
+      status: row.status as WorkflowDispatchStatus,
       input: JSON.parse(row.input_json),
+      startedAt: row.started_at,
+      lastCallbackAt: row.last_callback_at,
+      timeoutAt: row.timeout_at,
+      errorMessage: row.error_message,
+      resultSummary: row.result_summary,
+      callbackReplayCount: row.callback_replay_count,
+      sourceExecutionId: row.source_execution_id,
+      sourceStage: row.source_stage,
     };
   },
   claimDispatch: async (id) => {

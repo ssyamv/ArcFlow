@@ -400,6 +400,54 @@ describe("workflow-callback dispatcher", () => {
     expect(released).toBe(false);
   });
 
+  it("ignores late callbacks for timeout dispatches", async () => {
+    const markDone = mock(async () => true);
+    let claimed = false;
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {
+        throw new Error("should not write tech design for timed out dispatch");
+      },
+      writeOpenApi: async () => {
+        throw new Error("should not write openapi for timed out dispatch");
+      },
+      commentPlaneIssue: async () => {
+        throw new Error("should not comment on timed out dispatch");
+      },
+      markSubtaskProgress: async () => {
+        throw new Error("should not update subtasks for timed out dispatch");
+      },
+      loadDispatch: async () => ({
+        ...makeCodegenDispatchRecord({
+          status: "timeout",
+          startedAt: 1700000000000,
+          lastCallbackAt: 1700000005000,
+          timeoutAt: 1700000010000,
+        }),
+      }),
+      claimDispatch: async () => {
+        claimed = true;
+        return true;
+      },
+      markDone,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      skill: "arcflow-code-gen",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(false);
+    expect(claimed).toBe(false);
+    expect(markDone).not.toHaveBeenCalled();
+  });
+
   it("releases the callback claim when side effects fail", async () => {
     let claimCount = 0;
     let releaseCount = 0;
