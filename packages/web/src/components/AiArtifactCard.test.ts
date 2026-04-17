@@ -20,4 +20,26 @@ describe("AiArtifactCard", () => {
     expect(wrapper.text()).toContain("需求草稿预览");
     expect(wrapper.text()).toContain("查看文档");
   });
+
+  it("renders stage, progress, and detail for status artifacts", () => {
+    const wrapper = mount(AiArtifactCard, {
+      props: {
+        artifact: {
+          id: "2",
+          type: "arcflow_status",
+          title: "暂无待处理 Issue",
+          content: JSON.stringify({
+            stage: "empty",
+            progress: 100,
+            detail: "当前工作空间没有分配给你的 Issue",
+          }),
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("暂无待处理 Issue");
+    expect(wrapper.text()).toContain("empty");
+    expect(wrapper.text()).toContain("100%");
+    expect(wrapper.text()).toContain("当前工作空间没有分配给你的 Issue");
+  });
 });
