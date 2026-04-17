@@ -139,7 +139,7 @@ NanoClaw 架构：每条消息 spawn 一个 `nanoclaw-agent:latest` 容器跑 Ag
 - 每次 spawn → 拉取 → 429 Too Many Requests → exit 125 → retry backoff → 永远不回
 - 日志表象：POST `/api/chat` ok、SSE connected、`Processing messages`，但 err 日志连环 `Unable to find image 'nanoclaw-agent:latest' locally`
 
-`OneCLI gateway not reachable` 只是 warn，凭证走 env 直接注入，不阻塞容器启动。
+2026-04-17 起，`OneCLI gateway not reachable` 不再是当前生产口径。服务器未部署 OneCLI，也未配置 `ONECLI_URL`；NanoClaw 已改为在该场景下显式记录 `OneCLI gateway disabled — using env and mounted credential fallbacks`，并通过 env 与 `/run/arcflow/credentials.json` 挂载链路提供凭证。
 
 ### 8.3 修复动作
 
@@ -151,5 +151,5 @@ NanoClaw 架构：每条消息 spawn 一个 `nanoclaw-agent:latest` 容器跑 Ag
 
 - 新 Issue：「飞书 APP ID 10014 错误，通道不工作」
 - 新 Issue：「把 Dockerfile/docker-compose.yml/ecosystem.config.cjs + container/Dockerfile 的 CN 镜像补丁推回 ssyamv/nanoclaw fork」
-- 新 Issue：「OneCLI gateway 不可达（warn），如需凭证代理能力需部署 onecli 服务到 `ONECLI_URL`」
+- 后续可选增强：「如需启用凭证代理能力，再单独部署 onecli 服务并配置 `ONECLI_URL`」
 - 原 #85 待完成项：`/data/project/nanoclaw` 转 git 仓、切 docker-compose 接管（可选，PM2 已稳定）
