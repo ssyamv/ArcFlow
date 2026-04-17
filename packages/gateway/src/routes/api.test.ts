@@ -376,6 +376,60 @@ describe("api routes", () => {
     );
   });
 
+  it("GET /api/workflow/executions/:id prefers dispatch timeout diagnostics over stale running dispatch subtask", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch, updateDispatchStatus } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DISPATCH-TIMEOUT",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "running",
+    });
+    const dispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-timeout",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DISPATCH-TIMEOUT",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+    updateDispatchStatus(getDb(), dispatchId, {
+      status: "timeout",
+      lastCallbackAt: 22_222,
+      resultSummary: "late_callback_ignored",
+      errorMessage: "callback timeout",
+      replayIncrement: true,
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.current_stage_summary).toEqual(
+      expect.objectContaining({
+        stage: "dispatch_timeout",
+        target: "backend",
+        status: "timeout",
+      }),
+    );
+    expect(body.dispatches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: dispatchId,
+          status: "timeout",
+          diagnostic_flags: expect.arrayContaining(["timed_out", "late_callback_ignored"]),
+        }),
+      ]),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns 404 for non-existent", async () => {
     const res = await app.request("/api/workflow/executions/99999");
     expect(res.status).toBe(404);

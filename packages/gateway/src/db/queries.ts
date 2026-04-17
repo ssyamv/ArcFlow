@@ -152,6 +152,22 @@ function buildCurrentStageSummary(
     .find(
       (item) => item.status === "pending" || item.status === "running" || item.status === "failed",
     );
+  const latestDispatch = dispatches.at(-1);
+
+  if (
+    latestBlockingSubtask?.stage === "dispatch" &&
+    latestBlockingSubtask.status === "running" &&
+    latestDispatch &&
+    (latestDispatch.status === "timeout" ||
+      latestDispatch.diagnostic_flags.includes("late_callback_ignored"))
+  ) {
+    return {
+      label: `${latestDispatch.skill} ${latestDispatch.status}`,
+      stage: latestDispatch.status === "timeout" ? "dispatch_timeout" : latestDispatch.source_stage,
+      target: latestBlockingSubtask.target,
+      status: latestDispatch.status,
+    };
+  }
 
   if (latestBlockingSubtask) {
     if (latestBlockingSubtask.stage === "dispatch" && latestBlockingSubtask.status === "running") {
@@ -171,7 +187,6 @@ function buildCurrentStageSummary(
     };
   }
 
-  const latestDispatch = dispatches.at(-1);
   if (!latestDispatch) return null;
 
   return {
