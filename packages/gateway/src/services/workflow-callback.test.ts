@@ -51,6 +51,7 @@ describe("workflow-callback dispatcher", () => {
 
   it("idempotent: second callback returns false", async () => {
     let done = false;
+    const markDone = mock(async () => true);
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -62,7 +63,8 @@ describe("workflow-callback dispatcher", () => {
         skill: "arcflow-bug-analysis",
         status: done ? ("success" as const) : ("pending" as const),
       }),
-      markDone: async () => {
+      markDone: async (id, update) => {
+        await markDone(id, update);
         if (done) return false;
         done = true;
         return true;
@@ -82,6 +84,15 @@ describe("workflow-callback dispatcher", () => {
     });
     expect(r1).toBe(true);
     expect(r2).toBe(false);
+    expect(markDone).toHaveBeenNthCalledWith(
+      2,
+      "d1",
+      expect.objectContaining({
+        status: "success",
+        replayIncrement: true,
+        resultSummary: expect.stringContaining("duplicate_callback_ignored"),
+      }),
+    );
   });
 
   it("failed status records failure without writing", async () => {
@@ -233,7 +244,7 @@ describe("workflow-callback dispatcher", () => {
     );
   });
 
-  it("does not mark code_gen dispatch done when callback payload is malformed", async () => {
+  it("marks dispatch failed when callback payload is malformed", async () => {
     const markDone = mock(async () => true);
     const markSubtaskProgress = mock(async () => {});
     const handler = createCallbackHandler({
@@ -255,7 +266,14 @@ describe("workflow-callback dispatcher", () => {
     ).rejects.toThrow();
 
     expect(markSubtaskProgress).not.toHaveBeenCalled();
-    expect(markDone).not.toHaveBeenCalled();
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: expect.stringContaining("side effect failed:"),
+        resultSummary: expect.stringContaining("side_effect_failed"),
+      }),
+    );
   });
 
   it("records generate_failed for failed code_gen callback before marking dispatch done", async () => {
@@ -445,12 +463,21 @@ describe("workflow-callback dispatcher", () => {
 
     expect(handled).toBe(false);
     expect(claimed).toBe(false);
-    expect(markDone).not.toHaveBeenCalled();
+    expect(markDone).toHaveBeenCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "timeout",
+        replayIncrement: true,
+        errorMessage: "late callback ignored",
+        resultSummary: expect.stringContaining("late_callback_ignored"),
+      }),
+    );
   });
 
-  it("releases the callback claim when side effects fail", async () => {
+  it("marks dispatch failed when side effects fail after callback success", async () => {
     let claimCount = 0;
     let releaseCount = 0;
+    const markDone = mock(async () => true);
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi: async () => {},
@@ -467,7 +494,10 @@ describe("workflow-callback dispatcher", () => {
         releaseCount += 1;
         return true;
       },
-      markDone: async () => true,
+      markDone: async (id, update) => {
+        await markDone(id, update);
+        return true;
+      },
     });
 
     await expect(
@@ -485,6 +515,14 @@ describe("workflow-callback dispatcher", () => {
     ).rejects.toThrow("db write failed");
 
     expect(claimCount).toBe(1);
-    expect(releaseCount).toBe(1);
+    expect(releaseCount).toBe(0);
+    expect(markDone).toHaveBeenLastCalledWith(
+      "d-codegen-1",
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "side effect failed: db write failed",
+        resultSummary: expect.stringContaining("side_effect_failed"),
+      }),
+    );
   });
 });

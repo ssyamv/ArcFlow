@@ -994,21 +994,86 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
 export function updateDispatchStatus(
   db: Database,
   id: string,
-  status: Exclude<WorkflowDispatchStatus, "pending" | "running">,
+  statusOrUpdate:
+    | Exclude<WorkflowDispatchStatus, "pending" | "running">
+    | {
+        status: Exclude<WorkflowDispatchStatus, "pending" | "running">;
+        errorMessage?: string | null;
+        resultSummary?: string | null;
+        lastCallbackAt?: number | null;
+        replayIncrement?: boolean;
+      },
   errorMessage?: string,
 ): boolean {
+  const update =
+    typeof statusOrUpdate === "string" ? { status: statusOrUpdate, errorMessage } : statusOrUpdate;
+  const row = db
+    .query(
+      `SELECT status, completed_at, error_message, result_summary, last_callback_at, callback_replay_count
+         FROM dispatch
+        WHERE id = ?`,
+    )
+    .get(id) as {
+    status: WorkflowDispatchStatus;
+    completed_at: number | null;
+    error_message: string | null;
+    result_summary: string | null;
+    last_callback_at: number | null;
+    callback_replay_count: number;
+  } | null;
+  if (!row) return false;
+
+  const canFinalize =
+    row.status === "pending" || row.status === "running" || row.status === "timeout";
+  const hasReplayDiagnostics =
+    update.replayIncrement === true ||
+    update.resultSummary !== undefined ||
+    update.lastCallbackAt !== undefined ||
+    (typeof statusOrUpdate !== "string" && statusOrUpdate.errorMessage !== undefined);
+
+  if (!canFinalize && !hasReplayDiagnostics) return false;
+
+  const nextStatus = canFinalize ? update.status : row.status;
+  const nextCompletedAt =
+    nextStatus === "pending" || nextStatus === "running" ? null : (row.completed_at ?? Date.now());
+  const nextErrorMessage =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.errorMessage !== undefined
+      ? (statusOrUpdate.errorMessage ?? null)
+      : nextStatus === "success"
+        ? null
+        : update.errorMessage !== undefined
+          ? (update.errorMessage ?? null)
+          : nextStatus === "timeout"
+            ? (row.error_message ?? "callback timeout")
+            : row.error_message;
+  const nextResultSummary =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.resultSummary !== undefined
+      ? (statusOrUpdate.resultSummary ?? null)
+      : row.result_summary;
+  const nextLastCallbackAt =
+    typeof statusOrUpdate !== "string" && statusOrUpdate.lastCallbackAt !== undefined
+      ? (statusOrUpdate.lastCallbackAt ?? null)
+      : row.last_callback_at;
+  const nextReplayCount = row.callback_replay_count + (update.replayIncrement ? 1 : 0);
+
   const res = db.run(
     `UPDATE dispatch
         SET status = ?,
             completed_at = ?,
-            error_message = CASE
-              WHEN ? = 'success' THEN NULL
-              WHEN ? IS NOT NULL THEN ?
-              WHEN ? = 'timeout' THEN COALESCE(error_message, 'callback timeout')
-              ELSE error_message
-            END
-      WHERE id = ? AND status IN ('pending', 'running', 'timeout')`,
-    [status, Date.now(), status, errorMessage ?? null, errorMessage ?? null, status, id],
+            error_message = ?,
+            result_summary = ?,
+            last_callback_at = ?,
+            callback_replay_count = ?
+      WHERE id = ?`,
+    [
+      nextStatus,
+      nextCompletedAt,
+      nextErrorMessage,
+      nextResultSummary,
+      nextLastCallbackAt,
+      nextReplayCount,
+      id,
+    ],
   );
   return res.changes === 1;
 }

@@ -206,9 +206,9 @@ const callbackHandler = createCallbackHandler({
     const { releaseDispatchClaim } = await import("./db/queries");
     return releaseDispatchClaim(getDb(), id);
   },
-  markDone: async (id, status) => {
+  markDone: async (id, update) => {
     const { updateDispatchStatus } = await import("./db/queries");
-    return updateDispatchStatus(getDb(), id, status);
+    return updateDispatchStatus(getDb(), id, update);
   },
   updateExecutionStatus: async (executionId, status, errorMessage) => {
     const { updateWorkflowStatus } = await import("./db/queries");

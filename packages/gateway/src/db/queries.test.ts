@@ -828,6 +828,81 @@ describe("dispatch", () => {
     expect(row.error_message).toBe("late callback ignored");
   });
 
+  it("updateDispatchStatus records duplicate callback diagnostics on completed dispatch", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
+    });
+    expect(updateDispatchStatus(db, id, "success")).toBe(true);
+
+    const updated = updateDispatchStatus(db, id, {
+      status: "success",
+      lastCallbackAt: 12_345,
+      replayIncrement: true,
+      resultSummary: "callback:success; duplicate_callback_ignored",
+    });
+
+    expect(updated).toBe(true);
+    const row = db
+      .prepare(
+        "SELECT status, completed_at, last_callback_at, result_summary, callback_replay_count FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
+      status: string;
+      completed_at: number | null;
+      last_callback_at: number | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+    };
+    expect(row.status).toBe("success");
+    expect(row.completed_at).not.toBeNull();
+    expect(row.last_callback_at).toBe(12_345);
+    expect(row.result_summary).toBe("callback:success; duplicate_callback_ignored");
+    expect(row.callback_replay_count).toBe(1);
+  });
+
+  it("updateDispatchStatus records late callback diagnostics without changing timeout terminal status", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-prd-to-tech",
+      input: {},
+    });
+    db.prepare(
+      "UPDATE dispatch SET status = 'timeout', completed_at = 777, error_message = 'callback timeout' WHERE id = ?",
+    ).run(id);
+
+    const updated = updateDispatchStatus(db, id, {
+      status: "timeout",
+      lastCallbackAt: 22_222,
+      replayIncrement: true,
+      errorMessage: "late callback ignored",
+      resultSummary: "callback:success; late_callback_ignored",
+    });
+
+    expect(updated).toBe(true);
+    const row = db
+      .prepare(
+        "SELECT status, completed_at, last_callback_at, error_message, result_summary, callback_replay_count FROM dispatch WHERE id = ?",
+      )
+      .get(id) as {
+      status: string;
+      completed_at: number | null;
+      last_callback_at: number | null;
+      error_message: string | null;
+      result_summary: string | null;
+      callback_replay_count: number;
+    };
+    expect(row.status).toBe("timeout");
+    expect(row.completed_at).toBe(777);
+    expect(row.last_callback_at).toBe(22_222);
+    expect(row.error_message).toBe("late callback ignored");
+    expect(row.result_summary).toBe("callback:success; late_callback_ignored");
+    expect(row.callback_replay_count).toBe(1);
+  });
+
   it("claimDispatchForCallback transitions pending dispatch to running once", () => {
     const db = getDb();
     const startedAt = 1_700_000_000_000;

@@ -33,10 +33,7 @@ export interface CallbackDeps {
   loadDispatch: (id: string) => Promise<DispatchRecord | null>;
   claimDispatch?: (id: string) => Promise<boolean>;
   releaseClaim?: (id: string) => Promise<boolean>;
-  markDone: (
-    id: string,
-    status: Exclude<WorkflowDispatchStatus, "pending" | "running">,
-  ) => Promise<boolean>;
+  markDone: (id: string, update: DispatchFinalizeUpdate) => Promise<boolean>;
   updateExecutionStatus?: (
     executionId: number,
     status: WorkflowStatus,
@@ -71,6 +68,23 @@ export interface CallbackPayload {
   status: "success" | "failed";
   result?: { content: string; planeIssueId?: string };
   error?: string;
+}
+
+export interface DispatchFinalizeUpdate {
+  status: Exclude<WorkflowDispatchStatus, "pending" | "running">;
+  errorMessage?: string | null;
+  resultSummary?: string | null;
+  lastCallbackAt?: number | null;
+  replayIncrement?: boolean;
+}
+
+function summarizeCallbackPayload(payload: CallbackPayload, ...flags: string[]) {
+  const parts = [`callback:${payload.status}`];
+  if (payload.error) parts.push(`error=${payload.error}`);
+  if (payload.result?.planeIssueId) parts.push(`planeIssueId=${payload.result.planeIssueId}`);
+  if (payload.result?.content) parts.push(`contentLength=${payload.result.content.length}`);
+  for (const flag of flags) parts.push(flag);
+  return parts.join("; ");
 }
 
 function parseExecutionContext(input: unknown) {
@@ -124,11 +138,32 @@ function parseCodegenDispatchInput(input: unknown) {
 export function createCallbackHandler(deps: CallbackDeps) {
   return {
     async handle(p: CallbackPayload): Promise<boolean> {
+      const lastCallbackAt = Date.now();
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
       if (p.skill && p.skill !== rec.skill) return false;
-      if (rec.status === "timeout") return false;
       const skill = rec.skill;
+
+      if (rec.status === "success" || rec.status === "failed") {
+        await deps.markDone(p.dispatch_id, {
+          status: rec.status,
+          lastCallbackAt,
+          replayIncrement: true,
+          resultSummary: summarizeCallbackPayload(p, "duplicate_callback_ignored"),
+        });
+        return false;
+      }
+
+      if (rec.status === "timeout") {
+        await deps.markDone(p.dispatch_id, {
+          status: "timeout",
+          lastCallbackAt,
+          replayIncrement: true,
+          errorMessage: "late callback ignored",
+          resultSummary: summarizeCallbackPayload(p, "late_callback_ignored"),
+        });
+        return false;
+      }
 
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
       if (!claimed) return false;
@@ -210,11 +245,22 @@ export function createCallbackHandler(deps: CallbackDeps) {
           });
         }
       } catch (error) {
-        await deps.releaseClaim?.(p.dispatch_id);
+        const message = error instanceof Error ? error.message : String(error);
+        await deps.markDone(p.dispatch_id, {
+          status: "failed",
+          lastCallbackAt,
+          errorMessage: `side effect failed: ${message}`,
+          resultSummary: summarizeCallbackPayload(p, "side_effect_failed"),
+        });
         throw error;
       }
 
-      const finalized = await deps.markDone(p.dispatch_id, p.status);
+      const finalized = await deps.markDone(p.dispatch_id, {
+        status: p.status,
+        lastCallbackAt,
+        errorMessage: p.status === "failed" ? (p.error ?? null) : null,
+        resultSummary: summarizeCallbackPayload(p),
+      });
       return finalized;
     },
   };
