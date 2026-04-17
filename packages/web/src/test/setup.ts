@@ -26,9 +26,7 @@ function createMemoryStorage(): Storage {
 function installStorage(name: "localStorage" | "sessionStorage") {
   const candidate = window[name];
   const storage =
-    candidate && typeof candidate.getItem === "function"
-      ? candidate
-      : createMemoryStorage();
+    candidate && typeof candidate.getItem === "function" ? candidate : createMemoryStorage();
 
   Object.defineProperty(window, name, {
     configurable: true,
