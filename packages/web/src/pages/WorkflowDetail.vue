@@ -534,12 +534,8 @@ const groupedSubtasks = computed(() => {
         existing.latestSubtaskId = subtask.id;
         existing.status = subtask.status;
         existing.provider = subtask.provider;
-      }
-      if (!existing.repo_name && subtask.repo_name) {
-        existing.repo_name = subtask.repo_name;
-      }
-      if (!existing.branch_name && subtask.branch_name) {
-        existing.branch_name = subtask.branch_name;
+        existing.repo_name = subtask.repo_name ?? null;
+        existing.branch_name = subtask.branch_name ?? null;
       }
       continue;
     }

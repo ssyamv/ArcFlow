@@ -68,6 +68,8 @@ export interface WorkflowLink {
   source_execution_id: number;
   target_execution_id: number;
   link_type: string;
+  metadata?: string;
+  created_at?: string;
 }
 
 export interface CurrentStageSummary {

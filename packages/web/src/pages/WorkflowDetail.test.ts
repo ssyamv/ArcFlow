@@ -78,8 +78,8 @@ describe("WorkflowDetail", () => {
           stage: "dispatch",
           status: "failed",
           provider: "nanoclaw",
-          repo_name: null,
-          branch_name: null,
+          repo_name: "acme/backend-old",
+          branch_name: "feature/old-attempt",
           log_url: "https://logs.example.com/backend/3",
           output_ref: "repos/backend/feature/fix-timeout",
           error_message: "command exited 1",
@@ -97,8 +97,8 @@ describe("WorkflowDetail", () => {
           stage: "rerun_dispatch",
           status: "running",
           provider: "nanoclaw",
-          repo_name: "acme/backend",
-          branch_name: "feature/fix-timeout",
+          repo_name: "acme/backend-recovered",
+          branch_name: "feature/fix-timeout-rerun",
           log_url: null,
           output_ref: "reports/backend/ci.log",
           error_message: "lint failed",
@@ -157,6 +157,8 @@ describe("WorkflowDetail", () => {
           source_execution_id: 12,
           target_execution_id: 13,
           link_type: "spawned_on_ci_failure",
+          metadata: '{"source_stage":"dispatch"}',
+          created_at: "2026-04-16 12:08:00",
         },
       ],
     });
@@ -186,8 +188,10 @@ describe("WorkflowDetail", () => {
     expect(wrapper.text()).toContain("2024-04-17 04:01:00");
     expect(wrapper.text()).toContain("2024-04-17 04:03:00");
     expect(wrapper.text()).toContain("目标轨迹与产物");
-    expect(wrapper.text()).toContain("acme/backend");
-    expect(wrapper.text()).toContain("feature/fix-timeout");
+    expect(wrapper.text()).toContain("acme/backend-recovered");
+    expect(wrapper.text()).toContain("feature/fix-timeout-rerun");
+    expect(wrapper.text()).not.toContain("acme/backend-old");
+    expect(wrapper.text()).not.toContain("feature/old-attempt");
     expect(wrapper.text()).toContain("repos/backend/feature/fix-timeout");
     expect(wrapper.text()).toContain("reports/backend/ci.log");
     expect(wrapper.findAll('[data-testid="trajectory-card"]').length).toBe(2);
@@ -199,10 +203,10 @@ describe("WorkflowDetail", () => {
       "运行中",
     );
     expect(trajectoryCards[0]?.find('[data-testid="trajectory-repo"]').text()).toContain(
-      "acme/backend",
+      "acme/backend-recovered",
     );
     expect(trajectoryCards[0]?.find('[data-testid="trajectory-branch"]').text()).toContain(
-      "feature/fix-timeout",
+      "feature/fix-timeout-rerun",
     );
     expect(trajectoryCards[0]?.text()).toContain("rerun_dispatch");
     expect(wrapper.find('a[href="https://logs.example.com/backend/3"]').exists()).toBe(true);
