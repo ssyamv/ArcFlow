@@ -4,7 +4,8 @@
 #
 # 其他服务独立部署：
 # - Plane CE: setup/plane/docker-compose.yml
-# - Dify: setup/dify/docker-compose.yml
+# - NanoClaw: 独立仓库 + PM2，见 setup/nanoclaw/README.md
+# 历史上的 Dify / Weaviate / Wiki.js 已下线，不再作为当前部署依赖
 
 services:
   # ─── ArcFlow Gateway (Bun + Hono) ────────────────────────────────
@@ -42,6 +43,11 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+
+# 当前 compose 仅托管本仓两个核心服务：
+# - `gateway`
+# - `web`
+# 其余协作系统按各自目录或独立仓部署。
 
 volumes:
   gateway-data:
