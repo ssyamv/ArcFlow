@@ -87,6 +87,14 @@ function summarizeCallbackPayload(payload: CallbackPayload, ...flags: string[]) 
   return parts.join("; ");
 }
 
+function isLateCallback(rec: DispatchRecord, now: number) {
+  return (
+    rec.timeoutAt != null &&
+    now > rec.timeoutAt &&
+    (rec.status === "running" || rec.status === "timeout")
+  );
+}
+
 function parseExecutionContext(input: unknown) {
   if (!input || typeof input !== "object") return {};
   const payload = input as Record<string, unknown>;
@@ -154,7 +162,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
         return false;
       }
 
-      if (rec.status === "timeout") {
+      if (isLateCallback(rec, lastCallbackAt)) {
         await deps.markDone(p.dispatch_id, {
           status: "timeout",
           lastCallbackAt,
