@@ -5,6 +5,8 @@ interface DispatchToNanoclawParams {
   skill: string;
   workspaceId: string;
   planeIssueId?: string;
+  sourceExecutionId?: number;
+  sourceStage?: string;
   input: unknown;
   swallowDispatchError?: boolean;
 }
@@ -25,6 +27,8 @@ export async function dispatchToNanoclaw(
     skill: params.skill,
     input: params.input,
     planeIssueId: params.planeIssueId,
+    sourceExecutionId: params.sourceExecutionId,
+    sourceStage: params.sourceStage,
     timeoutAt: Date.now() + 10 * 60 * 1000,
   });
 

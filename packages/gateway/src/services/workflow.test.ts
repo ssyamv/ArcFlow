@@ -220,6 +220,25 @@ describe("flowCodeGen", () => {
     expect(runClaudeCode).not.toHaveBeenCalled();
   });
 
+  it("passes execution linkage into NanoClaw dispatch metadata", async () => {
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-121",
+      source_execution_id: 121,
+      source_stage: "derived_from",
+    });
+    await tick();
+
+    expect(dispatchToNanoclaw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceExecutionId: 42,
+        sourceStage: "dispatch",
+      }),
+    );
+  });
+
   it("creates one subtask and dispatch per target repo", async () => {
     await triggerWorkflow({
       workspace_id: 1,
@@ -291,6 +310,31 @@ describe("flowCodeGen", () => {
         input: expect.objectContaining({
           figma_url: "https://figma.com/file/abc",
         }),
+      }),
+    );
+  });
+
+  it("forwards execution linkage to insertDispatch", async () => {
+    const { dispatchToNanoclaw: realDispatchToNanoclaw } =
+      await import("./nanoclaw-dispatch?forward-linkage-test=1");
+
+    await realDispatchToNanoclaw({
+      workspaceId: "1",
+      skill: "arcflow-code-gen",
+      planeIssueId: "ISS-222",
+      sourceExecutionId: 222,
+      sourceStage: "dispatch",
+      input: { execution_id: 42, target: "backend" },
+    } as Parameters<typeof realDispatchToNanoclaw>[0]);
+
+    expect(insertDispatch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceId: "1",
+        skill: "arcflow-code-gen",
+        planeIssueId: "ISS-222",
+        sourceExecutionId: 222,
+        sourceStage: "dispatch",
       }),
     );
   });

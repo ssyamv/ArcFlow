@@ -134,6 +134,8 @@ async function flowCodeGen(
       workspaceId: String(ws.id),
       skill: "arcflow-code-gen",
       planeIssueId: params.plane_issue_id,
+      sourceExecutionId: executionId,
+      sourceStage: "dispatch",
       input: {
         execution_id: executionId,
         target,
