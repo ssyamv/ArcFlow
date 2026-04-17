@@ -2,6 +2,11 @@ import { Database } from "bun:sqlite";
 import { getDb } from "./index";
 import type {
   WorkflowExecution,
+  WorkflowExecutionDetail,
+  WorkflowExecutionListItem,
+  WorkflowExecutionSummary,
+  WorkflowSubtask,
+  WorkflowLink,
   WorkflowType,
   WorkflowStatus,
   TriggerSource,
@@ -78,6 +83,94 @@ export function listWorkflowExecutions(filters: {
   return { data, total };
 }
 
+function buildExecutionSummary(subtasks: WorkflowSubtask[]): WorkflowExecutionSummary {
+  const latestSubtaskByTarget = new Map<string, WorkflowSubtask>();
+
+  for (const subtask of subtasks) {
+    latestSubtaskByTarget.set(subtask.target, subtask);
+  }
+
+  return {
+    total_targets: latestSubtaskByTarget.size,
+    completed_targets: Array.from(latestSubtaskByTarget.values()).filter(
+      (item) => item.stage === "ci_success",
+    ).length,
+    latest_stage: subtasks.at(-1)?.stage ?? null,
+  };
+}
+
+function listWorkflowExecutionSummaries(
+  executionIds: number[],
+): Map<number, WorkflowExecutionSummary | null> {
+  const summaries = new Map<number, WorkflowExecutionSummary | null>();
+  if (executionIds.length === 0) return summaries;
+
+  const db = getDb();
+  const placeholders = executionIds.map(() => "?").join(", ");
+  const subtasks = db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id IN (${placeholders})
+       ORDER BY execution_id ASC, created_at ASC, id ASC`,
+    )
+    .all(...executionIds) as WorkflowSubtask[];
+
+  const subtasksByExecutionId = new Map<number, WorkflowSubtask[]>();
+  for (const subtask of subtasks) {
+    const existing = subtasksByExecutionId.get(subtask.execution_id);
+    if (existing) {
+      existing.push(subtask);
+    } else {
+      subtasksByExecutionId.set(subtask.execution_id, [subtask]);
+    }
+  }
+
+  for (const executionId of executionIds) {
+    summaries.set(executionId, buildExecutionSummary(subtasksByExecutionId.get(executionId) ?? []));
+  }
+
+  return summaries;
+}
+
+export function listWorkflowExecutionsWithSummary(filters: {
+  workflow_type?: WorkflowType;
+  status?: WorkflowStatus;
+  limit?: number;
+}): { data: WorkflowExecutionListItem[]; total: number } {
+  const base = listWorkflowExecutions(filters);
+  const codeGenExecutionIds = base.data
+    .filter((execution) => execution.workflow_type === "code_gen")
+    .map((execution) => execution.id);
+  const summaries = listWorkflowExecutionSummaries(codeGenExecutionIds);
+
+  return {
+    ...base,
+    data: base.data.map((execution) => ({
+      ...execution,
+      summary:
+        execution.workflow_type === "code_gen"
+          ? (summaries.get(execution.id) ?? buildExecutionSummary([]))
+          : null,
+    })),
+  };
+}
+
+export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail | null {
+  const execution = getWorkflowExecution(id);
+  if (!execution) return null;
+
+  const subtasks = listWorkflowSubtasks(id);
+  const links = listWorkflowLinksForExecution(id);
+  const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
+
+  return {
+    ...execution,
+    summary,
+    subtasks,
+    links,
+  };
+}
+
 export function updateWorkflowStatus(
   id: number,
   status: WorkflowStatus,
@@ -107,6 +200,311 @@ export function updateWorkflowStatus(
       id,
     );
   }
+}
+
+// ─── workflow_subtask ────────────────────────────────────────────────────────
+
+export function createWorkflowSubtask(params: {
+  execution_id: number;
+  stage: string;
+  target: string;
+  provider: string;
+  status?: WorkflowStatus;
+  input_ref?: string;
+  output_ref?: string;
+  external_run_id?: string;
+  branch_name?: string;
+  repo_name?: string;
+  log_url?: string;
+  error_message?: string;
+  started_at?: string;
+  finished_at?: string;
+}): number {
+  const db = getDb();
+  db.query(
+    `INSERT INTO workflow_subtask (
+       execution_id,
+       stage,
+       target,
+       provider,
+       status,
+       input_ref,
+       output_ref,
+       external_run_id,
+       branch_name,
+       repo_name,
+       log_url,
+       error_message,
+       started_at,
+       finished_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    params.execution_id,
+    params.stage,
+    params.target,
+    params.provider,
+    params.status ?? "pending",
+    params.input_ref ?? null,
+    params.output_ref ?? null,
+    params.external_run_id ?? null,
+    params.branch_name ?? null,
+    params.repo_name ?? null,
+    params.log_url ?? null,
+    params.error_message ?? null,
+    params.started_at ?? null,
+    params.finished_at ?? null,
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return row.id;
+}
+
+export function listWorkflowSubtasks(executionId: number): WorkflowSubtask[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId) as WorkflowSubtask[];
+}
+
+export function updateWorkflowSubtaskStatusByStage(params: {
+  execution_id: number;
+  stage: string;
+  target: string;
+  provider?: string;
+  status: WorkflowStatus;
+  input_ref?: string;
+  output_ref?: string;
+  external_run_id?: string;
+  branch_name?: string;
+  repo_name?: string;
+  log_url?: string;
+  error_message?: string;
+}): number {
+  const db = getDb();
+  const existing = db
+    .query(
+      `SELECT * FROM workflow_subtask
+       WHERE execution_id = ? AND target = ? AND stage = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get(params.execution_id, params.target, params.stage) as WorkflowSubtask | null;
+
+  const now = new Date().toISOString();
+  const startedAt = params.status === "pending" ? null : (existing?.started_at ?? now);
+  const finishedAt =
+    params.status === "success" || params.status === "failed"
+      ? now
+      : (existing?.finished_at ?? null);
+
+  if (!existing) {
+    return createWorkflowSubtask({
+      execution_id: params.execution_id,
+      stage: params.stage,
+      target: params.target,
+      provider: params.provider ?? "system",
+      status: params.status,
+      input_ref: params.input_ref,
+      output_ref: params.output_ref,
+      external_run_id: params.external_run_id,
+      branch_name: params.branch_name,
+      repo_name: params.repo_name,
+      log_url: params.log_url,
+      error_message: params.error_message,
+      started_at: startedAt ?? undefined,
+      finished_at: finishedAt ?? undefined,
+    });
+  }
+
+  db.query(
+    `UPDATE workflow_subtask
+     SET provider = ?,
+         status = ?,
+         input_ref = ?,
+         output_ref = ?,
+         external_run_id = ?,
+         branch_name = ?,
+         repo_name = ?,
+         log_url = ?,
+         error_message = ?,
+         started_at = ?,
+         finished_at = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(
+    params.provider ?? existing.provider,
+    params.status,
+    params.input_ref ?? existing.input_ref,
+    params.output_ref ?? existing.output_ref,
+    params.external_run_id ?? existing.external_run_id,
+    params.branch_name ?? existing.branch_name,
+    params.repo_name ?? existing.repo_name,
+    params.log_url ?? existing.log_url,
+    params.error_message ?? existing.error_message,
+    startedAt,
+    finishedAt,
+    existing.id,
+  );
+
+  return existing.id;
+}
+
+export function findLatestCodegenExecution(
+  planeIssueId: string | undefined,
+  target: string,
+  options?: {
+    branchName?: string;
+    externalRunId?: string;
+  },
+): WorkflowExecution | null {
+  const db = getDb();
+  const rows = db
+    .query(
+      `SELECT
+         we.*,
+         ws.branch_name AS subtask_branch_name,
+         ws.external_run_id AS subtask_external_run_id
+       FROM workflow_execution we
+       INNER JOIN workflow_subtask ws ON ws.execution_id = we.id
+       WHERE we.workflow_type = 'code_gen'
+         AND ws.target = ?
+       ORDER BY we.id DESC, ws.id DESC`,
+    )
+    .all(target) as Array<
+    WorkflowExecution & {
+      subtask_branch_name: string | null;
+      subtask_external_run_id: string | null;
+    }
+  >;
+  const scopedRows = planeIssueId
+    ? rows.filter((row) => row.plane_issue_id === planeIssueId)
+    : rows;
+
+  const matchedByRun = options?.externalRunId
+    ? scopedRows.find((row) => row.subtask_external_run_id === options.externalRunId)
+    : undefined;
+  if (matchedByRun) return matchedByRun;
+
+  const matchedByBranch = options?.branchName
+    ? scopedRows.find((row) => row.subtask_branch_name === options.branchName)
+    : undefined;
+  if (matchedByBranch) return matchedByBranch;
+
+  if (!planeIssueId) return null;
+
+  const matchedByIssue = scopedRows[0];
+  return matchedByIssue ?? null;
+}
+
+export function syncCodegenExecutionStatus(executionId: number): WorkflowStatus {
+  const execution = getWorkflowExecution(executionId);
+  if (!execution || execution.workflow_type !== "code_gen") {
+    return execution?.status ?? "pending";
+  }
+
+  const subtasks = listWorkflowSubtasks(executionId);
+  const latestByTarget = new Map<string, WorkflowSubtask>();
+  for (const subtask of subtasks) {
+    latestByTarget.set(subtask.target, subtask);
+  }
+
+  let nextStatus: WorkflowStatus = "running";
+  const latestSubtasks = Array.from(latestByTarget.values());
+  if (
+    latestSubtasks.some(
+      (subtask) =>
+        subtask.status === "failed" ||
+        subtask.stage === "generate_failed" ||
+        subtask.stage === "ci_failed",
+    )
+  ) {
+    nextStatus = "failed";
+  } else if (
+    latestSubtasks.length > 0 &&
+    latestSubtasks.every(
+      (subtask) => subtask.status === "success" && subtask.stage === "ci_success",
+    )
+  ) {
+    nextStatus = "success";
+  }
+
+  if (execution.status === nextStatus) {
+    return nextStatus;
+  }
+
+  updateWorkflowStatus(executionId, nextStatus);
+  return nextStatus;
+}
+
+// ─── workflow_link ───────────────────────────────────────────────────────────
+
+export function createWorkflowLink(params: {
+  source_execution_id: number;
+  target_execution_id: number;
+  link_type: string;
+  metadata?: Record<string, unknown>;
+}): number {
+  const db = getDb();
+  db.query(
+    `INSERT INTO workflow_link (source_execution_id, target_execution_id, link_type, metadata)
+     VALUES (?, ?, ?, ?)`,
+  ).run(
+    params.source_execution_id,
+    params.target_execution_id,
+    params.link_type,
+    JSON.stringify(params.metadata ?? {}),
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return row.id;
+}
+
+export function listWorkflowLinks(targetExecutionId: number): WorkflowLink[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE target_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(targetExecutionId) as WorkflowLink[];
+}
+
+export function listWorkflowLinksForExecution(executionId: number): WorkflowLink[] {
+  const db = getDb();
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE target_execution_id = ? OR source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId, executionId) as WorkflowLink[];
+}
+
+export function listWorkflowLinksBySourceExecution(
+  sourceExecutionId: number,
+  linkType?: string,
+): WorkflowLink[] {
+  const db = getDb();
+  if (linkType) {
+    return db
+      .query(
+        `SELECT * FROM workflow_link
+         WHERE source_execution_id = ? AND link_type = ?
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(sourceExecutionId, linkType) as WorkflowLink[];
+  }
+
+  return db
+    .query(
+      `SELECT * FROM workflow_link
+       WHERE source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(sourceExecutionId) as WorkflowLink[];
 }
 
 // ─── webhook_event ─────────────────────────────────────────────────────────────
@@ -591,8 +989,38 @@ export function updateDispatchStatus(
   status: "success" | "failed",
 ): boolean {
   const res = db.run(
-    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status='pending'`,
+    `UPDATE dispatch SET status=?, completed_at=? WHERE id=? AND status IN ('pending', 'processing')`,
     [status, Date.now(), id],
+  );
+  return res.changes === 1;
+}
+
+export function claimDispatchForCallback(
+  db: Database,
+  id: string,
+  now = Date.now(),
+  processingLeaseMs = 60_000,
+): boolean {
+  const nextTimeoutAt = now + processingLeaseMs;
+  const res = db.run(
+    `UPDATE dispatch
+     SET status = 'processing', timeout_at = ?, completed_at = NULL
+     WHERE id = ?
+       AND (
+         status = 'pending'
+         OR (status = 'processing' AND timeout_at IS NOT NULL AND timeout_at < ?)
+       )`,
+    [nextTimeoutAt, id, now],
+  );
+  return res.changes === 1;
+}
+
+export function releaseDispatchClaim(db: Database, id: string): boolean {
+  const res = db.run(
+    `UPDATE dispatch
+     SET status = 'pending', completed_at = NULL
+     WHERE id = ? AND status = 'processing'`,
+    [id],
   );
   return res.changes === 1;
 }

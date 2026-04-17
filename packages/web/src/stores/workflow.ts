@@ -1,6 +1,13 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { fetchExecutions, triggerWorkflow, type TriggerResponse } from "../api/workflow";
+import {
+  fetchExecutions,
+  triggerWorkflow,
+  type TriggerResponse,
+  type WorkflowLink,
+  type WorkflowSummary,
+  type WorkflowSubtask,
+} from "../api/workflow";
 
 export interface WorkflowExecution {
   id: number;
@@ -12,6 +19,9 @@ export interface WorkflowExecution {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  summary?: WorkflowSummary | null;
+  subtasks?: WorkflowSubtask[];
+  links?: WorkflowLink[];
 }
 
 export const useWorkflowStore = defineStore("workflow", () => {

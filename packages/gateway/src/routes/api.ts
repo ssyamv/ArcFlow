@@ -1,15 +1,14 @@
 import { Hono } from "hono";
 import {
-  getWorkflowExecution,
-  listWorkflowExecutions,
+  getWorkflowExecutionDetail,
+  listWorkflowExecutionsWithSummary,
   listWebhookLogs,
   getWorkspace,
   getWorkspaceMemberRole,
   buildMemorySnapshot,
   recordUserAction,
-  insertDispatch,
 } from "../db/queries";
-import { getDb } from "../db";
+import { dispatchToNanoclaw } from "../services/nanoclaw-dispatch";
 
 const ALLOWED_SKILLS = [
   "arcflow-prd-draft",
@@ -39,8 +38,12 @@ apiRoutes.post("/workflow/trigger", async (c) => {
     workflow_type: body.workflow_type,
     trigger_source: "manual",
     plane_issue_id: body.plane_issue_id,
+    source_execution_id: body.source_execution_id,
+    source_stage: body.source_stage,
     input_path: body.params?.input_path,
-    target_repos: body.params?.target_repos,
+    target_repos:
+      body.params?.target_repos ??
+      (body.params as { target_repos?: string[]; targets?: string[] } | undefined)?.targets,
     figma_url: body.params?.figma_url,
     chat_id: body.params?.chat_id,
   });
@@ -56,10 +59,10 @@ apiRoutes.get("/workflow/executions/:id", (c) => {
   const id = Number(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
 
-  const execution = getWorkflowExecution(id);
-  if (!execution) return c.json({ error: "Not found" }, 404);
+  const detail = getWorkflowExecutionDetail(id);
+  if (!detail) return c.json({ error: "Not found" }, 404);
 
-  return c.json(execution);
+  return c.json(detail);
 });
 
 apiRoutes.get("/workflow/executions", (c) => {
@@ -67,7 +70,7 @@ apiRoutes.get("/workflow/executions", (c) => {
   const status = c.req.query("status") as WorkflowStatus | undefined;
   const limit = Number(c.req.query("limit")) || 20;
 
-  const result = listWorkflowExecutions({ workflow_type: workflowType, status, limit });
+  const result = listWorkflowExecutionsWithSummary({ workflow_type: workflowType, status, limit });
   return c.json(result);
 });
 
@@ -147,14 +150,14 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
   }
 
   const workspaceId = String(body.workspace_id);
-  const db = getDb();
-  const dispatchId = insertDispatch(db, {
+  const dispatchResult = await dispatchToNanoclaw({
     workspaceId,
     skill: body.skill,
     input: body.input ?? {},
     planeIssueId: body.plane_issue_id,
-    timeoutAt: Date.now() + 10 * 60 * 1000,
+    swallowDispatchError: true,
   });
+  const dispatchId = dispatchResult.dispatchId;
   recordUserAction({
     userId: body.user_id ?? 0,
     workspaceId: typeof body.workspace_id === "number" ? body.workspace_id : null,
@@ -176,35 +179,24 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
       reason: "NANOCLAW_URL not set — recorded only",
     });
   }
-
-  try {
-    const resp = await fetch(`${nanoclawUrl.replace(/\/+$/, "")}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-System-Secret": expected,
-      },
-      body: JSON.stringify({
-        client_id: `system-${dispatchId}`,
-        message: `[SYSTEM DISPATCH] run skill=${body.skill} workspace_id=${body.workspace_id} plane_issue_id=${body.plane_issue_id ?? ""}\n\n${JSON.stringify(body.input ?? {})}`,
-      }),
-    });
-    const ok = resp.ok;
-    return c.json({
-      ok,
-      dispatched: true,
-      dispatch_id: dispatchId,
-      nanoclaw_status: resp.status,
-    });
-  } catch (err) {
+  if (!dispatchResult.dispatched) {
     return c.json(
       {
         ok: false,
         dispatched: false,
         dispatch_id: dispatchId,
-        error: err instanceof Error ? err.message : "dispatch failed",
+        error: dispatchResult.error ?? "dispatch failed",
       },
       502,
     );
   }
+  return c.json({
+    ok:
+      dispatchResult.nanoclawStatus !== undefined
+        ? dispatchResult.nanoclawStatus >= 200 && dispatchResult.nanoclawStatus < 300
+        : false,
+    dispatched: true,
+    dispatch_id: dispatchId,
+    nanoclaw_status: dispatchResult.nanoclawStatus,
+  });
 });

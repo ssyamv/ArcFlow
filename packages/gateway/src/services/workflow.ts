@@ -1,10 +1,14 @@
-import { createWorkflowExecution, updateWorkflowStatus, getWorkspace } from "../db/queries";
+import {
+  createWorkflowExecution,
+  createWorkflowLink,
+  updateWorkflowStatus,
+  getWorkspace,
+  createWorkflowSubtask,
+} from "../db/queries";
 import type { WorkflowType, TriggerSource, Workspace } from "../types";
-import { getConfig } from "../config";
-import { ensureRepo, readFile, createBranchAndPush, registerRepoUrl } from "./git";
+import { ensureRepo, readFile, registerRepoUrl } from "./git";
+import { dispatchToNanoclaw } from "./nanoclaw-dispatch";
 import { sendNotification } from "./feishu";
-import { runClaudeCode } from "./claude-code";
-import { join } from "path";
 
 interface TriggerParams {
   workspace_id: number;
@@ -15,6 +19,8 @@ interface TriggerParams {
   target_repos?: string[];
   figma_url?: string;
   chat_id?: string;
+  source_execution_id?: number;
+  source_stage?: string;
 }
 
 /** 加载 workspace 并注册其 git 仓库到动态注册表 */
@@ -48,6 +54,15 @@ export async function triggerWorkflow(params: TriggerParams): Promise<number> {
     input_path: params.input_path,
   });
 
+  if (params.source_execution_id) {
+    createWorkflowLink({
+      source_execution_id: params.source_execution_id,
+      target_execution_id: executionId,
+      link_type: "derived_from",
+      metadata: params.source_stage ? { source_stage: params.source_stage } : undefined,
+    });
+  }
+
   updateWorkflowStatus(executionId, "running");
 
   // Fire-and-forget: run workflow asynchronously
@@ -66,12 +81,11 @@ async function executeWorkflow(executionId: number, params: TriggerParams): Prom
     switch (params.workflow_type) {
       case "code_gen":
         await flowCodeGen(executionId, params, ws);
-        break;
+        return;
       default:
         // prd_to_tech, tech_to_openapi, bug_analysis are now handled by NanoClaw skills.
         throw new Error(`workflow_type ${params.workflow_type} is no longer supported by Gateway`);
     }
-    updateWorkflowStatus(executionId, "success");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     updateWorkflowStatus(executionId, "failed", message);
@@ -88,49 +102,57 @@ async function executeWorkflow(executionId: number, params: TriggerParams): Prom
 }
 
 async function flowCodeGen(
-  _executionId: number,
+  executionId: number,
   params: TriggerParams,
   ws: Workspace,
 ): Promise<void> {
-  const repoBases = params.target_repos ?? ["backend"];
-  const config = getConfig();
+  const targets = params.target_repos ?? ["backend"];
+  const repoMap = safeParseRepos(ws.git_repos);
+  const invalidTargets = targets.filter((target) => !repoMap[target]);
+  if (invalidTargets.length > 0) {
+    throw new Error(`invalid target repo: ${invalidTargets.join(", ")}`);
+  }
   const docsRepo = wsRepoName(ws.id, "docs");
 
-  for (const repoBase of repoBases) {
-    const repoName = wsRepoName(ws.id, repoBase);
-    await ensureRepo(repoName);
+  let taskContext = "";
+  if (params.input_path) {
+    await ensureRepo(docsRepo);
+    taskContext = await readFile(docsRepo, params.input_path);
+  }
 
-    let taskContext = "";
-    if (params.input_path) {
-      await ensureRepo(docsRepo);
-      const techDoc = await readFile(docsRepo, params.input_path);
-      taskContext += `## 技术设计文档\n\n${techDoc}\n\n`;
-    }
-
-    const repoDir = join(config.gitWorkDir, repoName);
-    const taskDescription = `请根据以下上下文生成代码：\n\n${taskContext}`;
-
-    const result = await runClaudeCode(repoDir, taskDescription, {
-      figmaUrl: params.figma_url,
+  for (const target of targets) {
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "dispatch",
+      target,
+      provider: "nanoclaw",
+      status: "pending",
+      repo_name: target,
     });
 
-    if (result.success) {
-      const branchName = `feature/${params.plane_issue_id ?? "unknown"}-${repoBase}`;
-      await createBranchAndPush(
-        repoName,
-        branchName,
-        `feat: AI 代码生成 - ${params.plane_issue_id}`,
-      );
+    const dispatchResult = await dispatchToNanoclaw({
+      workspaceId: String(ws.id),
+      skill: "arcflow-code-gen",
+      planeIssueId: params.plane_issue_id,
+      input: {
+        execution_id: executionId,
+        target,
+        workspace_id: ws.id,
+        plane_issue_id: params.plane_issue_id,
+        input_path: params.input_path,
+        figma_url: params.figma_url,
+        task_context: taskContext,
+      },
+    });
 
-      if (params.chat_id) {
-        sendNotification(
-          params.chat_id,
-          "✅ 代码生成完成",
-          `${repoBase} 代码已生成，分支 ${branchName} 已推送`,
-        ).catch(() => {});
-      }
-    } else {
-      throw new Error(`Code gen failed for ${repoBase}: ${result.error}`);
+    if (!dispatchResult.dispatched) {
+      throw new Error(dispatchResult.error ?? "NanoClaw dispatch did not start");
+    }
+    if (
+      dispatchResult.nanoclawStatus !== undefined &&
+      (dispatchResult.nanoclawStatus < 200 || dispatchResult.nanoclawStatus >= 300)
+    ) {
+      throw new Error(`NanoClaw dispatch returned status ${dispatchResult.nanoclawStatus}`);
     }
   }
 }

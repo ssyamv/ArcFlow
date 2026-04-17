@@ -22,6 +22,7 @@ import { createRagSearch } from "./services/rag-search";
 import { createGitAdapter } from "./services/rag-git-adapter";
 import { createCallbackHandler } from "./services/workflow-callback";
 import { createScheduler } from "./services/scheduler";
+import { triggerWorkflow } from "./services/workflow";
 
 // ── sqlite-vec: must call setCustomSQLite before any Database() on macOS ──────
 if (process.platform === "darwin") {
@@ -142,13 +143,16 @@ const callbackHandler = createCallbackHandler({
   loadDispatch: async (id) => {
     const db = getDb();
     const row = db
-      .prepare("SELECT id, workspace_id, skill, plane_issue_id, status FROM dispatch WHERE id=?")
+      .prepare(
+        "SELECT id, workspace_id, skill, plane_issue_id, status, input_json FROM dispatch WHERE id=?",
+      )
       .get(id) as {
       id: string;
       workspace_id: string;
       skill: string;
       plane_issue_id: string | null;
       status: string;
+      input_json: string;
     } | null;
     if (!row) return null;
     return {
@@ -156,13 +160,27 @@ const callbackHandler = createCallbackHandler({
       workspaceId: row.workspace_id,
       skill: row.skill,
       planeIssueId: row.plane_issue_id ?? undefined,
-      status: row.status as "pending" | "success" | "failed",
+      status: row.status as "pending" | "processing" | "success" | "failed",
+      input: JSON.parse(row.input_json),
     };
+  },
+  claimDispatch: async (id) => {
+    const { claimDispatchForCallback } = await import("./db/queries");
+    return claimDispatchForCallback(getDb(), id);
+  },
+  releaseClaim: async (id) => {
+    const { releaseDispatchClaim } = await import("./db/queries");
+    return releaseDispatchClaim(getDb(), id);
   },
   markDone: async (id, status) => {
     const { updateDispatchStatus } = await import("./db/queries");
     return updateDispatchStatus(getDb(), id, status);
   },
+  updateExecutionStatus: async (executionId, status, errorMessage) => {
+    const { updateWorkflowStatus } = await import("./db/queries");
+    updateWorkflowStatus(executionId, status, errorMessage);
+  },
+  triggerWorkflow,
 });
 
 app.route("/api/workflow/callback", callbackRoutes({ handler: callbackHandler, systemSecret }));

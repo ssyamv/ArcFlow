@@ -29,14 +29,16 @@ describe("POST /api/workflow/callback", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400 with missing skill", async () => {
+  it("200 accepted=true with missing skill when dispatch_id is present", async () => {
     const app = makeApp(true);
     const res = await app.request("/api/workflow/callback", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-System-Secret": "s3cr3t" },
       body: JSON.stringify({ dispatch_id: "d1", status: "success" }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.accepted).toBe(true);
   });
 
   it("200 accepted=true on valid payload", async () => {

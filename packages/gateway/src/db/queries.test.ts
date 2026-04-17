@@ -1,10 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { getDb, closeDb } from "./index";
 import {
   createWorkflowExecution,
   getWorkflowExecution,
   updateWorkflowStatus,
   listWorkflowExecutions,
+  listWorkflowExecutionsWithSummary,
+  createWorkflowSubtask,
+  listWorkflowSubtasks,
+  updateWorkflowSubtaskStatusByStage,
+  findLatestCodegenExecution,
+  createWorkflowLink,
+  listWorkflowLinks,
+  listWorkflowLinksBySourceExecution,
+  getWorkflowExecutionDetail,
   recordWebhookEvent,
   isEventProcessed,
   cleanExpiredEvents,
@@ -15,6 +24,8 @@ import {
   recordWebhookLog,
   listWebhookLogs,
   insertDispatch,
+  claimDispatchForCallback,
+  releaseDispatchClaim,
   updateDispatchStatus,
 } from "./queries";
 
@@ -125,6 +136,471 @@ describe("workflow_execution", () => {
   it("get non-existent workflow execution returns null", () => {
     const exec = getWorkflowExecution(9999);
     expect(exec).toBeNull();
+  });
+
+  it("creates and lists workflow subtasks by execution", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-120",
+    });
+
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "pending",
+      input_ref: "input-1",
+      output_ref: "output-1",
+      external_run_id: "run-123",
+      branch_name: "feature/issue-120",
+      repo_name: "backend",
+      log_url: "https://example.com/logs/123",
+      error_message: "no error",
+      started_at: "2026-04-16T08:00:00Z",
+      finished_at: "2026-04-16T08:05:00Z",
+    });
+
+    const subtasks = listWorkflowSubtasks(executionId);
+    expect(subtasks).toHaveLength(1);
+    expect(subtasks[0]).toMatchObject({
+      execution_id: executionId,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "pending",
+      input_ref: "input-1",
+      output_ref: "output-1",
+      external_run_id: "run-123",
+      branch_name: "feature/issue-120",
+      repo_name: "backend",
+      log_url: "https://example.com/logs/123",
+      error_message: "no error",
+      started_at: "2026-04-16T08:00:00Z",
+      finished_at: "2026-04-16T08:05:00Z",
+    });
+  });
+
+  it("updates workflow subtasks by execution, target, and stage", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-121",
+    });
+
+    const subtaskId = updateWorkflowSubtaskStatusByStage({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-1",
+      log_url: "https://ci.example/run-1",
+    });
+    updateWorkflowSubtaskStatusByStage({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      status: "failed",
+      log_url: "https://ci.example/run-1?retry=1",
+    });
+
+    const ciFailed = listWorkflowSubtasks(executionId).filter(
+      (subtask) => subtask.stage === "ci_failed",
+    );
+    expect(ciFailed).toHaveLength(1);
+    expect(ciFailed[0]).toMatchObject({
+      id: subtaskId,
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-1",
+      log_url: "https://ci.example/run-1?retry=1",
+    });
+  });
+
+  it("finds the latest code_gen execution by issue and target", () => {
+    const olderExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-122",
+    });
+    createWorkflowSubtask({
+      execution_id: olderExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const newerExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-122",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "frontend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-122", "backend");
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(newerExecutionId);
+  });
+
+  it("prefers external run id over plain issue matching for code_gen execution lookup", () => {
+    const olderExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-123",
+    });
+    createWorkflowSubtask({
+      execution_id: olderExecutionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-123",
+    });
+
+    const newerExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-123",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-123", "backend", {
+      externalRunId: "run-123",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(olderExecutionId);
+  });
+
+  it("scopes external run id matching by plane issue", () => {
+    const collidingExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-OTHER",
+    });
+    createWorkflowSubtask({
+      execution_id: collidingExecutionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "generic",
+      status: "failed",
+      external_run_id: "run-shared",
+    });
+
+    const intendedExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-125",
+    });
+    createWorkflowSubtask({
+      execution_id: intendedExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-125", "backend", {
+      externalRunId: "run-shared",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(intendedExecutionId);
+  });
+
+  it("prefers branch metadata over latest issue matching for code_gen execution lookup", () => {
+    const olderExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-124",
+    });
+    createWorkflowSubtask({
+      execution_id: olderExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/ISSUE-124-a",
+    });
+
+    const newerExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-124",
+    });
+    createWorkflowSubtask({
+      execution_id: newerExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/ISSUE-124-b",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-124", "backend", {
+      branchName: "feature/ISSUE-124-a",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(olderExecutionId);
+  });
+
+  it("scopes branch matching by plane issue", () => {
+    const collidingExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-OTHER-BRANCH",
+    });
+    createWorkflowSubtask({
+      execution_id: collidingExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/shared-branch",
+    });
+
+    const intendedExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-126",
+    });
+    createWorkflowSubtask({
+      execution_id: intendedExecutionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+
+    const execution = findLatestCodegenExecution("ISSUE-126", "backend", {
+      branchName: "feature/shared-branch",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(intendedExecutionId);
+  });
+
+  it("finds code_gen execution by branch metadata when issue id is absent", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-127",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+      branch_name: "feature/ISSUE-127-backend",
+      repo_name: "backend",
+    });
+
+    const execution = findLatestCodegenExecution("", "backend", {
+      branchName: "feature/ISSUE-127-backend",
+    });
+    expect(execution).not.toBeNull();
+    expect(execution!.id).toBe(executionId);
+  });
+
+  it("creates workflow links between executions", () => {
+    const sourceExecutionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
+    const targetExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowLink({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "derived_from",
+      metadata: { source_stage: "success" },
+    });
+
+    const links = listWorkflowLinks(targetExecutionId);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "derived_from",
+    });
+    expect(JSON.parse(links[0]!.metadata)).toEqual({ source_stage: "success" });
+  });
+
+  it("lists workflow links by source execution", () => {
+    const sourceExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+    const targetExecutionId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+    });
+
+    createWorkflowLink({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "spawned_on_ci_failure",
+      metadata: { external_run_id: "run-124" },
+    });
+
+    const links = listWorkflowLinksBySourceExecution(sourceExecutionId, "spawned_on_ci_failure");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      source_execution_id: sourceExecutionId,
+      target_execution_id: targetExecutionId,
+      link_type: "spawned_on_ci_failure",
+    });
+  });
+
+  it("returns inbound and outbound workflow links in execution detail", () => {
+    const parentExecutionId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+    });
+    const codeGenExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+    const bugExecutionId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+    });
+
+    createWorkflowLink({
+      source_execution_id: parentExecutionId,
+      target_execution_id: codeGenExecutionId,
+      link_type: "derived_from",
+    });
+    createWorkflowLink({
+      source_execution_id: codeGenExecutionId,
+      target_execution_id: bugExecutionId,
+      link_type: "spawned_on_ci_failure",
+    });
+
+    const detail = getWorkflowExecutionDetail(codeGenExecutionId);
+    expect(detail).not.toBeNull();
+    expect(detail!.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ link_type: "derived_from" }),
+        expect.objectContaining({ link_type: "spawned_on_ci_failure" }),
+      ]),
+    );
+  });
+
+  it("builds code_gen summary from each target's latest stage", () => {
+    const executionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "ibuild",
+      status: "failed",
+    });
+    createWorkflowSubtask({
+      execution_id: executionId,
+      stage: "ci_success",
+      target: "web",
+      provider: "ibuild",
+      status: "success",
+    });
+
+    const result = listWorkflowExecutionsWithSummary({ workflow_type: "code_gen" });
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.summary).toEqual({
+      total_targets: 2,
+      completed_targets: 1,
+      latest_stage: "ci_success",
+    });
+  });
+
+  it("loads code_gen summaries without per-execution subtask lookups", () => {
+    const firstExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+    const secondExecutionId = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+    });
+
+    createWorkflowSubtask({
+      execution_id: firstExecutionId,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: secondExecutionId,
+      stage: "ci_failed",
+      target: "web",
+      provider: "ibuild",
+      status: "failed",
+    });
+
+    const db = getDb();
+    const querySpy = spyOn(db, "query");
+
+    const result = listWorkflowExecutionsWithSummary({ workflow_type: "code_gen" });
+
+    expect(result.data).toHaveLength(2);
+    const querySql = querySpy.mock.calls.map((call) => String(call[0]));
+    expect(
+      querySql.some(
+        (sql) => sql.includes("FROM workflow_subtask") && sql.includes("WHERE execution_id = ?"),
+      ),
+    ).toBe(false);
+    expect(
+      querySql.some((sql) => sql.includes("FROM workflow_subtask") && sql.includes(" IN ")),
+    ).toBe(true);
+  });
+
+  it("enforces foreign keys for workflow subtasks", () => {
+    expect(() =>
+      createWorkflowSubtask({
+        execution_id: 999999,
+        stage: "dispatch",
+        target: "backend",
+        provider: "nanoclaw",
+      }),
+    ).toThrow();
   });
 });
 
@@ -296,6 +772,68 @@ describe("dispatch", () => {
     const second = updateDispatchStatus(db, id, "success");
     expect(first).toBe(true);
     expect(second).toBe(false); // already completed returns false
+  });
+
+  it("claimDispatchForCallback transitions pending dispatch to processing once", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+
+    const first = claimDispatchForCallback(db, id, Date.now(), 5_000);
+    const second = claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    const row = db.prepare("SELECT status FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+    };
+    expect(row.status).toBe("processing");
+  });
+
+  it("releaseDispatchClaim returns processing dispatch to pending", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+    claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    const released = releaseDispatchClaim(db, id);
+
+    expect(released).toBe(true);
+    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+      completed_at: number | null;
+    };
+    expect(row.status).toBe("pending");
+    expect(row.completed_at).toBeNull();
+  });
+
+  it("claimDispatchForCallback can recover an expired processing dispatch", () => {
+    const db = getDb();
+    const id = insertDispatch(db, {
+      workspaceId: "w",
+      skill: "arcflow-code-gen",
+      input: {},
+      timeoutAt: Date.now() + 1_000,
+    });
+    claimDispatchForCallback(db, id, Date.now(), 5_000);
+
+    const reclaimed = claimDispatchForCallback(db, id, Date.now() + 10_000, 5_000);
+
+    expect(reclaimed).toBe(true);
+    const row = db.prepare("SELECT status, completed_at FROM dispatch WHERE id = ?").get(id) as {
+      status: string;
+      completed_at: number | null;
+    };
+    expect(row.status).toBe("processing");
+    expect(row.completed_at).toBeNull();
   });
 });
 

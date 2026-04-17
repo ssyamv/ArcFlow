@@ -8,14 +8,32 @@ import {
   recordWebhookEvent,
   recordWebhookLog,
   getWorkspaceByPlaneProject,
-  getWorkspaceBySlug,
   insertDispatch,
+  createWorkflowExecution,
+  createWorkflowLink,
+  findLatestCodegenExecution,
+  listWorkflowLinksBySourceExecution,
+  syncCodegenExecutionStatus,
+  updateWorkflowSubtaskStatusByStage,
 } from "../db/queries";
 import { getDb } from "../db";
 import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
+
+type UnifiedCiStatus = "pending" | "running" | "success" | "failed";
+
+interface UnifiedCiEvent {
+  planeIssueId?: string;
+  target: string;
+  provider: "generic" | "ibuild";
+  externalRunId: string;
+  branchName: string | null;
+  status: UnifiedCiStatus;
+  logUrl: string | null;
+  rawPayload: Record<string, unknown>;
+}
 
 /** Insert a dispatch record and fire-and-forget to NanoClaw WebChannel. */
 function dispatchToNanoclaw(params: {
@@ -45,6 +63,162 @@ function dispatchToNanoclaw(params: {
     }).catch((err) => console.error("[webhook] nanoclaw dispatch error:", err));
   }
   return dispatchId;
+}
+
+function normalizeCiStatus(raw: string): UnifiedCiStatus | null {
+  const normalized = raw.trim().toLowerCase();
+  if (["pending", "queued", "queueing", "waiting"].includes(normalized)) {
+    return "pending";
+  }
+  if (["running", "processing", "in_progress", "in-progress"].includes(normalized)) {
+    return "running";
+  }
+  if (["success", "succeed", "succeeded", "passed", "pass", "ok"].includes(normalized)) {
+    return "success";
+  }
+  if (["failed", "failure", "fail", "error", "abort", "aborted"].includes(normalized)) {
+    return "failed";
+  }
+  return null;
+}
+
+function mapCiEvent(body: Record<string, unknown>): UnifiedCiEvent | null {
+  const status = normalizeCiStatus(String(body.status ?? body.state ?? ""));
+  if (!status) return null;
+
+  return {
+    planeIssueId:
+      typeof body.issue_id === "string"
+        ? body.issue_id
+        : typeof body.plane_issue_id === "string"
+          ? body.plane_issue_id
+          : undefined,
+    target: String(body.target ?? body.repository ?? body.repo ?? "backend"),
+    provider: "generic",
+    externalRunId: String(body.run_id ?? body.build_id ?? body.buildId ?? ""),
+    branchName:
+      typeof body.branch === "string"
+        ? body.branch
+        : typeof body.gitBranch === "string"
+          ? body.gitBranch
+          : typeof body.git_branch === "string"
+            ? body.git_branch
+            : null,
+    status,
+    logUrl:
+      typeof body.log_url === "string"
+        ? body.log_url
+        : typeof body.logs === "string"
+          ? body.logs
+          : typeof body.output === "string"
+            ? body.output
+            : null,
+    rawPayload: body,
+  };
+}
+
+function findExistingCiFailureSpawn(params: {
+  sourceExecutionId: number;
+  target: string;
+  provider: "generic" | "ibuild";
+  externalRunId?: string;
+  branchName?: string | null;
+}): number | null {
+  const links = listWorkflowLinksBySourceExecution(
+    params.sourceExecutionId,
+    "spawned_on_ci_failure",
+  );
+
+  for (const link of links) {
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(link.metadata) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (metadata.target !== params.target || metadata.provider !== params.provider) {
+      continue;
+    }
+
+    if (params.externalRunId) {
+      if (metadata.external_run_id === params.externalRunId) {
+        return link.target_execution_id;
+      }
+      continue;
+    }
+
+    if (params.branchName && metadata.branch_name === params.branchName) {
+      return link.target_execution_id;
+    }
+  }
+
+  return null;
+}
+
+function handleCiEvent(event: UnifiedCiEvent): boolean {
+  const execution = findLatestCodegenExecution(event.planeIssueId, event.target, {
+    branchName: event.branchName ?? undefined,
+    externalRunId: event.externalRunId || undefined,
+  });
+  if (!execution) return false;
+
+  const effectivePlaneIssueId = event.planeIssueId ?? execution.plane_issue_id ?? undefined;
+  const stage =
+    event.status === "failed"
+      ? "ci_failed"
+      : event.status === "success"
+        ? "ci_success"
+        : event.status === "running"
+          ? "ci_running"
+          : "ci_pending";
+
+  updateWorkflowSubtaskStatusByStage({
+    execution_id: execution.id,
+    target: event.target,
+    stage,
+    provider: event.provider,
+    status: event.status,
+    external_run_id: event.externalRunId || undefined,
+    branch_name: event.branchName ?? undefined,
+    log_url: event.logUrl ?? undefined,
+  });
+
+  syncCodegenExecutionStatus(execution.id);
+
+  if (event.status === "failed") {
+    const existingBugExecutionId = findExistingCiFailureSpawn({
+      sourceExecutionId: execution.id,
+      target: event.target,
+      provider: event.provider,
+      externalRunId: event.externalRunId || undefined,
+      branchName: event.branchName,
+    });
+    if (existingBugExecutionId) {
+      return true;
+    }
+
+    const bugExecutionId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: event.provider === "ibuild" ? "ibuild_webhook" : "cicd_webhook",
+      plane_issue_id: effectivePlaneIssueId,
+      input_path: event.logUrl ?? undefined,
+    });
+    createWorkflowLink({
+      source_execution_id: execution.id,
+      target_execution_id: bugExecutionId,
+      link_type: "spawned_on_ci_failure",
+      metadata: {
+        target: event.target,
+        provider: event.provider,
+        external_run_id: event.externalRunId || undefined,
+        branch_name: event.branchName ?? undefined,
+        payload: event.rawPayload,
+      },
+    });
+  }
+
+  return true;
 }
 
 export function createWebhookRoutes(): Hono {
@@ -111,28 +285,9 @@ export function createWebhookRoutes(): Hono {
     createWebhookVerifier("X-CI-Secret", config.cicdWebhookSecret),
     createDedup("X-CI-Event-Id", "cicd"),
     async (c) => {
-      const body = await c.req.json();
-
-      const status = body.status ?? body.state;
-      const logs = body.logs ?? body.output ?? "";
-      const issueId = body.issue_id ?? body.plane_issue_id;
-      const projectId = body.project_id;
-      const repo = body.repository ?? body.repo;
-
-      if (status === "failed" || status === "failure") {
-        const ws = projectId ? getWorkspaceByPlaneProject(projectId) : null;
-        if (!ws) {
-          return c.json({ received: true, source: "cicd", error: "workspace not linked" }, 200);
-        }
-        triggerWorkflow({
-          workspace_id: ws.id,
-          workflow_type: "bug_analysis",
-          trigger_source: "cicd_webhook",
-          plane_issue_id: issueId,
-          input_path: logs,
-          target_repos: repo ? [repo] : undefined,
-        });
-      }
+      const body = (await c.req.json()) as Record<string, unknown>;
+      const event = mapCiEvent(body);
+      if (event) handleCiEvent(event);
 
       return c.json({ received: true, source: "cicd" });
     },
@@ -169,6 +324,7 @@ export function createWebhookRoutes(): Hono {
     const appId = String(formData.appId ?? "");
     const gitBranch = String(formData.gitBranch ?? "");
     const appKey = String(formData.appKey ?? "");
+    const normalizedStatus = normalizeCiStatus(status);
 
     // 3. 去重（手动，因为 buildId 在 body 而非 header）
     if (buildId && isEventProcessed(buildId)) {
@@ -179,48 +335,44 @@ export function createWebhookRoutes(): Hono {
     }
 
     // 4. 状态过滤
-    if (status !== "FAIL" && status !== "ABORT") {
+    if (!normalizedStatus) {
       return c.json({ received: true, triggered: false, source: "ibuild" });
     }
 
-    // 5. 根据 appKey 查 workspace
-    const workspaceSlug =
-      config.ibuildAppWorkspaceMap[appKey] ?? config.ibuildAppWorkspaceMap.default;
-    const ws = workspaceSlug ? getWorkspaceBySlug(workspaceSlug) : null;
-    if (!ws) {
-      console.error(`iBuild appKey "${appKey}" not mapped to any workspace`);
-      return c.json({ received: true, triggered: false, error: "workspace not mapped" }, 200);
+    // 5. 提取 Plane Issue ID + 映射仓库
+    const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? undefined;
+    const targetRepo = config.ibuildAppRepoMap[appKey] ?? appKey ?? "backend";
+    const baseEvent: UnifiedCiEvent = {
+      planeIssueId,
+      target: targetRepo,
+      provider: "ibuild",
+      externalRunId: buildId,
+      branchName: gitBranch || null,
+      status: normalizedStatus,
+      logUrl: null,
+      rawPayload: Object.fromEntries(
+        Object.entries(formData).map(([key, value]) => [key, String(value)]),
+      ),
+    };
+
+    if (normalizedStatus === "failed") {
+      fetchBuildLogWithContext(projectId, appId, buildId)
+        .then((logContent) => {
+          handleCiEvent({ ...baseEvent, logUrl: logContent });
+        })
+        .catch((error) => {
+          console.error(`iBuild log fetch failed for build ${buildId}:`, error);
+          handleCiEvent({
+            ...baseEvent,
+            logUrl: `iBuild 构建失败 (buildId: ${buildId}, branch: ${gitBranch})，日志拉取失败`,
+          });
+        });
+
+      return c.json({ received: true, triggered: true, source: "ibuild" });
     }
 
-    // 6. 提取 Plane Issue ID + 映射仓库
-    const planeIssueId = extractIssueIdFromBranch(gitBranch) ?? undefined;
-    const targetRepo = config.ibuildAppRepoMap[appKey] ?? "backend";
-
-    // 7. 异步拉取日志并触发工作流（fire-and-forget）
-    fetchBuildLogWithContext(projectId, appId, buildId)
-      .then((logContent) => {
-        triggerWorkflow({
-          workspace_id: ws.id,
-          workflow_type: "bug_analysis",
-          trigger_source: "ibuild_webhook",
-          plane_issue_id: planeIssueId,
-          input_path: logContent,
-          target_repos: [targetRepo],
-        });
-      })
-      .catch((error) => {
-        console.error(`iBuild log fetch failed for build ${buildId}:`, error);
-        triggerWorkflow({
-          workspace_id: ws.id,
-          workflow_type: "bug_analysis",
-          trigger_source: "ibuild_webhook",
-          plane_issue_id: planeIssueId,
-          input_path: `iBuild 构建失败 (buildId: ${buildId}, branch: ${gitBranch})，日志拉取失败`,
-          target_repos: [targetRepo],
-        });
-      });
-
-    return c.json({ received: true, triggered: true, source: "ibuild" });
+    handleCiEvent(baseEvent);
+    return c.json({ received: true, triggered: false, source: "ibuild" });
   });
 
   return webhookRoutes;

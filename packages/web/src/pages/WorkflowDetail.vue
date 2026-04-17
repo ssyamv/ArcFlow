@@ -148,23 +148,100 @@
           >{{ execution.error_message }}</pre
         >
       </div>
+
+      <div
+        v-if="execution.subtasks?.length"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          子任务
+        </div>
+        <div class="space-y-3">
+          <div
+            v-for="subtask in execution.subtasks"
+            :key="subtask.id"
+            class="rounded-md p-3"
+            style="border: 1px solid var(--color-border-subtle)"
+          >
+            <div class="text-sm" style="font-weight: 510; color: var(--color-text-primary)">
+              {{ subtask.target }} · {{ subtask.stage }}
+            </div>
+            <div class="text-xs" style="color: var(--color-text-quaternary)">
+              {{ subtask.provider }} · {{ statusLabelMap[subtask.status] ?? subtask.status }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="execution.links?.length"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          关联工作流
+        </div>
+        <div class="space-y-3">
+          <div
+            v-for="link in execution.links"
+            :key="link.id"
+            class="rounded-md p-3"
+            style="border: 1px solid var(--color-border-subtle)"
+          >
+            <div class="text-sm" style="font-weight: 510; color: var(--color-text-primary)">
+              {{ link.link_type }}
+            </div>
+            <div class="text-xs" style="color: var(--color-text-quaternary)">
+              <router-link
+                :to="`/workflows/${link.source_execution_id}`"
+                class="no-underline"
+                style="color: var(--color-accent)"
+              >
+                #{{ link.source_execution_id }}
+              </router-link>
+              →
+              <router-link
+                :to="`/workflows/${link.target_execution_id}`"
+                class="no-underline"
+                style="color: var(--color-accent)"
+              >
+                #{{ link.target_execution_id }}
+              </router-link>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { fetchExecution, type ExecutionDetail } from "@/api/workflow";
-import { typeLabel } from "@/utils/workflow";
+import { fetchExecution, type ExecutionDetail } from "../api/workflow";
+import { typeLabel } from "../utils/workflow";
 
 defineOptions({ name: "WorkflowDetail" });
 
 const route = useRoute();
-const id = Number(route.params.id);
+const id = computed(() => Number(route.params.id));
 const execution = ref<ExecutionDetail | null>(null);
 const loading = ref(true);
 const error = ref("");
+let activeRequest = 0;
 
 const statusLabelMap: Record<string, string> = {
   pending: "待执行",
@@ -183,15 +260,36 @@ function statusColor(status: string) {
   return map[status] ?? "var(--color-text-quaternary)";
 }
 
-onMounted(async () => {
+async function loadExecution(executionId: number) {
+  activeRequest += 1;
+  const requestId = activeRequest;
+  loading.value = true;
+  error.value = "";
+  execution.value = null;
+
   try {
-    execution.value = await fetchExecution(id);
+    const result = await fetchExecution(executionId);
+    if (requestId === activeRequest) {
+      execution.value = result;
+    }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "加载失败";
+    if (requestId === activeRequest) {
+      error.value = e instanceof Error ? e.message : "加载失败";
+    }
   } finally {
-    loading.value = false;
+    if (requestId === activeRequest) {
+      loading.value = false;
+    }
   }
-});
+}
+
+watch(
+  id,
+  (executionId) => {
+    void loadExecution(executionId);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>

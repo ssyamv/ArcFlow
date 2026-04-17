@@ -102,6 +102,66 @@ describe("api routes", () => {
     );
   });
 
+  it("POST /api/workflow/trigger accepts legacy targets alias", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T3", slug: "t-ws-3" });
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(77);
+
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-6",
+        params: { targets: ["backend"] },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.execution_id).toBe(77);
+
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        trigger_source: "manual",
+        plane_issue_id: "ISSUE-6",
+        target_repos: ["backend"],
+      }),
+    );
+  });
+
+  it("POST /api/workflow/trigger forwards optional source execution context", async () => {
+    const { createWorkspace } = await import("../db/queries");
+    const ws = createWorkspace({ name: "T4", slug: "t-ws-4" });
+    const triggerSpy = spyOn(workflowService, "triggerWorkflow").mockResolvedValue(78);
+
+    const res = await app.request("/api/workflow/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-7",
+        source_execution_id: 31,
+        source_stage: "success",
+        params: { target_repos: ["backend"] },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(triggerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace_id: ws.id,
+        workflow_type: "code_gen",
+        plane_issue_id: "ISSUE-7",
+        source_execution_id: 31,
+        source_stage: "success",
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions returns list", async () => {
     // Seed data by calling triggerWorkflow directly (bypassing mock)
     const { createWorkflowExecution } = await import("../db/queries");
@@ -118,6 +178,80 @@ describe("api routes", () => {
     expect(body.data.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("GET /api/workflow/executions returns code_gen summary", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SUMMARY",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_running",
+      target: "web",
+      provider: "ibuild",
+      status: "running",
+    });
+
+    const res = await app.request("/api/workflow/executions");
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.data[0]).toEqual(
+      expect.objectContaining({
+        workflow_type: "code_gen",
+        summary: expect.objectContaining({
+          total_targets: 2,
+          completed_targets: 1,
+          latest_stage: "ci_running",
+        }),
+      }),
+    );
+  });
+
+  it("GET /api/workflow/executions summary counts only targets whose latest stage is ci_success", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SUMMARY-CONFLICT",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_failed",
+      target: "backend",
+      provider: "ibuild",
+      status: "failed",
+    });
+
+    const res = await app.request("/api/workflow/executions");
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.data[0]).toEqual(
+      expect.objectContaining({
+        workflow_type: "code_gen",
+        summary: expect.objectContaining({
+          total_targets: 1,
+          completed_targets: 0,
+          latest_stage: "ci_failed",
+        }),
+      }),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns single execution", async () => {
     const { createWorkflowExecution } = await import("../db/queries");
     const id = createWorkflowExecution({
@@ -132,6 +266,63 @@ describe("api routes", () => {
     expect(body.id).toBe(id);
     expect(body.workflow_type).toBe("prd_to_tech");
     expect(body.plane_issue_id).toBe("ISSUE-DETAIL");
+  });
+
+  it("GET /api/workflow/executions/:id returns subtasks and links", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, createWorkflowLink } =
+      await import("../db/queries");
+    const sourceId = createWorkflowExecution({
+      workflow_type: "tech_to_openapi",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-SOURCE",
+    });
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DETAIL-EXTENDED",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "generate",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "success",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "ci_success",
+      target: "backend",
+      provider: "ibuild",
+      status: "success",
+    });
+    const bugAnalysisId = createWorkflowExecution({
+      workflow_type: "bug_analysis",
+      trigger_source: "cicd_webhook",
+      plane_issue_id: "ISSUE-BUG",
+    });
+    createWorkflowLink({
+      source_execution_id: sourceId,
+      target_execution_id: id,
+      link_type: "derived_from",
+      metadata: { source_stage: "success" },
+    });
+    createWorkflowLink({
+      source_execution_id: id,
+      target_execution_id: bugAnalysisId,
+      link_type: "spawned_on_ci_failure",
+      metadata: { external_run_id: "run-404" },
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.subtasks).toHaveLength(2);
+    expect(payload.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ link_type: "derived_from" }),
+        expect.objectContaining({ link_type: "spawned_on_ci_failure" }),
+      ]),
+    );
   });
 
   it("GET /api/workflow/executions/:id returns 404 for non-existent", async () => {
@@ -163,6 +354,7 @@ describe("api routes", () => {
 describe("nanoclaw dispatch", () => {
   let app: Hono;
   let db: ReturnType<typeof getDb>;
+  let dispatchUserId: number;
 
   beforeEach(() => {
     process.env.NODE_ENV = "test";
@@ -180,12 +372,19 @@ describe("nanoclaw dispatch", () => {
   });
 
   it("accepts arcflow-prd-to-tech with plane_issue_id and persists timeout_at", async () => {
+    const { upsertUser } = await import("../db/queries");
+    dispatchUserId = upsertUser({
+      feishu_user_id: "dispatch-user",
+      name: "Dispatch User",
+    }).id;
+
     const res = await app.request("/api/nanoclaw/dispatch", {
       method: "POST",
       headers: { "content-type": "application/json", "X-System-Secret": "s" },
       body: JSON.stringify({
         skill: "arcflow-prd-to-tech",
         workspace_id: "w",
+        user_id: dispatchUserId,
         plane_issue_id: "PROJ-1",
         input: { prd_path: "prd/x.md" },
       }),
@@ -197,6 +396,39 @@ describe("nanoclaw dispatch", () => {
       .get(dispatch_id) as { plane_issue_id: string; timeout_at: number } | null;
     expect(row?.plane_issue_id).toBe("PROJ-1");
     expect(row?.timeout_at).toBeGreaterThan(Date.now());
+  });
+
+  it("dispatches to NanoClaw WebChannel when NANOCLAW_URL is configured", async () => {
+    const { upsertUser } = await import("../db/queries");
+    dispatchUserId = upsertUser({
+      feishu_user_id: "dispatch-user-http",
+      name: "Dispatch User Http",
+    }).id;
+    process.env.NANOCLAW_URL = "http://nanoclaw.test/";
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const res = await app.request("/api/nanoclaw/dispatch", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-System-Secret": "s" },
+      body: JSON.stringify({
+        skill: "arcflow-prd-to-tech",
+        workspace_id: "w",
+        user_id: dispatchUserId,
+        plane_issue_id: "PROJ-2",
+        input: { prd_path: "prd/y.md" },
+      }),
+    });
+
+    globalThis.fetch = originalFetch;
+    delete process.env.NANOCLAW_URL;
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://nanoclaw.test/api/chat");
   });
 
   it("rejects unknown skill", async () => {
