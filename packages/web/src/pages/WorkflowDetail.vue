@@ -126,6 +126,52 @@
         </div>
       </div>
 
+      <div
+        v-if="execution.current_stage_summary"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          当前阶段摘要
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-x-8 gap-y-4">
+          <div>
+            <div class="field-label">阶段</div>
+            <div class="field-value">{{ execution.current_stage_summary.stage ?? "-" }}</div>
+          </div>
+          <div>
+            <div class="field-label">状态</div>
+            <div class="field-value">
+              {{ execution.current_stage_summary.status ?? "-" }}
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Dispatch 数</div>
+            <div class="field-value">
+              {{ execution.current_stage_summary.dispatch_count ?? "-" }}
+            </div>
+          </div>
+          <div>
+            <div class="field-label">最近 Dispatch 状态</div>
+            <div class="field-value">
+              {{ execution.current_stage_summary.last_dispatch_status ?? "-" }}
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Callback 状态</div>
+            <div class="field-value">
+              {{ execution.current_stage_summary.callback_status ?? "-" }}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Error Message -->
       <div
         v-if="execution.error_message"
@@ -150,6 +196,71 @@
       </div>
 
       <div
+        v-if="execution.dispatches?.length"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          Dispatch / Callback 诊断
+        </div>
+        <div class="space-y-3">
+          <div
+            v-for="dispatch in execution.dispatches"
+            :key="dispatch.id"
+            class="rounded-md p-3"
+            style="border: 1px solid var(--color-border-subtle)"
+          >
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span style="font-weight: 510; color: var(--color-text-primary)">
+                {{ dispatch.target ?? "-" }} · {{ dispatch.stage }}
+              </span>
+              <span class="status-pill" style="border-color: var(--color-border-solid)">
+                {{ dispatch.status }}
+              </span>
+              <span class="field-value">Dispatch ID {{ dispatch.dispatch_id ?? "-" }}</span>
+            </div>
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Provider · {{ dispatch.provider ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Callback · {{ dispatch.callback_status ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Repo · {{ dispatch.repo_name ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Branch · {{ dispatch.branch_name ?? "-" }}
+              </div>
+              <div class="text-xs break-all" style="color: var(--color-text-quaternary)">
+                输出路径 · {{ dispatch.output_path ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                日志 ·
+                <a
+                  v-if="dispatch.log_url"
+                  :href="dispatch.log_url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="no-underline"
+                  style="color: var(--color-accent)"
+                >
+                  打开日志
+                </a>
+                <span v-else>-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
         v-if="execution.subtasks?.length"
         class="rounded-lg p-5"
         style="
@@ -161,7 +272,7 @@
           class="text-xs uppercase mb-4"
           style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
         >
-          子任务
+          目标轨迹与产物
         </div>
         <div class="space-y-3">
           <div
@@ -170,11 +281,45 @@
             class="rounded-md p-3"
             style="border: 1px solid var(--color-border-subtle)"
           >
-            <div class="text-sm" style="font-weight: 510; color: var(--color-text-primary)">
-              {{ subtask.target }} · {{ subtask.stage }}
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span style="font-weight: 510; color: var(--color-text-primary)">
+                {{ subtask.target }} · {{ subtask.stage }}
+              </span>
+              <span class="status-pill" style="border-color: var(--color-border-solid)">
+                {{ statusLabelMap[subtask.status] ?? subtask.status }}
+              </span>
             </div>
-            <div class="text-xs" style="color: var(--color-text-quaternary)">
-              {{ subtask.provider }} · {{ statusLabelMap[subtask.status] ?? subtask.status }}
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Provider · {{ subtask.provider }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Repo · {{ subtask.repo_name ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Branch · {{ subtask.branch_name ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                日志 ·
+                <a
+                  v-if="subtask.log_url"
+                  :href="subtask.log_url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="no-underline"
+                  style="color: var(--color-accent)"
+                >
+                  打开日志
+                </a>
+                <span v-else>-</span>
+              </div>
+              <div
+                v-if="subtask.error_message"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-error-light)"
+              >
+                错误输出 · {{ subtask.error_message }}
+              </div>
             </div>
           </div>
         </div>

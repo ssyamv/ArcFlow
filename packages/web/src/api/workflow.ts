@@ -62,6 +62,30 @@ export interface WorkflowLink {
   link_type: string;
 }
 
+export interface CurrentStageSummary {
+  stage: string | null;
+  status: string | null;
+  dispatch_count?: number | null;
+  last_dispatch_status?: string | null;
+  callback_status?: string | null;
+}
+
+export interface WorkflowDispatch {
+  id: number;
+  dispatch_id?: string | null;
+  stage: string;
+  status: string;
+  target?: string | null;
+  provider?: string | null;
+  repo_name?: string | null;
+  branch_name?: string | null;
+  log_url?: string | null;
+  output_path?: string | null;
+  callback_status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface ExecutionListItem {
   id: number;
   workflow_type: string;
@@ -101,7 +125,9 @@ export interface ExecutionDetail {
   completed_at: string | null;
   created_at: string;
   summary?: WorkflowSummary | null;
+  current_stage_summary?: CurrentStageSummary | null;
   subtasks?: WorkflowSubtask[];
+  dispatches?: WorkflowDispatch[];
   links?: WorkflowLink[];
 }
 
