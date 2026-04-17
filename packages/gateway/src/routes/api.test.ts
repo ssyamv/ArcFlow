@@ -325,7 +325,7 @@ describe("api routes", () => {
     );
   });
 
-  it("GET /api/workflow/executions/:id returns dispatch diagnostics and current stage summary", async () => {
+  it("GET /api/workflow/executions/:id returns pre-callback dispatch summary for the real codegen flow", async () => {
     const { createWorkflowExecution, createWorkflowSubtask, insertDispatch } =
       await import("../db/queries");
     const id = createWorkflowExecution({
@@ -338,7 +338,7 @@ describe("api routes", () => {
       stage: "dispatch",
       target: "backend",
       provider: "nanoclaw",
-      status: "running",
+      status: "pending",
     });
     const dispatchId = insertDispatch(getDb(), {
       workspaceId: "ws-dispatch-detail",
@@ -349,9 +349,6 @@ describe("api routes", () => {
       sourceStage: "dispatch",
       timeoutAt: 17_000,
     });
-    getDb()
-      .prepare("UPDATE dispatch SET status = 'running', started_at = 12_345 WHERE id = ?")
-      .run(dispatchId);
 
     const res = await app.request(`/api/workflow/executions/${id}`);
     expect(res.status).toBe(200);
@@ -361,13 +358,13 @@ describe("api routes", () => {
       label: "backend 等待 callback",
       stage: "dispatch_running",
       target: "backend",
-      status: "running",
+      status: "pending",
     });
     expect(body.dispatches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: dispatchId,
-          status: "running",
+          status: "pending",
           source_execution_id: id,
           source_stage: "dispatch",
           diagnostic_flags: [],

@@ -170,6 +170,9 @@ function buildCurrentStageSummary(
     .find(
       (item) => item.status === "pending" || item.status === "running" || item.status === "failed",
     );
+  const isPreCallbackDispatchStage =
+    latestBlockingSubtask?.stage === "dispatch" &&
+    (latestBlockingSubtask.status === "pending" || latestBlockingSubtask.status === "running");
   const latestDispatch = dispatches.at(-1);
   const targetRelevantDiagnosticDispatch = latestBlockingSubtask
     ? [...dispatches].reverse().find((dispatch) => {
@@ -181,11 +184,7 @@ function buildCurrentStageSummary(
       })
     : null;
 
-  if (
-    latestBlockingSubtask?.stage === "dispatch" &&
-    latestBlockingSubtask.status === "running" &&
-    targetRelevantDiagnosticDispatch
-  ) {
+  if (isPreCallbackDispatchStage && targetRelevantDiagnosticDispatch) {
     return {
       label: `${latestBlockingSubtask.target} ${targetRelevantDiagnosticDispatch.status}`,
       stage:
@@ -198,7 +197,7 @@ function buildCurrentStageSummary(
   }
 
   if (latestBlockingSubtask) {
-    if (latestBlockingSubtask.stage === "dispatch" && latestBlockingSubtask.status === "running") {
+    if (isPreCallbackDispatchStage) {
       return {
         label: `${latestBlockingSubtask.target} 等待 callback`,
         stage: "dispatch_running",
