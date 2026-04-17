@@ -10,7 +10,7 @@ export function callbackRoutes(deps: {
     if (c.req.header("X-System-Secret") !== deps.systemSecret)
       return c.json({ error: "unauthorized" }, 401);
     const body = (await c.req.json()) as CallbackPayload;
-    if (!body.dispatch_id || !body.skill) return c.json({ error: "bad payload" }, 400);
+    if (!body.dispatch_id || !body.status) return c.json({ error: "bad payload" }, 400);
     const accepted = await deps.handler.handle(body);
     return c.json({ accepted });
   });

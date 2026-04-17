@@ -167,16 +167,17 @@ describe("workflow-callback dispatcher", () => {
     expect(order).toEqual(["subtask:generate", "subtask:ci_pending", "done:success"]);
   });
 
-  it("routes using the persisted dispatch skill even when the callback payload skill mismatches", async () => {
+  it("rejects callback when payload skill mismatches persisted dispatch skill", async () => {
     const writeOpenApi = mock(async () => {});
     const markSubtaskProgress = mock(async () => {});
+    const markDone = mock(async () => true);
     const handler = createCallbackHandler({
       writeTechDesign: async () => {},
       writeOpenApi,
       commentPlaneIssue: async () => {},
       markSubtaskProgress,
       loadDispatch: async () => makeCodegenDispatchRecord(),
-      markDone: async () => true,
+      markDone,
     });
 
     const handled = await handler.handle({
@@ -193,8 +194,35 @@ describe("workflow-callback dispatcher", () => {
       },
     });
 
-    expect(handled).toBe(true);
+    expect(handled).toBe(false);
     expect(writeOpenApi).not.toHaveBeenCalled();
+    expect(markSubtaskProgress).not.toHaveBeenCalled();
+    expect(markDone).not.toHaveBeenCalled();
+  });
+
+  it("routes using the persisted dispatch skill when callback payload skill is omitted", async () => {
+    const markSubtaskProgress = mock(async () => {});
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress,
+      loadDispatch: async () => makeCodegenDispatchRecord(),
+      markDone: async () => true,
+    });
+
+    const handled = await handler.handle({
+      dispatch_id: "d-codegen-1",
+      status: "success",
+      result: {
+        content: JSON.stringify({
+          execution_id: 7,
+          target: "backend",
+        }),
+      },
+    });
+
+    expect(handled).toBe(true);
     expect(markSubtaskProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         execution_id: 7,

@@ -56,7 +56,7 @@ export interface CallbackDeps {
 
 export interface CallbackPayload {
   dispatch_id: string;
-  skill: string;
+  skill?: string;
   status: "success" | "failed";
   result?: { content: string; planeIssueId?: string };
   error?: string;
@@ -115,6 +115,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
     async handle(p: CallbackPayload): Promise<boolean> {
       const rec = await deps.loadDispatch(p.dispatch_id);
       if (!rec) return false;
+      if (p.skill && p.skill !== rec.skill) return false;
       const skill = rec.skill;
 
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
