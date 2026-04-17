@@ -167,7 +167,19 @@
           <div>
             <div class="field-label">状态</div>
             <div class="field-value">
-              {{ execution.current_stage_summary.status ?? "-" }}
+              <span
+                class="inline-flex items-center gap-1.5 text-xs"
+                style="font-weight: 510"
+                :style="{ color: statusColor(execution.current_stage_summary.status ?? '') }"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full"
+                  :style="{
+                    backgroundColor: statusColor(execution.current_stage_summary.status ?? ''),
+                  }"
+                />
+                {{ statusLabel(execution.current_stage_summary.status) }}
+              </span>
             </div>
           </div>
         </div>
@@ -221,8 +233,15 @@
               <span style="font-weight: 510; color: var(--color-text-primary)">
                 {{ dispatch.skill }}
               </span>
-              <span class="status-pill" style="border-color: var(--color-border-solid)">
-                {{ dispatch.status }}
+              <span
+                class="status-pill"
+                style="border-color: var(--color-border-solid)"
+                :style="{
+                  color: statusColor(dispatch.status),
+                  borderColor: `${statusColor(dispatch.status)}33`,
+                }"
+              >
+                {{ statusLabel(dispatch.status) }}
               </span>
               <span class="field-value">Dispatch ID {{ dispatch.id }}</span>
             </div>
@@ -241,6 +260,9 @@
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
                 Last Callback · {{ formatTimestamp(dispatch.last_callback_at) }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Completed At · {{ formatTimestamp(dispatch.completed_at) }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
                 Callback Replay · {{ dispatch.callback_replay_count }}
@@ -287,52 +309,86 @@
         </div>
         <div class="space-y-3">
           <div
-            v-for="subtask in execution.subtasks"
-            :key="subtask.id"
+            v-for="targetGroup in groupedSubtasks"
+            :key="targetGroup.target"
+            data-testid="trajectory-card"
             class="rounded-md p-3"
             style="border: 1px solid var(--color-border-subtle)"
           >
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               <span style="font-weight: 510; color: var(--color-text-primary)">
-                {{ subtask.target }} · {{ subtask.stage }}
+                {{ targetGroup.target }}
               </span>
-              <span class="status-pill" style="border-color: var(--color-border-solid)">
-                {{ statusLabelMap[subtask.status] ?? subtask.status }}
+              <span
+                class="status-pill"
+                style="border-color: var(--color-border-solid)"
+                :style="{
+                  color: statusColor(targetGroup.status),
+                  borderColor: `${statusColor(targetGroup.status)}33`,
+                }"
+              >
+                {{ statusLabel(targetGroup.status) }}
               </span>
             </div>
             <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Provider · {{ subtask.provider }}
+                Provider · {{ targetGroup.provider }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Repo · {{ subtask.repo_name ?? "-" }}
+                Repo · {{ targetGroup.repo_name ?? "-" }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Branch · {{ subtask.branch_name ?? "-" }}
+                Branch · {{ targetGroup.branch_name ?? "-" }}
               </div>
-              <div class="text-xs break-all" style="color: var(--color-text-quaternary)">
-                Artifact · {{ subtask.output_ref ?? "-" }}
-              </div>
-              <div class="text-xs" style="color: var(--color-text-quaternary)">
-                日志 ·
-                <a
-                  v-if="subtask.log_url"
-                  :href="subtask.log_url"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="no-underline"
-                  style="color: var(--color-accent)"
-                >
-                  打开日志
-                </a>
-                <span v-else>-</span>
-              </div>
+            </div>
+            <div class="mt-3 space-y-2">
               <div
-                v-if="subtask.error_message"
-                class="text-xs md:col-span-2 break-all"
-                style="color: var(--color-error-light)"
+                v-for="subtask in targetGroup.subtasks"
+                :key="subtask.id"
+                class="rounded-md p-3"
+                style="background-color: var(--color-surface-03)"
               >
-                错误输出 · {{ subtask.error_message }}
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <span style="font-weight: 510; color: var(--color-text-primary)">
+                    {{ subtask.stage }}
+                  </span>
+                  <span
+                    class="status-pill"
+                    style="border-color: var(--color-border-solid)"
+                    :style="{
+                      color: statusColor(subtask.status),
+                      borderColor: `${statusColor(subtask.status)}33`,
+                    }"
+                  >
+                    {{ statusLabel(subtask.status) }}
+                  </span>
+                </div>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+                  <div class="text-xs break-all" style="color: var(--color-text-quaternary)">
+                    Artifact · {{ subtask.output_ref ?? "-" }}
+                  </div>
+                  <div class="text-xs" style="color: var(--color-text-quaternary)">
+                    日志 ·
+                    <a
+                      v-if="subtask.log_url"
+                      :href="subtask.log_url"
+                      target="_blank"
+                      rel="noreferrer"
+                      class="no-underline"
+                      style="color: var(--color-accent)"
+                    >
+                      打开日志
+                    </a>
+                    <span v-else>-</span>
+                  </div>
+                  <div
+                    v-if="subtask.error_message"
+                    class="text-xs md:col-span-2 break-all"
+                    style="color: var(--color-error-light)"
+                  >
+                    错误输出 · {{ subtask.error_message }}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -407,6 +463,7 @@ const statusLabelMap: Record<string, string> = {
   running: "运行中",
   success: "成功",
   failed: "失败",
+  timeout: "超时",
 };
 
 function statusColor(status: string) {
@@ -415,14 +472,71 @@ function statusColor(status: string) {
     running: "var(--color-accent-violet)",
     success: "var(--color-success)",
     failed: "var(--color-error)",
+    timeout: "var(--color-warning)",
   };
   return map[status] ?? "var(--color-text-quaternary)";
 }
 
+function statusLabel(status: string | null | undefined) {
+  if (!status) return "-";
+  return statusLabelMap[status] ?? status;
+}
+
 function formatTimestamp(value: number | null) {
   if (value == null) return "-";
-  return String(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return [date.getUTCFullYear(), pad(date.getUTCMonth() + 1), pad(date.getUTCDate())]
+    .join("-")
+    .concat(
+      ` ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`,
+    );
 }
+
+const groupedSubtasks = computed(() => {
+  const subtasks = execution.value?.subtasks ?? [];
+  const groups = new Map<
+    string,
+    {
+      target: string;
+      provider: string;
+      repo_name: string | null;
+      branch_name: string | null;
+      status: string;
+      subtasks: typeof subtasks;
+    }
+  >();
+
+  for (const subtask of subtasks) {
+    const existing = groups.get(subtask.target);
+    if (existing) {
+      existing.subtasks.push(subtask);
+      if (existing.status !== "failed" && existing.status !== "timeout") {
+        if (
+          subtask.status === "failed" ||
+          subtask.status === "timeout" ||
+          (subtask.status === "running" && existing.status !== "running")
+        ) {
+          existing.status = subtask.status;
+        }
+      }
+      continue;
+    }
+
+    groups.set(subtask.target, {
+      target: subtask.target,
+      provider: subtask.provider,
+      repo_name: subtask.repo_name ?? null,
+      branch_name: subtask.branch_name ?? null,
+      status: subtask.status,
+      subtasks: [subtask],
+    });
+  }
+
+  return Array.from(groups.values());
+});
 
 async function loadExecution(executionId: number) {
   activeRequest += 1;
