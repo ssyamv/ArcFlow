@@ -126,6 +126,24 @@ function buildDispatchDiagnosticFlags(
   return flags;
 }
 
+function getDispatchTarget(dispatch: Pick<WorkflowDispatch, "input_json">): string | null {
+  try {
+    const input = JSON.parse(dispatch.input_json) as {
+      target?: unknown;
+      repo?: unknown;
+      target_repo?: unknown;
+    };
+    if (typeof input.target === "string" && input.target.length > 0) return input.target;
+    if (typeof input.repo === "string" && input.repo.length > 0) return input.repo;
+    if (typeof input.target_repo === "string" && input.target_repo.length > 0)
+      return input.target_repo;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function listDispatchesForExecution(executionId: number): WorkflowDispatch[] {
   const db = getDb();
   const rows = db
@@ -153,19 +171,29 @@ function buildCurrentStageSummary(
       (item) => item.status === "pending" || item.status === "running" || item.status === "failed",
     );
   const latestDispatch = dispatches.at(-1);
+  const targetRelevantDiagnosticDispatch = latestBlockingSubtask
+    ? [...dispatches].reverse().find((dispatch) => {
+        return (
+          getDispatchTarget(dispatch) === latestBlockingSubtask.target &&
+          (dispatch.status === "timeout" ||
+            dispatch.diagnostic_flags.includes("late_callback_ignored"))
+        );
+      })
+    : null;
 
   if (
     latestBlockingSubtask?.stage === "dispatch" &&
     latestBlockingSubtask.status === "running" &&
-    latestDispatch &&
-    (latestDispatch.status === "timeout" ||
-      latestDispatch.diagnostic_flags.includes("late_callback_ignored"))
+    targetRelevantDiagnosticDispatch
   ) {
     return {
-      label: `${latestDispatch.skill} ${latestDispatch.status}`,
-      stage: latestDispatch.status === "timeout" ? "dispatch_timeout" : latestDispatch.source_stage,
+      label: `${latestBlockingSubtask.target} ${targetRelevantDiagnosticDispatch.status}`,
+      stage:
+        targetRelevantDiagnosticDispatch.status === "timeout"
+          ? "dispatch_timeout"
+          : targetRelevantDiagnosticDispatch.source_stage,
       target: latestBlockingSubtask.target,
-      status: latestDispatch.status,
+      status: targetRelevantDiagnosticDispatch.status,
     };
   }
 
