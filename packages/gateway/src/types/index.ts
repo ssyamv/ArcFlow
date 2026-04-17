@@ -78,6 +78,7 @@ export interface WorkflowDispatch {
   result_summary: string | null;
   callback_replay_count: number;
   timeout_at: number | null;
+  diagnostic_flags: string[];
 }
 
 export interface WorkflowExecutionSummary {
@@ -86,12 +87,21 @@ export interface WorkflowExecutionSummary {
   latest_stage: string | null;
 }
 
+export interface WorkflowCurrentStageSummary {
+  label: string;
+  stage: string | null;
+  target: string | null;
+  status: WorkflowStatus | WorkflowDispatchStatus;
+}
+
 export interface WorkflowExecutionListItem extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
 }
 
 export interface WorkflowExecutionDetail extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
+  current_stage_summary: WorkflowCurrentStageSummary | null;
+  dispatches: WorkflowDispatch[];
   subtasks: WorkflowSubtask[];
   links: WorkflowLink[];
 }

@@ -5,7 +5,9 @@ import type {
   WorkflowExecutionDetail,
   WorkflowExecutionListItem,
   WorkflowExecutionSummary,
+  WorkflowCurrentStageSummary,
   WorkflowDispatchStatus,
+  WorkflowDispatch,
   WorkflowSubtask,
   WorkflowLink,
   WorkflowType,
@@ -100,6 +102,86 @@ function buildExecutionSummary(subtasks: WorkflowSubtask[]): WorkflowExecutionSu
   };
 }
 
+function buildDispatchDiagnosticFlags(
+  dispatch: Omit<WorkflowDispatch, "diagnostic_flags">,
+): string[] {
+  const flags: string[] = [];
+
+  if (dispatch.status === "timeout") {
+    flags.push("timed_out");
+  }
+  if (dispatch.result_summary?.includes("duplicate_callback_ignored")) {
+    flags.push("duplicate_callback_ignored");
+  }
+  if (dispatch.result_summary?.includes("late_callback_ignored")) {
+    flags.push("late_callback_ignored");
+  }
+  if (
+    dispatch.result_summary?.includes("side_effect_failed") ||
+    dispatch.error_message?.includes("side_effect_failed")
+  ) {
+    flags.push("side_effect_failed");
+  }
+
+  return flags;
+}
+
+function listDispatchesForExecution(executionId: number): WorkflowDispatch[] {
+  const db = getDb();
+  const rows = db
+    .query(
+      `SELECT *
+       FROM dispatch
+       WHERE source_execution_id = ?
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(executionId) as Omit<WorkflowDispatch, "diagnostic_flags">[];
+
+  return rows.map((row) => ({
+    ...row,
+    diagnostic_flags: buildDispatchDiagnosticFlags(row),
+  }));
+}
+
+function buildCurrentStageSummary(
+  subtasks: WorkflowSubtask[],
+  dispatches: WorkflowDispatch[],
+): WorkflowCurrentStageSummary | null {
+  const latestBlockingSubtask = [...subtasks]
+    .reverse()
+    .find(
+      (item) => item.status === "pending" || item.status === "running" || item.status === "failed",
+    );
+
+  if (latestBlockingSubtask) {
+    if (latestBlockingSubtask.stage === "dispatch" && latestBlockingSubtask.status === "running") {
+      return {
+        label: `${latestBlockingSubtask.target} 等待 callback`,
+        stage: "dispatch_running",
+        target: latestBlockingSubtask.target,
+        status: latestBlockingSubtask.status,
+      };
+    }
+
+    return {
+      label: `${latestBlockingSubtask.target} ${latestBlockingSubtask.stage}`,
+      stage: latestBlockingSubtask.stage,
+      target: latestBlockingSubtask.target,
+      status: latestBlockingSubtask.status,
+    };
+  }
+
+  const latestDispatch = dispatches.at(-1);
+  if (!latestDispatch) return null;
+
+  return {
+    label: `${latestDispatch.skill} ${latestDispatch.status}`,
+    stage: latestDispatch.source_stage,
+    target: null,
+    status: latestDispatch.status,
+  };
+}
+
 function listWorkflowExecutionSummaries(
   executionIds: number[],
 ): Map<number, WorkflowExecutionSummary | null> {
@@ -161,12 +243,15 @@ export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail 
   if (!execution) return null;
 
   const subtasks = listWorkflowSubtasks(id);
+  const dispatches = listDispatchesForExecution(id);
   const links = listWorkflowLinksForExecution(id);
   const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
 
   return {
     ...execution,
     summary,
+    current_stage_summary: buildCurrentStageSummary(subtasks, dispatches),
+    dispatches,
     subtasks,
     links,
   };

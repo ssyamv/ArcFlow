@@ -325,6 +325,57 @@ describe("api routes", () => {
     );
   });
 
+  it("GET /api/workflow/executions/:id returns dispatch diagnostics and current stage summary", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DISPATCH-DETAIL",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "dispatch",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "running",
+    });
+    const dispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-dispatch-detail",
+      skill: "arcflow-prd-to-tech",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DISPATCH-DETAIL",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+    getDb()
+      .prepare("UPDATE dispatch SET status = 'running', started_at = 12_345 WHERE id = ?")
+      .run(dispatchId);
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.current_stage_summary).toEqual({
+      label: "backend 等待 callback",
+      stage: "dispatch_running",
+      target: "backend",
+      status: "running",
+    });
+    expect(body.dispatches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: dispatchId,
+          status: "running",
+          source_execution_id: id,
+          source_stage: "dispatch",
+          diagnostic_flags: [],
+        }),
+      ]),
+    );
+  });
+
   it("GET /api/workflow/executions/:id returns 404 for non-existent", async () => {
     const res = await app.request("/api/workflow/executions/99999");
     expect(res.status).toBe(404);
