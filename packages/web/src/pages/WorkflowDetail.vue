@@ -140,7 +140,26 @@
         >
           当前阶段摘要
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-x-8 gap-y-4">
+        <div
+          class="rounded-md p-4 mb-4"
+          style="
+            background-color: var(--color-surface-03);
+            border: 1px solid var(--color-border-subtle);
+          "
+        >
+          <div class="field-label">当前卡点</div>
+          <div
+            class="text-lg"
+            style="font-weight: 510; color: var(--color-text-primary); letter-spacing: -0.02em"
+          >
+            {{ execution.current_stage_summary.label }}
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-4">
+          <div>
+            <div class="field-label">目标</div>
+            <div class="field-value">{{ execution.current_stage_summary.target ?? "-" }}</div>
+          </div>
           <div>
             <div class="field-label">阶段</div>
             <div class="field-value">{{ execution.current_stage_summary.stage ?? "-" }}</div>
@@ -149,24 +168,6 @@
             <div class="field-label">状态</div>
             <div class="field-value">
               {{ execution.current_stage_summary.status ?? "-" }}
-            </div>
-          </div>
-          <div>
-            <div class="field-label">Dispatch 数</div>
-            <div class="field-value">
-              {{ execution.current_stage_summary.dispatch_count ?? "-" }}
-            </div>
-          </div>
-          <div>
-            <div class="field-label">最近 Dispatch 状态</div>
-            <div class="field-value">
-              {{ execution.current_stage_summary.last_dispatch_status ?? "-" }}
-            </div>
-          </div>
-          <div>
-            <div class="field-label">Callback 状态</div>
-            <div class="field-value">
-              {{ execution.current_stage_summary.callback_status ?? "-" }}
             </div>
           </div>
         </div>
@@ -218,42 +219,52 @@
           >
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               <span style="font-weight: 510; color: var(--color-text-primary)">
-                {{ dispatch.target ?? "-" }} · {{ dispatch.stage }}
+                {{ dispatch.skill }}
               </span>
               <span class="status-pill" style="border-color: var(--color-border-solid)">
                 {{ dispatch.status }}
               </span>
-              <span class="field-value">Dispatch ID {{ dispatch.dispatch_id ?? "-" }}</span>
+              <span class="field-value">Dispatch ID {{ dispatch.id }}</span>
             </div>
             <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Provider · {{ dispatch.provider ?? "-" }}
+                Source Stage · {{ dispatch.source_stage ?? "-" }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Callback · {{ dispatch.callback_status ?? "-" }}
+                Plane Issue · {{ dispatch.plane_issue_id ?? "-" }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Repo · {{ dispatch.repo_name ?? "-" }}
+                Created At · {{ formatTimestamp(dispatch.created_at) }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                Branch · {{ dispatch.branch_name ?? "-" }}
-              </div>
-              <div class="text-xs break-all" style="color: var(--color-text-quaternary)">
-                输出路径 · {{ dispatch.output_path ?? "-" }}
+                Started At · {{ formatTimestamp(dispatch.started_at) }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
-                日志 ·
-                <a
-                  v-if="dispatch.log_url"
-                  :href="dispatch.log_url"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="no-underline"
-                  style="color: var(--color-accent)"
-                >
-                  打开日志
-                </a>
-                <span v-else>-</span>
+                Last Callback · {{ formatTimestamp(dispatch.last_callback_at) }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Callback Replay · {{ dispatch.callback_replay_count }}
+              </div>
+              <div
+                v-if="dispatch.result_summary"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-text-secondary)"
+              >
+                Result Summary · {{ dispatch.result_summary }}
+              </div>
+              <div
+                v-if="dispatch.diagnostic_flags.length"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-text-quaternary)"
+              >
+                Diagnostic Flags · {{ dispatch.diagnostic_flags.join(", ") }}
+              </div>
+              <div
+                v-if="dispatch.error_message"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-error-light)"
+              >
+                错误输出 · {{ dispatch.error_message }}
               </div>
             </div>
           </div>
@@ -298,6 +309,9 @@
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
                 Branch · {{ subtask.branch_name ?? "-" }}
+              </div>
+              <div class="text-xs break-all" style="color: var(--color-text-quaternary)">
+                Artifact · {{ subtask.output_ref ?? "-" }}
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
                 日志 ·
@@ -403,6 +417,11 @@ function statusColor(status: string) {
     failed: "var(--color-error)",
   };
   return map[status] ?? "var(--color-text-quaternary)";
+}
+
+function formatTimestamp(value: number | null) {
+  if (value == null) return "-";
+  return String(value);
 }
 
 async function loadExecution(executionId: number) {

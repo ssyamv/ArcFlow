@@ -66,40 +66,51 @@ describe("WorkflowDetail", () => {
       completed_at: "2026-04-16 12:15:00",
       created_at: "2026-04-16 11:58:00",
       current_stage_summary: {
-        stage: "dispatching",
+        label: "backend 等待 callback",
+        target: "backend",
+        stage: "dispatch_running",
         status: "running",
-        dispatch_count: 1,
-        last_dispatch_status: "callback_pending",
-        callback_status: "waiting",
       },
       subtasks: [
         {
           id: 3,
           target: "backend",
-          stage: "dispatching",
+          stage: "dispatch",
           status: "failed",
-          provider: "ibuild",
+          provider: "nanoclaw",
           repo_name: "acme/backend",
           branch_name: "feature/fix-timeout",
           log_url: "https://logs.example.com/backend/3",
+          output_ref: "repos/backend/feature/fix-timeout",
           error_message: "command exited 1",
+          execution_id: 12,
+          input_ref: "issues/ISS-220",
+          external_run_id: "run-123",
+          started_at: "2026-04-16 12:01:00",
+          finished_at: null,
+          updated_at: "2026-04-16 12:03:00",
+          created_at: "2026-04-16 12:01:00",
         },
       ],
       dispatches: [
         {
-          id: 31,
-          dispatch_id: "disp_123",
-          stage: "dispatching",
-          status: "callback_pending",
-          target: "backend",
-          provider: "ibuild",
-          repo_name: "acme/backend",
-          branch_name: "feature/fix-timeout",
-          log_url: "https://logs.example.com/backend/3",
-          output_path: "runs/12/backend/result.json",
-          callback_status: "waiting",
-          created_at: "2026-04-16 12:01:00",
-          updated_at: "2026-04-16 12:02:00",
+          id: "disp_123",
+          workspace_id: "ws-123",
+          skill: "arcflow-codegen",
+          input_json: '{"execution_id":12,"target":"backend"}',
+          status: "timeout",
+          created_at: 1713326460000,
+          completed_at: 1713326580000,
+          plane_issue_id: "ISS-220",
+          source_execution_id: 12,
+          source_stage: "dispatch",
+          started_at: 1713326470000,
+          last_callback_at: 1713326570000,
+          error_message: "callback timeout",
+          result_summary: "late_callback_ignored",
+          callback_replay_count: 2,
+          timeout_at: 1713326560000,
+          diagnostic_flags: ["timed_out", "late_callback_ignored"],
         },
       ],
       links: [
@@ -127,15 +138,17 @@ describe("WorkflowDetail", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("当前阶段摘要");
-    expect(wrapper.text()).toContain("dispatching");
-    expect(wrapper.text()).toContain("callback_pending");
+    expect(wrapper.text()).toContain("backend 等待 callback");
+    expect(wrapper.text()).toContain("dispatch_running");
     expect(wrapper.text()).toContain("Dispatch / Callback 诊断");
     expect(wrapper.text()).toContain("disp_123");
-    expect(wrapper.text()).toContain("waiting");
-    expect(wrapper.text()).toContain("runs/12/backend/result.json");
+    expect(wrapper.text()).toContain("arcflow-codegen");
+    expect(wrapper.text()).toContain("late_callback_ignored");
+    expect(wrapper.text()).toContain("timed_out");
     expect(wrapper.text()).toContain("目标轨迹与产物");
     expect(wrapper.text()).toContain("acme/backend");
     expect(wrapper.text()).toContain("feature/fix-timeout");
+    expect(wrapper.text()).toContain("repos/backend/feature/fix-timeout");
     expect(wrapper.find('a[href="https://logs.example.com/backend/3"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("spawned_on_ci_failure");
   });
