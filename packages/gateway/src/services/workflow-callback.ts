@@ -1,3 +1,4 @@
+import { posix as pathPosix } from "node:path";
 import { updateWorkflowSubtaskStatusByStage } from "../db/queries";
 import type { WorkflowDispatchStatus, WorkflowStatus } from "../types";
 
@@ -22,14 +23,20 @@ export interface CallbackDeps {
   writeTechDesign: (x: {
     workspaceId: string;
     planeIssueId?: string;
+    relativePath: string;
     content: string;
   }) => Promise<void>;
   writeOpenApi: (x: {
     workspaceId: string;
     planeIssueId?: string;
+    relativePath: string;
     content: string;
   }) => Promise<void>;
-  commentPlaneIssue: (x: { planeIssueId: string; content: string }) => Promise<void>;
+  commentPlaneIssue: (x: {
+    workspaceId: string;
+    planeIssueId: string;
+    content: string;
+  }) => Promise<void>;
   loadDispatch: (id: string) => Promise<DispatchRecord | null>;
   claimDispatch?: (id: string) => Promise<boolean>;
   releaseClaim?: (id: string) => Promise<boolean>;
@@ -68,7 +75,18 @@ export interface CallbackPayload {
   dispatch_id: string;
   skill?: string;
   status: "success" | "failed";
-  result?: { content: string; planeIssueId?: string };
+  result?: {
+    content?: string;
+    planeIssueId?: string;
+    tech_doc_path?: string;
+    openapi_path?: string;
+    summary?: unknown;
+    root_cause?: unknown;
+    suggested_fix?: unknown;
+    confidence?: unknown;
+    next_action?: unknown;
+    [key: string]: unknown;
+  };
   error?: string;
 }
 
@@ -107,6 +125,23 @@ function parseExecutionContext(input: unknown) {
         : undefined,
     input_path: typeof payload.input_path === "string" ? payload.input_path : undefined,
   };
+}
+
+function normalizeCallbackPath(rawPath: string, invalidMessage: string) {
+  const trimmed = rawPath.trim();
+  const posixPath = trimmed.replace(/\\/g, "/");
+
+  if (!trimmed) throw new Error(invalidMessage);
+  if (/^[A-Za-z]:[\\/]/.test(trimmed) || pathPosix.isAbsolute(posixPath)) {
+    throw new Error(invalidMessage);
+  }
+
+  const normalized = pathPosix.normalize(posixPath);
+  if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    throw new Error(invalidMessage);
+  }
+
+  return normalized;
 }
 
 function parseCodegenResult(content: string) {
@@ -163,26 +198,66 @@ function parseBugAnalysisDispatchInput(input: unknown) {
   };
 }
 
-function parseBugAnalysisResult(content: string) {
-  const parsed = JSON.parse(content) as {
-    summary?: unknown;
-    root_cause?: unknown;
-    suggested_fix?: unknown;
-    confidence?: unknown;
-    next_action?: unknown;
-  };
+function parseTechDesignResult(result: CallbackPayload["result"]) {
+  if (!result || typeof result !== "object") {
+    throw new Error("tech design callback payload is incomplete");
+  }
 
-  const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
-  const rootCause = typeof parsed.root_cause === "string" ? parsed.root_cause.trim() : "";
-  const suggestedFix = typeof parsed.suggested_fix === "string" ? parsed.suggested_fix.trim() : "";
+  const content = typeof result.content === "string" ? result.content : "";
+  const techDocPath =
+    typeof result.tech_doc_path === "string"
+      ? normalizeCallbackPath(result.tech_doc_path, "tech design callback path is invalid")
+      : "";
+
+  if (!content || !techDocPath) {
+    throw new Error("tech design callback payload is incomplete");
+  }
+
+  return {
+    relativePath: techDocPath,
+    content,
+  };
+}
+
+function parseOpenApiResult(result: CallbackPayload["result"]) {
+  if (!result || typeof result !== "object") {
+    throw new Error("openapi callback payload is incomplete");
+  }
+
+  const content = typeof result.content === "string" ? result.content : "";
+  const openapiPath =
+    typeof result.openapi_path === "string"
+      ? normalizeCallbackPath(result.openapi_path, "openapi callback path is invalid")
+      : "";
+
+  if (!content || !openapiPath) {
+    throw new Error("openapi callback payload is incomplete");
+  }
+
+  return {
+    relativePath: openapiPath,
+    content,
+  };
+}
+
+function parseBugAnalysisResult(result: CallbackPayload["result"]) {
+  if (!result || typeof result !== "object") {
+    throw new Error("bug analysis result is incomplete");
+  }
+
+  const summary = typeof result.summary === "string" ? result.summary.trim() : "";
+  const rootCause = typeof result.root_cause === "string" ? result.root_cause.trim() : "";
+  const suggestedFix = typeof result.suggested_fix === "string" ? result.suggested_fix.trim() : "";
+  const confidence = typeof result.confidence === "string" ? result.confidence : "";
+  const nextAction = typeof result.next_action === "string" ? result.next_action : "";
 
   if (!summary || !rootCause || !suggestedFix) {
     throw new Error("bug analysis result is incomplete");
   }
-  if (!["high", "medium", "low"].includes(String(parsed.confidence))) {
+  if (!["high", "medium", "low"].includes(confidence)) {
     throw new Error("bug analysis confidence is invalid");
   }
-  if (!["auto_fix_candidate", "manual_handoff"].includes(String(parsed.next_action))) {
+  if (!["auto_fix_candidate", "manual_handoff"].includes(nextAction)) {
     throw new Error("bug analysis next_action is invalid");
   }
 
@@ -190,9 +265,39 @@ function parseBugAnalysisResult(content: string) {
     summary,
     root_cause: rootCause,
     suggested_fix: suggestedFix,
-    confidence: parsed.confidence as "high" | "medium" | "low",
-    next_action: parsed.next_action as "auto_fix_candidate" | "manual_handoff",
+    confidence: confidence as "high" | "medium" | "low",
+    next_action: nextAction as "auto_fix_candidate" | "manual_handoff",
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatBugAnalysisComment(report: {
+  summary: string;
+  root_cause: string;
+  suggested_fix: string;
+  confidence: "high" | "medium" | "low";
+  next_action: "auto_fix_candidate" | "manual_handoff";
+}) {
+  return [
+    "<div>",
+    "<h2>Bug Analysis Summary</h2>",
+    "<ul>",
+    `<li><strong>Summary:</strong> ${escapeHtml(report.summary)}</li>`,
+    `<li><strong>Root cause:</strong> ${escapeHtml(report.root_cause)}</li>`,
+    `<li><strong>Suggested fix:</strong> ${escapeHtml(report.suggested_fix)}</li>`,
+    `<li><strong>Confidence:</strong> ${escapeHtml(report.confidence)}</li>`,
+    `<li><strong>Next action:</strong> ${escapeHtml(report.next_action)}</li>`,
+    "</ul>",
+    "</div>",
+  ].join("");
 }
 
 export function createCallbackHandler(deps: CallbackDeps) {
@@ -228,7 +333,8 @@ export function createCallbackHandler(deps: CallbackDeps) {
       const claimed = (await deps.claimDispatch?.(p.dispatch_id)) ?? true;
       if (!claimed) return false;
 
-      const content = p.result?.content ?? "";
+      const result = p.result;
+      const content = typeof result?.content === "string" ? result.content : "";
       const piid = p.result?.planeIssueId ?? rec.planeIssueId;
       const markSubtaskProgress = async (input: {
         execution_id: number;
@@ -327,9 +433,21 @@ export function createCallbackHandler(deps: CallbackDeps) {
             await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
           }
         } else if (skill === "arcflow-prd-to-tech") {
-          await deps.writeTechDesign({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
+          const techDesign = parseTechDesignResult(result);
+          await deps.writeTechDesign({
+            workspaceId: rec.workspaceId,
+            planeIssueId: piid,
+            relativePath: techDesign.relativePath,
+            content: techDesign.content,
+          });
         } else if (skill === "arcflow-tech-to-openapi") {
-          await deps.writeOpenApi({ workspaceId: rec.workspaceId, planeIssueId: piid, content });
+          const openApi = parseOpenApiResult(result);
+          await deps.writeOpenApi({
+            workspaceId: rec.workspaceId,
+            planeIssueId: piid,
+            relativePath: openApi.relativePath,
+            content: openApi.content,
+          });
           const context = parseExecutionContext(rec.input);
           if (deps.triggerWorkflow && context.execution_id) {
             await deps.triggerWorkflow({
@@ -345,7 +463,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
           }
         } else if (skill === "arcflow-bug-analysis") {
           const dispatchInput = parseBugAnalysisDispatchInput(rec.input);
-          const report = parseBugAnalysisResult(content);
+          const report = parseBugAnalysisResult(result);
           await markSubtaskProgress({
             execution_id: dispatchInput.execution_id,
             target: dispatchInput.target,
@@ -357,7 +475,13 @@ export function createCallbackHandler(deps: CallbackDeps) {
             log_url: dispatchInput.log_url,
             output_ref: JSON.stringify(report),
           });
-          if (piid) await deps.commentPlaneIssue({ planeIssueId: piid, content });
+          if (piid) {
+            await deps.commentPlaneIssue({
+              workspaceId: rec.workspaceId,
+              planeIssueId: piid,
+              content: formatBugAnalysisComment(report),
+            });
+          }
           await deps.updateExecutionStatus?.(dispatchInput.execution_id, "success");
         } else if (skill === "arcflow-code-gen") {
           const result = parseCodegenResult(content);

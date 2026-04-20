@@ -21,6 +21,8 @@ import { createRagIndex } from "./services/rag-index";
 import { createRagSearch } from "./services/rag-search";
 import { createGitAdapter } from "./services/rag-git-adapter";
 import { createCallbackHandler } from "./services/workflow-callback";
+import { createWorkflowWritebackService } from "./services/workflow-writeback";
+import { commentPlaneIssue as postPlaneIssueComment } from "./services/plane";
 import { createScheduler } from "./services/scheduler";
 import { triggerWorkflow } from "./services/workflow";
 import type { WorkflowDispatchStatus } from "./types";
@@ -97,6 +99,7 @@ app.route("/api/arcflow", arcflowToolRoutes);
 
 // ── RAG + callback routes ──────────────────────────────────────────────────────
 const systemSecret = process.env.SYSTEM_SECRET ?? process.env.NANOCLAW_DISPATCH_SECRET ?? "";
+const workflowWriteback = createWorkflowWritebackService();
 
 if (ragDb) {
   const embedder = createEmbeddingClient({
@@ -130,18 +133,22 @@ if (ragDb) {
 
 // Callback route (always mounted; handler stubs out deps when ragDb absent)
 const callbackHandler = createCallbackHandler({
-  writeTechDesign: async ({ workspaceId, planeIssueId, content }) => {
-    console.log(
-      `[callback] writeTechDesign ws=${workspaceId} issue=${planeIssueId ?? "-"} len=${content.length}`,
-    );
+  writeTechDesign: async ({ workspaceId, relativePath, content }) => {
+    await workflowWriteback.writeDoc({
+      workspaceId,
+      relativePath,
+      content,
+    });
   },
-  writeOpenApi: async ({ workspaceId, planeIssueId, content }) => {
-    console.log(
-      `[callback] writeOpenApi ws=${workspaceId} issue=${planeIssueId ?? "-"} len=${content.length}`,
-    );
+  writeOpenApi: async ({ workspaceId, relativePath, content }) => {
+    await workflowWriteback.writeDoc({
+      workspaceId,
+      relativePath,
+      content,
+    });
   },
-  commentPlaneIssue: async ({ planeIssueId, content }) => {
-    console.log(`[callback] commentPlaneIssue issue=${planeIssueId} len=${content.length}`);
+  commentPlaneIssue: async ({ workspaceId, planeIssueId, content }) => {
+    await postPlaneIssueComment(workspaceId, planeIssueId, content);
   },
   loadDispatch: async (id) => {
     const db = getDb();

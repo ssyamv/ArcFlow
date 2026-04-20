@@ -1,3 +1,4 @@
+import { getWorkspace } from "../db/queries";
 import { getConfig } from "../config";
 
 interface PlaneIssue {
@@ -7,6 +8,10 @@ interface PlaneIssue {
   state: string;
   priority: string;
   labels: string[];
+}
+
+function toCommentHtml(content: string): string {
+  return content.trim().replace(/\n/g, "<br />");
 }
 
 async function planeRequest(
@@ -187,4 +192,35 @@ export async function listIssuesByAssignee(
     0,
   )) as { results?: PlaneIssueListItem[] };
   return result.results ?? [];
+}
+
+export async function commentPlaneIssue(
+  workspaceId: number | string,
+  workItemId: string,
+  content: string,
+): Promise<void> {
+  const resolvedWorkspaceId = Number(workspaceId);
+  if (!Number.isFinite(resolvedWorkspaceId) || resolvedWorkspaceId <= 0) {
+    throw new Error("workspaceId is required");
+  }
+
+  const workspace = getWorkspace(resolvedWorkspaceId);
+  if (!workspace) {
+    throw new Error(`workspace ${resolvedWorkspaceId} not found`);
+  }
+  if (!workspace.plane_workspace_slug) {
+    throw new Error(`workspace ${resolvedWorkspaceId} has no Plane workspace slug`);
+  }
+  if (!workspace.plane_project_id) {
+    throw new Error(`workspace ${resolvedWorkspaceId} has no Plane project id`);
+  }
+
+  await planeRequest(
+    workspace.plane_workspace_slug,
+    `/projects/${workspace.plane_project_id}/work-items/${workItemId}/comments/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ comment_html: toCommentHtml(content) }),
+    },
+  );
 }

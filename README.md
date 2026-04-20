@@ -163,6 +163,16 @@ docker compose up -d
 - [setup/plane](setup/plane)
 - [setup/nanoclaw/README.md](setup/nanoclaw/README.md)
 - [setup/docs-repo/README.md](setup/docs-repo/README.md)
+- [setup/production-runbook.md](setup/production-runbook.md)
+
+### 生产部署口径
+
+当前生产部署与排障统一以 [setup/production-runbook.md](setup/production-runbook.md) 为准。
+
+当前单一可信路径：
+
+- ArcFlow：`/data/project/arcflow`
+- NanoClaw：`/data/project/nanoclaw`
 
 关键验证记录：
 
