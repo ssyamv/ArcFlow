@@ -28,8 +28,9 @@ cp .env.example .env
 # - FEISHU_APP_ID / FEISHU_APP_SECRET（飞书开放平台获取）
 # - FEISHU_WEBHOOK_PORT（默认 3000）
 # - PLANE_API_TOKEN / PLANE_BASE_URL / PLANE_WORKSPACE_SLUG
-# - GATEWAY_URL（胶水服务地址，如 http://172.29.230.21:8080）
-# - DIFY_URL / DIFY_API_KEY
+# - GATEWAY_URL（ArcFlow Gateway 地址，如 http://172.29.230.21:3100）
+# - SYSTEM_SECRET（与 Gateway `NANOCLAW_DISPATCH_SECRET` 保持一致，用于 dispatch / callback 鉴权）
+# - ArcFlow skill 所需的 Gateway / Plane / Feishu 相关配置
 ```
 
 ### 3. 构建容器镜像
@@ -77,6 +78,22 @@ npx tsx setup/index.ts --step register -- \
 
 在飞书中发送消息给机器人，检查是否收到回复。
 
+如需验证 ArcFlow 自动化链路，而不仅仅是聊天入口，至少补充检查：
+
+```bash
+curl http://<gateway-host>:3100/health
+curl -H "X-System-Secret: <system-secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id":"default","q":"health check"}' \
+  "http://<gateway-host>:3100/api/rag/search"
+```
+
+非交互 skill 完成后，应通过相同的 `X-System-Secret` 回调：
+
+```text
+POST {GATEWAY_URL}/api/workflow/callback
+```
+
 ## 更新
 
 从上游同步更新：
@@ -90,3 +107,4 @@ claude
 
 - 设计规格：`docs/superpowers/specs/2026-04-07-nanoclaw-setup-design.md`
 - 意图路由设计：`docs/superpowers/specs/2026-04-02-nanoclaw-routing-design.md`
+- 生产稳定性验证：`docs/superpowers/reports/2026-04-17-deployment-alignment-and-nanoclaw-stability-verification.md`

@@ -1,7 +1,7 @@
 # AI 研发运营一体化平台 — 当前技术架构方案
 
-> 版本：v2.0  
-> 日期：2026-04-16  
+> 版本：v2.0
+> 日期：2026-04-17
 > 说明：本文件描述 ArcFlow 当前真实落地架构与阶段状态，替代早期 `Wiki.js + Dify + Weaviate` 方案作为当前参考。
 
 ---
@@ -174,7 +174,7 @@ docs 仓库是文档真实底座，不再依赖 Wiki 同步层。
 
 ### 5.1 已验证主链路
 
-当前已经真实跑通过的链路是：
+当前已经在本仓和联调环境中完成验证的链路是：
 
 ```text
 Web 对话 / 需求草稿
@@ -184,29 +184,36 @@ Web 对话 / 需求草稿
   → Plane webhook
   → 技术设计文档
   → OpenAPI
+  → code_gen
+  → CI webhook 回写
 ```
 
-这条链路已在 `2026-04-13` 的真实环境中验证通过，详见：
+对应验证与收口记录：
 
 - [superpowers/reports/2026-04-13-e2e-verification-report.md](superpowers/reports/2026-04-13-e2e-verification-report.md)
+- [superpowers/reports/2026-04-16-phase-3-5-verification.md](superpowers/reports/2026-04-16-phase-3-5-verification.md)
 
-### 5.2 正在补齐的后半段
+### 5.2 新近闭环能力
 
-当前仍在推进的后半段是：
+`2026-04-17` 前后补齐的闭环包括：
 
 ```text
-技术设计 / OpenAPI
-  → 代码生成
-  → Code Review
-  → CI
-  → Bug 回流
-  → 自动修复 / 再次验证
+CI 失败
+  → bug_analysis dispatch
+  → Gateway callback 持久化 analysis_ready / analysis_failed
+  → Workflow Detail 显示 bug_report_summary 与下一步动作
 ```
 
-也就是说，ArcFlow 当前的成熟度是：
+对应验证记录：
 
-- 前半段文档与任务链路已经成型
-- 后半段代码与交付链路正在从“设计完成”走向“可稳定复现”
+- [superpowers/reports/2026-04-17-ci-bug-backflow-closure-verification.md](superpowers/reports/2026-04-17-ci-bug-backflow-closure-verification.md)
+- [superpowers/reports/2026-04-17-dispatch-callback-observability-verification.md](superpowers/reports/2026-04-17-dispatch-callback-observability-verification.md)
+
+当前成熟度可以概括为：
+
+- 前半段文档与任务链路已经成型并完成真实环境联调
+- `tech_to_openapi -> code_gen -> CI -> bug_analysis` 的仓内闭环已经跑通
+- 当前重点已转向生产环境稳定性、部署对齐和跨仓库协作收口
 
 ---
 
@@ -214,7 +221,7 @@ Web 对话 / 需求草稿
 
 ### 6.1 已完成
 
-截至 `2026-04-16`，当前已完成的核心建设包括：
+截至 `2026-04-17`，当前已完成的核心建设包括：
 
 - docs 仓库与 CLAUDE.md 规范
 - Gateway 核心框架与测试基础
@@ -228,36 +235,41 @@ Web 对话 / 需求草稿
 - 鉴权透传与 memory snapshot
 - RAG 基础设施迁移到 Gateway sqlite-vec
 - 生产环境与部署拓扑梳理
+- Phase 3.5 代码生成与 CI 回写闭环
+- CI bug analysis 回流闭环
+- Workflow callback / dispatch 可观测性补强
 
 ### 6.2 进行中
 
 当前重点任务：
 
-- NanoClaw 仓内 `arcflow-api` skill 包发布与接线确认
-- NanoClaw 与 Gateway 的交互契约稳定化
-- 端到端链路 Phase 1 联调
-- 生产环境稳定性修复与部署文档对齐
+- NanoClaw 独立仓内 `arcflow-api` skill 包发布与接线确认
+- NanoClaw 与 Gateway 的跨仓契约维护
+- 生产环境稳定性修复、部署对齐与运维口径统一
+- 团队使用流程与操作规范沉淀
 
 ### 6.3 待完成
 
 后续阶段重点：
 
-- 代码生成链路全打通
-- Bug 回流自动修复闭环稳定化
-- 生产环境重复验证
+- 自动修复链路进一步稳定化
+- 更多生产场景重复验证
 - 团队推广与操作规范沉淀
 
 ### 6.4 今日进展补充
 
-`2026-04-16` 在 ArcFlow 仓库内已经完成一轮 `arcflow-api` 交互链路补齐，具体包括：
+最近对当前主线判断影响最大的进展是：
 
 - Gateway 新增 `/api/arcflow/issues`
 - Gateway 新增 `/api/arcflow/requirements/drafts`
 - Web AiChat 新增结构化 artifact 卡片渲染
+- `code_gen` 摘要、详情页 subtasks / links、CI webhook 回写完成闭环
+- `bug_analysis` 派生、回调摘要和前端展示完成闭环
 
 因此更准确的状态是：
 
-- **ArcFlow 侧交互契约与展示层已完成**
+- **ArcFlow 仓内主链路已完成到 CI / bug_analysis 回流这一层**
+- **NanoClaw 独立仓内 skill 包发布与生产编排仍需按独立仓状态跟进**
 - **NanoClaw 仓内 skill 包本体是否已同步发布，需要结合外部仓库继续确认**
 
 ---

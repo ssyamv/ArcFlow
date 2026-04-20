@@ -10,6 +10,7 @@
 
 - 以本文件和 [docs/AI研发运营一体化平台_技术架构方案.md](docs/AI研发运营一体化平台_技术架构方案.md) 作为当前架构与开发状态的权威说明。
 - `docs/superpowers/specs/`、`plans/`、`reports/` 中保留了完整演进记录，但其中一部分属于历史方案。请先查看 [docs/documentation-status.md](docs/documentation-status.md) 了解哪些文档是当前参考、哪些仅供历史追溯。
+- 当前说明已对齐到 `2026-04-17` 仓库状态：Phase 3.5 本仓闭环与 CI bug 回流闭环均已有对应验证记录。
 
 ## 项目目标
 
@@ -92,9 +93,10 @@ ArcFlow/
 | Phase 3.2 | Web AiChat 切 NanoClaw、鉴权透传、memory snapshot | 已完成 |
 | Phase 3.3 | NanoClaw 上线与生产环境对齐 | 已完成 |
 | Phase 3.4 | `arcflow-api` 交互链路：ArcFlow 侧 Gateway 契约与 Web artifact 渲染 | 已完成 |
-| Phase 3.4b | `arcflow-api` skill 包在 NanoClaw 仓内的发布、接线与验收 | 进行中 |
-| Phase 3.5 | 端到端全链路联调：PRD → 技术设计 → OpenAPI → 代码生成 → CI | 待完成 |
-| Phase 4 | 稳定性加固、生产验证与推广 | 待完成 |
+| Phase 3.4b | `arcflow-api` skill 包在 NanoClaw 独立仓内的发布、接线与验收 | 独立仓持续跟进；本仓配套已完成 |
+| Phase 3.5 | 端到端全链路联调：PRD → 技术设计 → OpenAPI → 代码生成 → CI | 本仓已闭环，见 `2026-04-16` 验证报告 |
+| Phase 3.6 | CI 失败 → `bug_analysis` → `analysis_ready/failed` 回流闭环 | 本仓已闭环，见 `2026-04-17` 验证报告 |
+| Phase 4 | 稳定性、可观测性与生产验证 | 进行中 |
 
 ## 当前已实现能力
 
@@ -120,12 +122,18 @@ ArcFlow/
 - docs Git 仓库读写
 - 飞书通知与审批链接
 - GitHub Actions CI / 安全检查
+- CI 失败后的 `bug_analysis` 派生、回写与详情展示
+- Workflow Detail 中的 dispatch 状态、回调摘要与下一步动作提示
 
-### 今日新增
+### 最近里程碑
 
-- ArcFlow 侧 `arcflow-api` 交互配套已落地：`/api/arcflow/issues`、`/api/arcflow/requirements/drafts`
-- Web AiChat 已支持 `arcflow_card / arcflow_status` 结构化 artifact 渲染
-- 对应提交：`d9b1fd3 feat(arcflow): add gateway tools and chat artifact rendering`
+- `d9b1fd3 feat(arcflow): add gateway tools and chat artifact rendering`
+  - ArcFlow 侧 `arcflow-api` 交互配套落地：`/api/arcflow/issues`、`/api/arcflow/requirements/drafts`
+  - Web AiChat 支持 `arcflow_card / arcflow_status` 结构化 artifact 渲染
+- `1cc3cee feat: close phase 3.5 codegen and ci workflow loop (#120) (#124)`
+  - `code_gen` 列表摘要、详情页 subtasks / links、`/webhook/cicd` 与 `/webhook/ibuild` 统一回写已闭环
+- `ce543ef feat: close ci bug analysis backflow loop`
+  - `ci_failed` 派生 `bug_analysis`、回调 `analysis_ready / analysis_failed` 与前端摘要展示已闭环
 
 ## 运行方式
 
@@ -155,6 +163,23 @@ docker compose up -d
 - [setup/plane](setup/plane)
 - [setup/nanoclaw/README.md](setup/nanoclaw/README.md)
 - [setup/docs-repo/README.md](setup/docs-repo/README.md)
+- [setup/production-runbook.md](setup/production-runbook.md)
+
+### 生产部署口径
+
+当前生产部署与排障统一以 [setup/production-runbook.md](setup/production-runbook.md) 为准。
+
+当前单一可信路径：
+
+- ArcFlow：`/data/project/arcflow`
+- NanoClaw：`/data/project/nanoclaw`
+
+关键验证记录：
+
+- [docs/superpowers/reports/2026-04-16-phase-3-5-verification.md](docs/superpowers/reports/2026-04-16-phase-3-5-verification.md)
+- [docs/superpowers/reports/2026-04-17-ci-bug-backflow-closure-verification.md](docs/superpowers/reports/2026-04-17-ci-bug-backflow-closure-verification.md)
+- [docs/superpowers/reports/2026-04-17-dispatch-callback-observability-verification.md](docs/superpowers/reports/2026-04-17-dispatch-callback-observability-verification.md)
+- [docs/superpowers/reports/2026-04-17-deployment-alignment-and-nanoclaw-stability-verification.md](docs/superpowers/reports/2026-04-17-deployment-alignment-and-nanoclaw-stability-verification.md)
 
 ## 历史说明
 

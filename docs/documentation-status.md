@@ -8,6 +8,8 @@
 
 - [README.md](../README.md)：项目总览、当前架构、当前开发状态
 - [AI研发运营一体化平台_技术架构方案.md](AI研发运营一体化平台_技术架构方案.md)：当前真实架构与阶段说明
+- [当前缺口清单_按优先级.md](当前缺口清单_按优先级.md)：当前阶段待完成事项与建议推进顺序
+- [arcflow-nanoclaw-callback-contract.md](arcflow-nanoclaw-callback-contract.md)：ArcFlow 与 NanoClaw 当前有效 callback 契约
 - [setup/docs-repo/README.md](../setup/docs-repo/README.md)：docs Git 仓库脚手架说明
 - [setup/docs-repo/CLAUDE.md](../setup/docs-repo/CLAUDE.md)：docs 仓库 AI 上下文模板
 - [setup/nanoclaw/README.md](../setup/nanoclaw/README.md)：NanoClaw 部署说明
@@ -24,11 +26,20 @@
 - `docs/superpowers/specs/2026-04-15-nanoclaw-hot-container-pool-design.md`
 - `docs/superpowers/specs/2026-04-16-deployment-alignment-and-nanoclaw-stability-design.md`
 - `docs/superpowers/specs/2026-04-16-end-to-end-arcflow-nanoclaw-phase1-design.md`
+- `docs/superpowers/specs/2026-04-17-ci-bug-backflow-closure-design.md`
+- `docs/superpowers/specs/2026-04-17-dispatch-callback-observability-design.md`
 
 补充说明：
 
 - `arcflow-api` 相关文档当前要区分 **ArcFlow 仓内配套实现** 与 **NanoClaw 仓内 skill 包本体** 两部分
-- 截至 `2026-04-16`，ArcFlow 仓内 Gateway 契约与 Web artifact 渲染已落地
+- 截至 `2026-04-17`，ArcFlow 仓内 Gateway 契约、Web artifact 渲染、Phase 3.5 闭环、CI bug 回流闭环均已落地
+
+以下验证报告可直接作为当前阶段事实依据：
+
+- `docs/superpowers/reports/2026-04-16-phase-3-5-verification.md`
+- `docs/superpowers/reports/2026-04-17-ci-bug-backflow-closure-verification.md`
+- `docs/superpowers/reports/2026-04-17-dispatch-callback-observability-verification.md`
+- `docs/superpowers/reports/2026-04-17-deployment-alignment-and-nanoclaw-stability-verification.md`
 
 ## 历史参考
 

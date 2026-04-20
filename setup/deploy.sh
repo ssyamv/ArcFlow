@@ -48,15 +48,17 @@ main() {
   case "$action" in
     up)
       init_env
-      log "启动 ArcFlow Gateway 独立栈..."
+      log "启动 ArcFlow 本仓核心服务栈（Gateway + Web）..."
       docker compose up -d --build
       log "等待服务就绪..."
       sleep 5
       docker compose ps
       log "部署完成！"
       log "  Gateway:  http://localhost:${GATEWAY_PORT:-3100}/health"
+      log "  Web:      http://localhost:${WEB_PORT:-80}"
       log "  Plane:    独立部署，见 setup/plane/docker-compose.yml"
       log "  NanoClaw: 服务器 PM2 进程 arcflow-nanoclaw"
+      log "  Docs:     通过工作空间配置的 docs Git 仓库提供"
       ;;
     down)
       log "停止所有服务..."

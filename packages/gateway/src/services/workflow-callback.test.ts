@@ -56,13 +56,157 @@ describe("workflow-callback dispatcher", () => {
       dispatch_id: "d1",
       skill: "arcflow-prd-to-tech",
       status: "success",
-      result: { content: "# T\nbody" },
+      result: { tech_doc_path: "docs/tech/design.md", content: "# T\nbody" },
     });
     expect(ok).toBe(true);
-    expect((calls[0] as [string, unknown])[0]).toBe("tech");
-    expect(((calls[0] as [string, { content: string }])[1] as { content: string }).content).toBe(
-      "# T\nbody",
-    );
+    expect(calls[0]).toEqual([
+      "tech",
+      {
+        workspaceId: "w",
+        planeIssueId: "PROJ-1",
+        relativePath: "docs/tech/design.md",
+        content: "# T\nbody",
+      },
+    ]);
+  });
+
+  it("normalizes prd-to-tech callback paths with posix separators", async () => {
+    const calls: unknown[] = [];
+    const handler = createCallbackHandler({
+      writeTechDesign: async (x) => {
+        calls.push(x);
+      },
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d1",
+        workspaceId: "w",
+        skill: "arcflow-prd-to-tech",
+        planeIssueId: "PROJ-1",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    const ok = await handler.handle({
+      dispatch_id: "d1",
+      skill: "arcflow-prd-to-tech",
+      status: "success",
+      result: { tech_doc_path: "docs\\tech\\design.md", content: "# T\nbody" },
+    });
+
+    expect(ok).toBe(true);
+    expect(calls[0]).toEqual({
+      workspaceId: "w",
+      planeIssueId: "PROJ-1",
+      relativePath: "docs/tech/design.md",
+      content: "# T\nbody",
+    });
+  });
+
+  it("rejects incomplete prd-to-tech callback payloads", async () => {
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d1",
+        workspaceId: "w",
+        skill: "arcflow-prd-to-tech",
+        planeIssueId: "PROJ-1",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d1",
+        skill: "arcflow-prd-to-tech",
+        status: "success",
+        result: { content: "# T\nbody" },
+      }),
+    ).rejects.toThrow("tech design callback payload is incomplete");
+  });
+
+  it("rejects incomplete tech-to-openapi callback payloads", async () => {
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d1",
+        workspaceId: "w",
+        skill: "arcflow-tech-to-openapi",
+        planeIssueId: "PROJ-2",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d1",
+        skill: "arcflow-tech-to-openapi",
+        status: "success",
+        result: { openapi_path: "specs/api/openapi.yaml" },
+      }),
+    ).rejects.toThrow("openapi callback payload is incomplete");
+  });
+
+  it("rejects unsafe prd-to-tech callback paths", async () => {
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d1",
+        workspaceId: "w",
+        skill: "arcflow-prd-to-tech",
+        planeIssueId: "PROJ-1",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d1",
+        skill: "arcflow-prd-to-tech",
+        status: "success",
+        result: { tech_doc_path: "../escape.md", content: "# T\nbody" },
+      }),
+    ).rejects.toThrow("tech design callback path is invalid");
+  });
+
+  it("rejects unsafe tech-to-openapi callback paths", async () => {
+    const handler = createCallbackHandler({
+      writeTechDesign: async () => {},
+      writeOpenApi: async () => {},
+      commentPlaneIssue: async () => {},
+      markSubtaskProgress: async () => {},
+      loadDispatch: async () => ({
+        id: "d1",
+        workspaceId: "w",
+        skill: "arcflow-tech-to-openapi",
+        planeIssueId: "PROJ-2",
+        status: "pending",
+      }),
+      markDone: async () => true,
+    });
+
+    await expect(
+      handler.handle({
+        dispatch_id: "d1",
+        skill: "arcflow-tech-to-openapi",
+        status: "success",
+        result: { openapi_path: "/tmp/openapi.yaml", content: "openapi: 3.1.0" },
+      }),
+    ).rejects.toThrow("openapi callback path is invalid");
   });
 
   it("idempotent: second callback returns false", async () => {
@@ -91,13 +235,11 @@ describe("workflow-callback dispatcher", () => {
       skill: "arcflow-bug-analysis",
       status: "success",
       result: {
-        content: JSON.stringify({
-          summary: "callback summary",
-          root_cause: "callback root cause",
-          suggested_fix: "callback suggested fix",
-          confidence: "high",
-          next_action: "auto_fix_candidate",
-        }),
+        summary: "callback summary",
+        root_cause: "callback root cause",
+        suggested_fix: "callback suggested fix",
+        confidence: "high",
+        next_action: "auto_fix_candidate",
         planeIssueId: "PROJ-9",
       },
     });
@@ -106,13 +248,11 @@ describe("workflow-callback dispatcher", () => {
       skill: "arcflow-bug-analysis",
       status: "success",
       result: {
-        content: JSON.stringify({
-          summary: "callback summary",
-          root_cause: "callback root cause",
-          suggested_fix: "callback suggested fix",
-          confidence: "high",
-          next_action: "auto_fix_candidate",
-        }),
+        summary: "callback summary",
+        root_cause: "callback root cause",
+        suggested_fix: "callback suggested fix",
+        confidence: "high",
+        next_action: "auto_fix_candidate",
         planeIssueId: "PROJ-9",
       },
     });
@@ -174,13 +314,11 @@ describe("workflow-callback dispatcher", () => {
       skill: "arcflow-bug-analysis",
       status: "success",
       result: {
-        content: JSON.stringify({
-          summary: "Type mismatch in payload parser",
-          root_cause: "branch_name optionality was ignored",
-          suggested_fix: "Guard fallback lookup",
-          confidence: "medium",
-          next_action: "manual_handoff",
-        }),
+        summary: "<script>alert(1)</script>",
+        root_cause: "branch_name & optionality was ignored",
+        suggested_fix: "Guard <fallback> lookup",
+        confidence: "medium",
+        next_action: "manual_handoff",
       },
     });
 
@@ -194,7 +332,17 @@ describe("workflow-callback dispatcher", () => {
         output_ref: expect.stringContaining('"next_action":"manual_handoff"'),
       }),
     );
-    expect(commentPlaneIssue).toHaveBeenCalled();
+    expect(commentPlaneIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "3",
+        planeIssueId: "ISS-401",
+        content: expect.stringContaining("<h2>Bug Analysis Summary</h2>"),
+      }),
+    );
+    expect(commentPlaneIssue.mock.calls[0]?.[0].content).toContain(
+      "&lt;script&gt;alert(1)&lt;/script&gt;",
+    );
+    expect(commentPlaneIssue.mock.calls[0]?.[0].content).toContain("&amp;");
     expect(updateExecutionStatus).toHaveBeenCalledWith(41, "success");
   });
 
@@ -217,9 +365,11 @@ describe("workflow-callback dispatcher", () => {
         dispatch_id: "d-bug",
         skill: "arcflow-bug-analysis",
         status: "success",
-        result: { content: '{"summary":"missing fields"}' },
+        result: {
+          content: '{"summary":"missing fields"}',
+        },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("bug analysis result is incomplete");
 
     expect(markSubtaskProgress).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -313,12 +463,8 @@ describe("workflow-callback dispatcher", () => {
       skill: "arcflow-tech-to-openapi",
       status: "success",
       result: {
-        content: JSON.stringify({
-          execution_id: 7,
-          target: "backend",
-          branch_name: "feature/ISS-120-backend",
-          repo_name: "backend",
-        }),
+        openapi_path: "specs/api/openapi.yaml",
+        content: "openapi: 3.1.0",
       },
     });
 
@@ -470,7 +616,7 @@ describe("workflow-callback dispatcher", () => {
       dispatch_id: "d-openapi",
       skill: "arcflow-tech-to-openapi",
       status: "success",
-      result: { content: "openapi: 3.1.0" },
+      result: { openapi_path: "specs/api/openapi.yaml", content: "openapi: 3.1.0" },
     });
 
     expect(handled).toBe(true);
@@ -800,7 +946,7 @@ describe("workflow-callback dispatcher", () => {
         dispatch_id: "d-openapi",
         skill: "arcflow-tech-to-openapi",
         status: "success",
-        result: { content: "openapi: 3.1.0" },
+        result: { openapi_path: "specs/api/openapi.yaml", content: "openapi: 3.1.0" },
       }),
     ).rejects.toThrow("openapi write failed");
 

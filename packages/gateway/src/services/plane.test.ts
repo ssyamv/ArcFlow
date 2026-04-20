@@ -9,7 +9,24 @@ mock.module("../config", () => ({
     }),
 }));
 
-const { getIssue, updateIssueState, createBugIssue, listIssuesByAssignee } =
+const getWorkspace = mock(() => ({
+  id: 1,
+  name: "Test WS",
+  slug: "test-ws",
+  plane_project_id: "proj-1",
+  plane_workspace_slug: "plane-ws",
+  wiki_path_prefix: null,
+  git_repos: "{}",
+  feishu_chat_id: null,
+  created_at: "",
+  updated_at: "",
+}));
+
+mock.module("../db/queries", () => ({
+  getWorkspace,
+}));
+
+const { getIssue, updateIssueState, createBugIssue, listIssuesByAssignee, commentPlaneIssue } =
   await import("./plane");
 
 describe("plane service", () => {
@@ -184,6 +201,32 @@ describe("plane service", () => {
         "http://localhost:8082/api/v1/workspaces/test-workspace/projects/proj-1/issues/?assignee__email=me%40example.com",
       );
       expect(items).toEqual([{ id: "ISS-1", name: "Need review" }]);
+    });
+  });
+
+  describe("commentPlaneIssue", () => {
+    it("posts comment_html to the Plane work-item comment endpoint", async () => {
+      mockFetchFn = mock(async (url: string, init: RequestInit) => {
+        fetchCalls.push({ url, init });
+        return new Response(JSON.stringify({ id: "c-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      globalThis.fetch = mockFetchFn as unknown as typeof fetch;
+
+      await commentPlaneIssue(1, "ISS-22", "First line\nSecond line");
+
+      expect(fetchCalls.length).toBe(1);
+      expect(fetchCalls[0].url).toBe(
+        "http://localhost:8082/api/v1/workspaces/plane-ws/projects/proj-1/work-items/ISS-22/comments/",
+      );
+      expect(fetchCalls[0].init.method).toBe("POST");
+      const body = JSON.parse(fetchCalls[0].init.body as string);
+      expect(body).toEqual({ comment_html: "First line<br />Second line" });
+      const headers = fetchCalls[0].init.headers as Record<string, string>;
+      expect(headers["X-API-Key"]).toBe("test-token");
+      expect(getWorkspace).toHaveBeenCalledWith(1);
     });
   });
 });
