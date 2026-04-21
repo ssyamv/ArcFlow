@@ -164,6 +164,174 @@ describe("webhook routes", () => {
     expect(body.source).toBe("git");
   });
 
+  it("POST /webhook/git ignores non-docs pushes", async () => {
+    const gitSyncDocs = mock(async () => {});
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes({ git: { syncDocs: gitSyncDocs } }));
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gitea-Event": "push",
+      },
+      body: JSON.stringify({
+        ref: "refs/heads/main",
+        repository: { name: "backend" },
+        commits: [{ modified: ["src/index.ts"] }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "ignored",
+        reason: "not_docs_push",
+        repository: "backend",
+        ref: "refs/heads/main",
+        branch: "main",
+      }),
+    );
+    expect(gitSyncDocs).not.toHaveBeenCalled();
+  });
+
+  it("POST /webhook/git returns ignored for malformed JSON", async () => {
+    const gitSyncDocs = mock(async () => {});
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes({ git: { syncDocs: gitSyncDocs } }));
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gitea-Event": "push",
+      },
+      body: "{not-json",
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "ignored",
+      }),
+    );
+    expect(gitSyncDocs).not.toHaveBeenCalled();
+  });
+
+  it("POST /webhook/git fails rag sync when syncDocs is not configured", async () => {
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes());
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gitea-Event": "push",
+      },
+      body: JSON.stringify({
+        ref: "refs/heads/main",
+        repository: { name: "docs" },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "rag_sync",
+        status: "failed",
+        reason: "rag_sync_not_configured",
+        repository: "docs",
+        ref: "refs/heads/main",
+        branch: "main",
+      }),
+    );
+  });
+
+  it("POST /webhook/git triggers rag sync for docs pushes", async () => {
+    const gitSyncDocs = mock(async () => {});
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes({ git: { syncDocs: gitSyncDocs } }));
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gitea-Event": "push",
+      },
+      body: JSON.stringify({
+        ref: "refs/heads/main",
+        repository: { name: "docs" },
+        commits: [{ modified: ["tech-design/2026-04/login.md"] }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "rag_sync",
+        status: "triggered",
+        repository: "docs",
+        ref: "refs/heads/main",
+        branch: "main",
+      }),
+    );
+    expect(gitSyncDocs).toHaveBeenCalledTimes(1);
+    expect(gitSyncDocs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "push",
+        repository: "docs",
+        ref: "refs/heads/main",
+        branch: "main",
+        changedPaths: ["tech-design/2026-04/login.md"],
+      }),
+    );
+  });
+
+  it("POST /webhook/git reports rag sync failures", async () => {
+    const gitSyncDocs = mock(async () => {
+      throw new Error("sync failed");
+    });
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    app = new Hono();
+    app.route("/webhook", createWebhookRoutes({ git: { syncDocs: gitSyncDocs } }));
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gitea-Event": "push",
+      },
+      body: JSON.stringify({
+        ref: "refs/heads/main",
+        repository: { name: "docs" },
+        commits: [{ modified: ["api/openapi.yaml"] }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "rag_sync",
+        status: "failed",
+        reason: "sync failed",
+        repository: "docs",
+        ref: "refs/heads/main",
+        branch: "main",
+      }),
+    );
+    expect(errorSpy).toHaveBeenCalledWith("[webhook/git] rag sync failed", expect.any(Error));
+  });
+
   it("POST /webhook/cicd returns received", async () => {
     const res = await app.request("/webhook/cicd", {
       method: "POST",

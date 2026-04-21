@@ -22,6 +22,11 @@ import { extractIssueIdFromBranch } from "../services/ibuild";
 import { fetchBuildLogWithContext } from "../services/ibuild-log-fetcher";
 import { shouldTriggerWorkflow, extractPrdPath } from "../services/plane-webhook";
 import type { PlaneWebhookPayload } from "../services/plane-webhook";
+import {
+  classifyGitWebhook,
+  parseGitWebhookEvent,
+  type GitWebhookEvent,
+} from "../services/git-webhook";
 
 type UnifiedCiStatus = "pending" | "running" | "success" | "failed";
 
@@ -34,6 +39,12 @@ interface UnifiedCiEvent {
   status: UnifiedCiStatus;
   logUrl: string | null;
   rawPayload: Record<string, unknown>;
+}
+
+interface WebhookRouteDeps {
+  git?: {
+    syncDocs?: (event: GitWebhookEvent) => Promise<void>;
+  };
 }
 
 /** Insert a dispatch record and fire-and-forget to NanoClaw WebChannel. */
@@ -246,7 +257,7 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
   return true;
 }
 
-export function createWebhookRoutes(): Hono {
+export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
   const config = getConfig();
   const webhookRoutes = new Hono();
 
@@ -300,7 +311,86 @@ export function createWebhookRoutes(): Hono {
     createWebhookVerifier("X-Gitea-Secret", config.gitWebhookSecret),
     createDedup("X-Gitea-Delivery", "git"),
     async (c) => {
-      return c.json({ received: true, source: "git" });
+      let body: Record<string, unknown> = {};
+      try {
+        const parsed = await c.req.json();
+        body = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+      } catch {
+        body = {};
+      }
+
+      recordWebhookLog("git", body);
+
+      const event = parseGitWebhookEvent(body, c.req.raw.headers);
+      const classification = classifyGitWebhook(event);
+
+      if (classification.action === "ignored") {
+        return c.json(
+          {
+            received: true,
+            source: "git",
+            action: "ignored",
+            reason: classification.reason,
+            repository: event.repository,
+            ref: event.ref,
+            branch: event.branch,
+          },
+          200,
+        );
+      }
+
+      const syncDocs = deps.git?.syncDocs;
+      if (!syncDocs) {
+        return c.json(
+          {
+            received: true,
+            source: "git",
+            action: "rag_sync",
+            status: "failed",
+            reason: "rag_sync_not_configured",
+            repository: event.repository,
+            ref: event.ref,
+            branch: event.branch,
+          },
+          200,
+        );
+      }
+
+      try {
+        await syncDocs(event);
+        return c.json(
+          {
+            received: true,
+            source: "git",
+            action: "rag_sync",
+            status: "triggered",
+            repository: event.repository,
+            ref: event.ref,
+            branch: event.branch,
+          },
+          200,
+        );
+      } catch (error) {
+        console.error("[webhook/git] rag sync failed", error);
+        return c.json(
+          {
+            received: true,
+            source: "git",
+            action: "rag_sync",
+            status: "failed",
+            reason:
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                  ? error
+                  : "rag_sync_failed",
+            repository: event.repository,
+            ref: event.ref,
+            branch: event.branch,
+          },
+          200,
+        );
+      }
     },
   );
 
