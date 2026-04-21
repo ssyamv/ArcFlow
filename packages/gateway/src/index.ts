@@ -25,6 +25,7 @@ import { createWorkflowWritebackService } from "./services/workflow-writeback";
 import { commentPlaneIssue as postPlaneIssueComment } from "./services/plane";
 import { createScheduler } from "./services/scheduler";
 import { triggerWorkflow } from "./services/workflow";
+import type { GitWebhookEvent } from "./services/git-webhook";
 import type { WorkflowDispatchStatus } from "./types";
 
 // ── sqlite-vec: must call setCustomSQLite before any Database() on macOS ──────
@@ -46,6 +47,7 @@ getDb();
 // ── RAG DB (separate file, loaded with sqlite-vec) ────────────────────────────
 let ragDb: Database | null = null;
 let ragScheduler: ReturnType<typeof createScheduler> | null = null;
+let gitWebhookSyncDocs: ((event: GitWebhookEvent) => Promise<void>) | undefined;
 
 if (process.env.NODE_ENV !== "test") {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -89,7 +91,6 @@ app.use("/api/*", cors());
 app.route("/", healthRoutes);
 app.route("/auth", authRoutes);
 app.route("/", authRoutes); // for /api/auth/me
-app.route("/webhook", createWebhookRoutes());
 app.route("/api", apiRoutes);
 app.route("/api/conversations", conversationRoutes);
 app.route("/api/workspaces", workspaceRoutes);
@@ -113,23 +114,51 @@ if (ragDb) {
   app.route("/api/rag", ragRoutes({ search: ragSearch, systemSecret }));
   console.log("[rag] /api/rag/search mounted");
 
-  // Incremental RAG sync scheduler
-  if (config.ragSyncIntervalMs > 0 && process.env.RAG_GIT_ROOT) {
+  const ragGitRoot = process.env.RAG_GIT_ROOT;
+  if (ragGitRoot) {
+    const workspaceId = process.env.RAG_WORKSPACE_ID ?? "default";
     const ragIndex = createRagIndex({ db: ragDb, embedder, dim: config.ragEmbeddingDim });
     const gitAdapter = createGitAdapter({
-      rootDir: process.env.RAG_GIT_ROOT,
+      rootDir: ragGitRoot,
       // Index the full docs repo so project overviews and general knowledge
       // pages are available to workspace Q&A, not only PRD/tech/API artifacts.
       globs: ["**/*.md", "**/*.yaml", "**/*.yml"],
     });
-    const workspaceId = process.env.RAG_WORKSPACE_ID ?? "default";
-    ragScheduler = createScheduler();
-    ragScheduler.every(config.ragSyncIntervalMs, () =>
-      ragIndex.syncAll({ workspaceId, git: gitAdapter }),
-    );
-    console.log(`[rag] scheduler started every ${config.ragSyncIntervalMs}ms`);
+    let ragSyncInFlight: Promise<void> | null = null;
+
+    gitWebhookSyncDocs = async () => {
+      if (ragSyncInFlight) {
+        return ragSyncInFlight;
+      }
+
+      ragSyncInFlight = ragIndex.syncAll({ workspaceId, git: gitAdapter }).finally(() => {
+        ragSyncInFlight = null;
+      });
+
+      return ragSyncInFlight;
+    };
+
+    // Incremental RAG sync scheduler
+    if (config.ragSyncIntervalMs > 0) {
+      ragScheduler = createScheduler();
+      ragScheduler.every(config.ragSyncIntervalMs, () => gitWebhookSyncDocs?.());
+      console.log(`[rag] scheduler started every ${config.ragSyncIntervalMs}ms`);
+    }
   }
 }
+
+app.route(
+  "/webhook",
+  createWebhookRoutes(
+    gitWebhookSyncDocs
+      ? {
+          git: {
+            syncDocs: gitWebhookSyncDocs,
+          },
+        }
+      : {},
+  ),
+);
 
 // Callback route (always mounted; handler stubs out deps when ragDb absent)
 const callbackHandler = createCallbackHandler({
