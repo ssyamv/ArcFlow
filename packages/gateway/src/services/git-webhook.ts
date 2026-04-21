@@ -99,6 +99,7 @@ export function parseGitWebhookEvent(
   const repository = asRecord(body.repository);
   const project = asRecord(body.project);
   const ref = asString(body.ref);
+  const hasCommitsArray = Array.isArray(body.commits);
 
   const eventType =
     getHeader(headers, "X-Gitea-Event") ??
@@ -106,6 +107,7 @@ export function parseGitWebhookEvent(
     getHeader(headers, "X-Gitlab-Event") ??
     asString(body.event) ??
     asString(body.object_kind) ??
+    (ref && hasCommitsArray ? "push" : null) ??
     "";
 
   return {

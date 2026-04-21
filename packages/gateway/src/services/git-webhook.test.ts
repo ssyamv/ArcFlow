@@ -43,6 +43,19 @@ describe("parseGitWebhookEvent", () => {
     expect(event.branch).toBe("release");
     expect(event.changedPaths).toEqual(["tech-design/login.md"]);
   });
+
+  it("infers a push event from ref and commits when headers are missing", () => {
+    const event = parseGitWebhookEvent(
+      {
+        ref: "refs/heads/main",
+        repository: { name: "docs" },
+        commits: [{ modified: ["prd/a.md"] }],
+      },
+      {},
+    );
+
+    expect(classifyGitWebhook(event)).toEqual({ action: "rag_sync" });
+  });
 });
 
 describe("classifyGitWebhook", () => {
