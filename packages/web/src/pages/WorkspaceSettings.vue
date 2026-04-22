@@ -98,35 +98,6 @@
         </div>
       </section>
 
-      <!-- Knowledge Base Config -->
-      <section class="rounded-xl p-5" style="background-color: var(--color-surface-02)">
-        <h3
-          class="text-xs uppercase tracking-wider m-0 mb-4"
-          style="color: var(--color-text-quaternary); font-weight: 600"
-        >
-          知识库配置
-        </h3>
-        <div class="space-y-4">
-          <div>
-            <label class="block text-xs mb-1.5" style="color: var(--color-text-tertiary)"
-              >Wiki 路径前缀</label
-            >
-            <input
-              v-model="form.wiki_path_prefix"
-              type="text"
-              class="w-full px-3 py-2 rounded-lg text-sm"
-              style="
-                background-color: var(--color-bg-primary);
-                border: 1px solid var(--color-border-default);
-                color: var(--color-text-primary);
-                outline: none;
-              "
-              placeholder="例如: /projects/my-project"
-            />
-          </div>
-        </div>
-      </section>
-
       <!-- Git Repos -->
       <section class="rounded-xl p-5" style="background-color: var(--color-surface-02)">
         <h3
@@ -330,7 +301,6 @@ async function loadPlaneProjects() {
 }
 
 const form = reactive({
-  wiki_path_prefix: "",
   plane_project_id: "",
   plane_workspace_slug: "",
   feishu_chat_id: "",
@@ -346,7 +316,6 @@ const gitRepos = reactive({
 
 function loadForm() {
   if (!detail.value) return;
-  form.wiki_path_prefix = detail.value.wiki_path_prefix ?? "";
   form.plane_project_id = detail.value.plane_project_id ?? "";
   form.plane_workspace_slug = detail.value.plane_workspace_slug ?? "";
   form.feishu_chat_id = detail.value.feishu_chat_id ?? "";
@@ -379,7 +348,6 @@ async function handleSave() {
   statusMessage.value = "";
   try {
     await updateWorkspaceSettings(detail.value.id, {
-      wiki_path_prefix: form.wiki_path_prefix || null,
       plane_project_id: form.plane_project_id || null,
       plane_workspace_slug: form.plane_workspace_slug || null,
       feishu_chat_id: form.feishu_chat_id || null,

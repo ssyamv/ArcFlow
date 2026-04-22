@@ -48,13 +48,13 @@
 - `docs/superpowers/specs/` 中早期涉及 `Wiki.js / Dify / Weaviate` 的设计文档
 - `docs/superpowers/plans/` 中的实施计划
 - `docs/superpowers/reports/` 中基于当时环境写成的联调报告
-- `docs/claude-code-github-workflow-guide.md` 中与早期部署流程绑定的内容
 
 阅读这些文档时：
 
 - 若文中提到 `Wiki.js / Dify / Weaviate`，应视为历史架构
 - 若文中描述的部署方式与当前运行不一致，以当前 README 和主架构文档为准
 - 若历史文档与代码冲突，以当前代码与当前有效文档为准
+- 早期根级操作指南和阶段性测试清单已清理；如需追溯，请查看 `docs/superpowers/specs/` 与 `docs/superpowers/reports/`
 
 ## 阅读建议
 

@@ -13,7 +13,6 @@ export interface Workspace {
   slug: string;
   plane_project_id: string | null;
   plane_workspace_slug: string | null;
-  wiki_path_prefix: string | null;
   git_repos: string;
   feishu_chat_id: string | null;
   created_at: string;

@@ -105,7 +105,6 @@ docs 仓库（规划中）的目录规范：
 | `2026-04-08-web-nanoclaw-integration-design.md` | Web 前端接入 NanoClaw WebChannel 设计 |
 | `2026-04-10-arcflow-plane-integration-design.md` | ArcFlow + Plane 无缝集成（双向导航 + 统一 OAuth + 页面精简） |
 | `2026-04-02-ci-quality-gate-design.md` | CI 质量门设计（lint + 测试 + 覆盖率阈值） |
-| `2026-04-03-claude-code-github-workflow-guide-design.md` | Claude Code GitHub 工作流指南 |
 | `2026-04-06-ibuild-cicd-bug-backflow-design.md` | iBuild CI/CD Bug 回流端点 |
 | `2026-04-08-prd-generation-design.md` | PRD 生成多轮对话流设计 |
 | `2026-04-09-web-docs-manager-design.md` | Web 文档管理（Tiptap + Markdown + 文件树） |
