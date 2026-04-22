@@ -27,6 +27,12 @@ import {
   claimDispatchForCallback,
   releaseDispatchClaim,
   updateDispatchStatus,
+  createWebhookJob,
+  claimWebhookJob,
+  finishWebhookJob,
+  getWebhookJob,
+  listDueWebhookJobs,
+  listWebhookJobs,
 } from "./queries";
 
 describe("workflow_execution", () => {
@@ -1093,5 +1099,164 @@ describe("dispatch", () => {
     expect(row.timeout_at).toBe(7_222);
     expect(row.callback_replay_count).toBe(0);
     expect(row.error_message).toBeNull();
+  });
+});
+
+describe("webhook_job", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "test";
+    getDb();
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it("creates, claims, and completes a webhook job", () => {
+    const jobId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { branch: "feature/ISS-120-backend" },
+      max_attempts: 3,
+    });
+
+    const created = getWebhookJob(jobId);
+    expect(created).toEqual(
+      expect.objectContaining({
+        id: jobId,
+        source: "git",
+        event_type: "pull_request",
+        action: "code_merge",
+        status: "pending",
+        attempt_count: 0,
+        max_attempts: 3,
+        payload_json: JSON.stringify({ branch: "feature/ISS-120-backend" }),
+      }),
+    );
+
+    expect(claimWebhookJob(jobId)).toBe(true);
+    const running = getWebhookJob(jobId);
+    expect(running).toEqual(
+      expect.objectContaining({
+        status: "running",
+        attempt_count: 1,
+      }),
+    );
+
+    finishWebhookJob(jobId, {
+      status: "success",
+      result: { execution_id: 1 },
+    });
+
+    const done = getWebhookJob(jobId);
+    expect(done).toEqual(
+      expect.objectContaining({
+        status: "success",
+        last_error: null,
+        result_json: JSON.stringify({ execution_id: 1 }),
+        next_run_at: null,
+      }),
+    );
+  });
+
+  it("reschedules failed webhook jobs until max attempts, then marks dead", () => {
+    const jobId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: {},
+      max_attempts: 2,
+    });
+
+    expect(claimWebhookJob(jobId)).toBe(true);
+    finishWebhookJob(jobId, {
+      status: "failed",
+      error: "code_gen_execution_not_found",
+      retryDelayMs: 0,
+    });
+
+    const retryable = getWebhookJob(jobId);
+    expect(retryable).toEqual(
+      expect.objectContaining({
+        status: "pending",
+        attempt_count: 1,
+        last_error: "code_gen_execution_not_found",
+      }),
+    );
+    expect(retryable!.next_run_at).not.toBeNull();
+
+    expect(claimWebhookJob(jobId)).toBe(true);
+    finishWebhookJob(jobId, {
+      status: "failed",
+      error: "still_missing",
+      retryDelayMs: 1000,
+    });
+
+    expect(getWebhookJob(jobId)).toEqual(
+      expect.objectContaining({
+        status: "dead",
+        attempt_count: 2,
+        last_error: "still_missing",
+        next_run_at: null,
+      }),
+    );
+  });
+
+  it("lists due pending webhook jobs", () => {
+    const dueId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { due: true },
+    });
+    const laterId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { due: false },
+    });
+    finishWebhookJob(laterId, {
+      status: "failed",
+      error: "later",
+      retryDelayMs: 60_000,
+    });
+
+    const due = listDueWebhookJobs({ source: "git", limit: 10 });
+    expect(due.map((job) => job.id)).toContain(dueId);
+    expect(due.map((job) => job.id)).not.toContain(laterId);
+  });
+
+  it("lists webhook jobs with filters", () => {
+    const mergeId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { merge: true },
+    });
+    const docsId = createWebhookJob({
+      source: "git",
+      event_type: "push",
+      action: "rag_sync",
+      payload: { docs: true },
+    });
+    expect(claimWebhookJob(mergeId)).toBe(true);
+    finishWebhookJob(mergeId, { status: "success", result: { ok: true } });
+
+    const all = listWebhookJobs({ source: "git", limit: 10 });
+    expect(all.data.map((job) => job.id)).toEqual([docsId, mergeId]);
+    expect(all.total).toBe(2);
+
+    const filtered = listWebhookJobs({ status: "success", action: "code_merge", limit: 10 });
+    expect(filtered).toEqual({
+      data: [
+        expect.objectContaining({
+          id: mergeId,
+          status: "success",
+          action: "code_merge",
+        }),
+      ],
+      total: 1,
+    });
   });
 });

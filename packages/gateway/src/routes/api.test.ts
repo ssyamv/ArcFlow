@@ -178,6 +178,42 @@ describe("api routes", () => {
     expect(body.data.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("GET /api/webhook/jobs returns filtered job diagnostics", async () => {
+    const { claimWebhookJob, createWebhookJob, finishWebhookJob } = await import("../db/queries");
+    const jobId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { branch: "feature/ISS-120-backend" },
+    });
+    claimWebhookJob(jobId);
+    finishWebhookJob(jobId, {
+      status: "failed",
+      error: "code_gen_execution_not_found",
+      retryDelayMs: 60_000,
+    });
+
+    const res = await app.request("/api/webhook/jobs?source=git&action=code_merge&status=pending");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      data: [
+        expect.objectContaining({
+          id: jobId,
+          source: "git",
+          event_type: "pull_request",
+          action: "code_merge",
+          status: "pending",
+          attempt_count: 1,
+          last_error: "code_gen_execution_not_found",
+          payload: { branch: "feature/ISS-120-backend" },
+          result: null,
+        }),
+      ],
+      total: 1,
+    });
+  });
+
   it("GET /api/workflow/executions returns code_gen summary", async () => {
     const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
     const id = createWorkflowExecution({

@@ -1,5 +1,6 @@
 // Webhook 来源
 export type WebhookSource = "plane" | "git" | "cicd" | "feishu" | "ibuild";
+export type WebhookJobStatus = "pending" | "running" | "success" | "failed" | "dead";
 
 // 工作流类型
 export type WorkflowType = "prd_to_tech" | "tech_to_openapi" | "bug_analysis" | "code_gen";
@@ -115,6 +116,22 @@ export interface WorkflowExecutionDetail extends WorkflowExecution {
   dispatches: WorkflowDispatch[];
   subtasks: WorkflowSubtask[];
   links: WorkflowLink[];
+}
+
+export interface WebhookJob {
+  id: number;
+  source: WebhookSource;
+  event_type: string;
+  action: string;
+  status: WebhookJobStatus;
+  attempt_count: number;
+  max_attempts: number;
+  next_run_at: number | null;
+  last_error: string | null;
+  payload_json: string;
+  result_json: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 // Bug 修复重试记录

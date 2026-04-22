@@ -6,6 +6,8 @@ describe("config", () => {
     const config = getConfig();
     expect(config.port).toBe(3100);
     expect(config.claudeCodeTimeout).toBe(600000);
+    expect(config.webhookJobIntervalMs).toBe(60000);
+    expect(config.webhookJobRetryDelayMs).toBe(60000);
   });
 
   it("reads PORT from env", () => {

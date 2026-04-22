@@ -3,6 +3,7 @@ import {
   getWorkflowExecutionDetail,
   listWorkflowExecutionsWithSummary,
   listWebhookLogs,
+  listWebhookJobs,
   getWorkspace,
   getWorkspaceMemberRole,
   buildMemorySnapshot,
@@ -19,7 +20,13 @@ const ALLOWED_SKILLS = [
 ] as const;
 import { triggerWorkflow } from "../services/workflow";
 import { authMiddleware } from "../middleware/auth";
-import type { TriggerWorkflowRequest, WorkflowType, WorkflowStatus, WebhookSource } from "../types";
+import type {
+  TriggerWorkflowRequest,
+  WorkflowType,
+  WorkflowStatus,
+  WebhookSource,
+  WebhookJobStatus,
+} from "../types";
 
 export const apiRoutes = new Hono();
 
@@ -85,6 +92,22 @@ apiRoutes.get("/webhook/logs", (c) => {
       payload: JSON.parse(log.payload),
     })),
     total: logs.length,
+  });
+});
+
+apiRoutes.get("/webhook/jobs", (c) => {
+  const source = c.req.query("source") as WebhookSource | undefined;
+  const status = c.req.query("status") as WebhookJobStatus | undefined;
+  const action = c.req.query("action") || undefined;
+  const limit = Number(c.req.query("limit")) || 20;
+  const result = listWebhookJobs({ source, status, action, limit });
+  return c.json({
+    data: result.data.map((job) => ({
+      ...job,
+      payload: JSON.parse(job.payload_json),
+      result: job.result_json ? JSON.parse(job.result_json) : null,
+    })),
+    total: result.total,
   });
 });
 

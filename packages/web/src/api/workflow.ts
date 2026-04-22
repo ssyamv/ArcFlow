@@ -134,6 +134,27 @@ export interface VersionResponse {
   version: string;
 }
 
+export interface WebhookJob {
+  id: number;
+  source: string;
+  event_type: string;
+  action: string;
+  status: string;
+  attempt_count: number;
+  max_attempts: number;
+  next_run_at: number | null;
+  last_error: string | null;
+  payload: unknown;
+  result: unknown;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface WebhookJobListResponse {
+  data: WebhookJob[];
+  total: number;
+}
+
 export interface ExecutionDetail {
   id: number;
   workflow_type: string;
@@ -167,6 +188,20 @@ export function fetchExecutions(filters?: {
   if (filters?.status) params.set("status", filters.status);
   if (filters?.limit) params.set("limit", String(filters.limit));
   return request<ExecutionListResponse>(`/api/workflow/executions?${params}`);
+}
+
+export function fetchWebhookJobs(filters?: {
+  source?: string;
+  action?: string;
+  status?: string;
+  limit?: number;
+}): Promise<WebhookJobListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.source) params.set("source", filters.source);
+  if (filters?.action) params.set("action", filters.action);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.limit) params.set("limit", String(filters.limit));
+  return request<WebhookJobListResponse>(`/api/webhook/jobs?${params}`);
 }
 
 export function triggerWorkflow(params: {

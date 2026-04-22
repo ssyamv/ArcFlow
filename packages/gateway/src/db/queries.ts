@@ -17,6 +17,8 @@ import type {
   BugFixRetry,
   BugFixStatus,
   WebhookSource,
+  WebhookJob,
+  WebhookJobStatus,
   User,
   Conversation,
   Message,
@@ -595,7 +597,9 @@ export function syncCodegenExecutionStatus(executionId: number): WorkflowStatus 
   } else if (
     latestSubtasks.length > 0 &&
     latestSubtasks.every(
-      (subtask) => subtask.status === "success" && subtask.stage === "ci_success",
+      (subtask) =>
+        subtask.status === "success" &&
+        (subtask.stage === "ci_success" || subtask.stage === "mr_merged"),
     )
   ) {
     nextStatus = "success";
@@ -729,6 +733,181 @@ export function listWebhookLogs(source?: WebhookSource, limit = 50): WebhookLogE
   return db
     .query("SELECT * FROM webhook_log ORDER BY id DESC LIMIT ?")
     .all(limit) as WebhookLogEntry[];
+}
+
+// ─── webhook_job ──────────────────────────────────────────────────────────────
+
+export function createWebhookJob(params: {
+  source: WebhookSource;
+  event_type: string;
+  action: string;
+  payload: unknown;
+  max_attempts?: number;
+  next_run_at?: number;
+}): number {
+  const db = getDb();
+  const now = Date.now();
+  db.query(
+    `INSERT INTO webhook_job (
+       source,
+       event_type,
+       action,
+       status,
+       attempt_count,
+       max_attempts,
+       next_run_at,
+       payload_json,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+  ).run(
+    params.source,
+    params.event_type,
+    params.action,
+    params.max_attempts ?? 3,
+    params.next_run_at ?? now,
+    JSON.stringify(params.payload ?? {}),
+    now,
+    now,
+  );
+  const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
+  return row.id;
+}
+
+export function getWebhookJob(id: number): WebhookJob | null {
+  const db = getDb();
+  return db.query("SELECT * FROM webhook_job WHERE id = ?").get(id) as WebhookJob | null;
+}
+
+export function claimWebhookJob(id: number): boolean {
+  const db = getDb();
+  const now = Date.now();
+  const result = db
+    .query(
+      `UPDATE webhook_job
+          SET status = 'running',
+              attempt_count = attempt_count + 1,
+              next_run_at = NULL,
+              updated_at = ?
+        WHERE id = ?
+          AND status = 'pending'
+          AND (next_run_at IS NULL OR next_run_at <= ?)`,
+    )
+    .run(now, id, now);
+  return result.changes > 0;
+}
+
+export function finishWebhookJob(
+  id: number,
+  params:
+    | { status: "success"; result?: unknown }
+    | { status: "failed"; error: string; result?: unknown; retryDelayMs?: number },
+): boolean {
+  const db = getDb();
+  const job = getWebhookJob(id);
+  if (!job) return false;
+
+  const now = Date.now();
+  if (params.status === "success") {
+    const result = db
+      .query(
+        `UPDATE webhook_job
+            SET status = 'success',
+                next_run_at = NULL,
+                last_error = NULL,
+                result_json = ?,
+                updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(params.result === undefined ? null : JSON.stringify(params.result), now, id);
+    return result.changes > 0;
+  }
+
+  const exhausted = job.attempt_count >= job.max_attempts;
+  const nextStatus: WebhookJobStatus = exhausted ? "dead" : "pending";
+  const nextRunAt = exhausted ? null : now + (params.retryDelayMs ?? 60_000);
+  const result = db
+    .query(
+      `UPDATE webhook_job
+          SET status = ?,
+              next_run_at = ?,
+              last_error = ?,
+              result_json = ?,
+              updated_at = ?
+        WHERE id = ?`,
+    )
+    .run(
+      nextStatus,
+      nextRunAt,
+      params.error,
+      params.result === undefined ? null : JSON.stringify(params.result),
+      now,
+      id,
+    );
+  return result.changes > 0;
+}
+
+export function listDueWebhookJobs(params: {
+  source?: WebhookSource;
+  action?: string;
+  limit?: number;
+}): WebhookJob[] {
+  const db = getDb();
+  const now = Date.now();
+  const conditions = ["status = 'pending'", "(next_run_at IS NULL OR next_run_at <= ?)"];
+  const values: Array<string | number> = [now];
+
+  if (params.source) {
+    conditions.push("source = ?");
+    values.push(params.source);
+  }
+  if (params.action) {
+    conditions.push("action = ?");
+    values.push(params.action);
+  }
+
+  return db
+    .query(
+      `SELECT * FROM webhook_job
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY created_at ASC, id ASC
+       LIMIT ?`,
+    )
+    .all(...values, params.limit ?? 20) as WebhookJob[];
+}
+
+export function listWebhookJobs(params: {
+  source?: WebhookSource;
+  action?: string;
+  status?: WebhookJobStatus;
+  limit?: number;
+}): { data: WebhookJob[]; total: number } {
+  const db = getDb();
+  const conditions: string[] = [];
+  const values: string[] = [];
+
+  if (params.source) {
+    conditions.push("source = ?");
+    values.push(params.source);
+  }
+  if (params.action) {
+    conditions.push("action = ?");
+    values.push(params.action);
+  }
+  if (params.status) {
+    conditions.push("status = ?");
+    values.push(params.status);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const countRow = db
+    .query(`SELECT COUNT(*) AS count FROM webhook_job ${where}`)
+    .get(...values) as { count: number };
+  const data = db
+    .query(`SELECT * FROM webhook_job ${where} ORDER BY id DESC LIMIT ?`)
+    .all(...values, params.limit ?? 20) as WebhookJob[];
+
+  return { data, total: countRow.count };
 }
 
 // ─── bug_fix_retry ─────────────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ describe("WorkflowList", () => {
         },
       ],
     });
+    vi.spyOn(api, "fetchWebhookJobs").mockResolvedValue({ data: [], total: 0 });
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -43,5 +44,46 @@ describe("WorkflowList", () => {
 
     expect(wrapper.text()).toContain("1/2");
     expect(wrapper.text()).toContain("ci_running");
+  });
+
+  it("renders webhook job diagnostics", async () => {
+    vi.spyOn(api, "fetchExecutions").mockResolvedValue({ total: 0, data: [] });
+    vi.spyOn(api, "fetchWebhookJobs")
+      .mockResolvedValueOnce({
+        total: 1,
+        data: [
+          {
+            id: 11,
+            source: "git",
+            event_type: "pull_request",
+            action: "code_merge",
+            status: "pending",
+            attempt_count: 1,
+            max_attempts: 3,
+            next_run_at: Date.now(),
+            last_error: "code_gen_execution_not_found",
+            payload: {},
+            result: null,
+            created_at: Date.now(),
+            updated_at: Date.now(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ total: 0, data: [] });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/workflows", component: WorkflowList }],
+    });
+    const pinia = createPinia();
+
+    await router.push("/workflows");
+    await router.isReady();
+
+    const wrapper = mount(WorkflowList, { global: { plugins: [router, pinia] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Webhook job 排障");
+    expect(wrapper.text()).toContain("code_gen_execution_not_found");
   });
 });

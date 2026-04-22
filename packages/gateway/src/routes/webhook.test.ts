@@ -10,6 +10,7 @@ import {
   listWorkflowExecutions,
   listWorkflowLinks,
   listWorkflowSubtasks,
+  listDueWebhookJobs,
 } from "../db/queries";
 import { createTestConfig } from "../test-config";
 
@@ -330,6 +331,118 @@ describe("webhook routes", () => {
       }),
     );
     expect(errorSpy).toHaveBeenCalledWith("[webhook/git] rag sync failed", expect.any(Error));
+  });
+
+  it("POST /webhook/git records merged pull requests on the matching code_gen execution", async () => {
+    const executionId = seedCodegenExecution({
+      planeIssueId: "ISS-120",
+      target: "backend",
+      branchName: "feature/ISS-120-backend",
+      repoName: "backend",
+    });
+
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "pull_request",
+      },
+      body: JSON.stringify({
+        action: "closed",
+        repository: { full_name: "acme/backend" },
+        number: 42,
+        pull_request: {
+          merged: true,
+          title: "Implement issue 120",
+          html_url: "https://github.example/acme/backend/pull/42",
+          merge_commit_sha: "mergeabc",
+          head: { ref: "feature/ISS-120-backend" },
+          base: { ref: "main" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "code_merge",
+        status: "recorded",
+        repository: "acme/backend",
+        branch: "feature/ISS-120-backend",
+        target: "backend",
+        execution_id: executionId,
+      }),
+    );
+
+    expect(listWorkflowSubtasks(executionId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          execution_id: executionId,
+          target: "backend",
+          stage: "mr_merged",
+          provider: "git",
+          status: "success",
+          external_run_id: "42",
+          branch_name: "feature/ISS-120-backend",
+          repo_name: "backend",
+          log_url: "https://github.example/acme/backend/pull/42",
+          output_ref: expect.stringContaining("mergeabc"),
+        }),
+      ]),
+    );
+    expect(getWorkflowExecution(executionId)?.status).toBe("success");
+
+    const jobs = listDueWebhookJobs({ source: "git", limit: 10 });
+    expect(jobs.some((job) => job.action === "code_merge")).toBe(false);
+  });
+
+  it("POST /webhook/git returns unmatched for merged pull requests without code_gen state", async () => {
+    const res = await app.request("/webhook/git", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "pull_request",
+      },
+      body: JSON.stringify({
+        action: "closed",
+        repository: { full_name: "acme/backend" },
+        number: 43,
+        pull_request: {
+          merged: true,
+          title: "Unmatched",
+          head: { ref: "feature/ISS-404-backend" },
+          base: { ref: "main" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        received: true,
+        source: "git",
+        action: "code_merge",
+        status: "unmatched",
+        reason: "code_gen_execution_not_found",
+        repository: "acme/backend",
+        branch: "feature/ISS-404-backend",
+        target: "backend",
+      }),
+    );
+
+    const jobs = listDueWebhookJobs({ source: "git", limit: 10 });
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        source: "git",
+        event_type: "pull_request",
+        action: "code_merge",
+        status: "pending",
+        attempt_count: 1,
+        last_error: "code_gen_execution_not_found",
+      }),
+    ]);
   });
 
   it("POST /webhook/cicd returns received", async () => {

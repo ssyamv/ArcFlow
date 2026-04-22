@@ -55,6 +55,10 @@ export interface Config {
   ragEmbeddingModel: string;
   ragEmbeddingDim: number;
   ragSyncIntervalMs: number;
+
+  // Webhook jobs
+  webhookJobIntervalMs: number;
+  webhookJobRetryDelayMs: number;
 }
 
 export function getConfig(): Config {
@@ -104,5 +108,8 @@ export function getConfig(): Config {
     ragEmbeddingModel: process.env.RAG_EMBEDDING_MODEL ?? "BAAI/bge-m3",
     ragEmbeddingDim: Number(process.env.RAG_EMBEDDING_DIM) || 1024,
     ragSyncIntervalMs: Number(process.env.RAG_SYNC_INTERVAL_MS) || 300000,
+
+    webhookJobIntervalMs: Number(process.env.WEBHOOK_JOB_INTERVAL_MS) || 60000,
+    webhookJobRetryDelayMs: Number(process.env.WEBHOOK_JOB_RETRY_DELAY_MS) || 60000,
   };
 }

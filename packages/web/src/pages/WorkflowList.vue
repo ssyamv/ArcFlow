@@ -77,6 +77,66 @@
 
     <!-- Table -->
     <div v-else>
+      <section
+        v-if="webhookJobs.length"
+        class="mb-5 rounded-lg overflow-hidden"
+        style="border: 1px solid var(--color-border-default)"
+      >
+        <div
+          class="px-4 py-3 flex items-center justify-between"
+          style="
+            background-color: var(--color-surface-02);
+            border-bottom: 1px solid var(--color-border-subtle);
+          "
+        >
+          <div>
+            <div class="text-sm" style="font-weight: 510; color: var(--color-text-primary)">
+              Webhook job 排障
+            </div>
+            <div class="text-xs mt-1" style="color: var(--color-text-quaternary)">
+              code_merge pending / dead
+            </div>
+          </div>
+          <button class="filter-pill" @click.stop="loadWebhookJobs">刷新</button>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border-subtle)">
+              <th class="table-header">Job</th>
+              <th class="table-header">状态</th>
+              <th class="table-header">尝试</th>
+              <th class="table-header">错误</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="job in webhookJobs" :key="job.id" class="table-row">
+              <td class="table-cell" style="color: var(--color-text-tertiary)">
+                #{{ job.id }} · {{ job.action }}
+              </td>
+              <td class="table-cell">
+                <span
+                  class="inline-flex items-center gap-1 text-xs"
+                  style="font-weight: 510"
+                  :style="{ color: jobStatusColor(job.status) }"
+                >
+                  <span
+                    class="w-1.5 h-1.5 rounded-full"
+                    :style="{ backgroundColor: jobStatusColor(job.status) }"
+                  />
+                  {{ job.status }}
+                </span>
+              </td>
+              <td class="table-cell" style="color: var(--color-text-quaternary)">
+                {{ job.attempt_count }}/{{ job.max_attempts }}
+              </td>
+              <td class="table-cell" style="color: var(--color-error-light)">
+                {{ job.last_error ?? "-" }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
       <div class="rounded-lg overflow-hidden" style="border: 1px solid var(--color-border-default)">
         <table class="w-full">
           <thead>
@@ -169,6 +229,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { fetchWebhookJobs, type WebhookJob } from "../api/workflow";
 import { usePlaneUrl } from "../composables/usePlaneUrl";
 import { useWorkflowStore } from "../stores/workflow";
 import { typeLabel } from "../utils/workflow";
@@ -179,6 +240,7 @@ const store = useWorkflowStore();
 const { issueUrl: planeIssueUrl } = usePlaneUrl();
 const filterType = ref("");
 const filterStatus = ref("");
+const webhookJobs = ref<WebhookJob[]>([]);
 
 const typeOptions = [
   { value: "", label: "全部" },
@@ -216,11 +278,35 @@ function statusLabelMap(status: string) {
   return map[status] ?? status;
 }
 
+function jobStatusColor(status: string) {
+  const map: Record<string, string> = {
+    pending: "var(--color-accent-violet)",
+    running: "var(--color-accent-violet)",
+    success: "var(--color-success)",
+    failed: "var(--color-error)",
+    dead: "var(--color-error)",
+  };
+  return map[status] ?? "var(--color-text-quaternary)";
+}
+
+async function loadWebhookJobs() {
+  try {
+    const [pending, dead] = await Promise.all([
+      fetchWebhookJobs({ source: "git", action: "code_merge", status: "pending", limit: 5 }),
+      fetchWebhookJobs({ source: "git", action: "code_merge", status: "dead", limit: 5 }),
+    ]);
+    webhookJobs.value = [...dead.data, ...pending.data];
+  } catch {
+    webhookJobs.value = [];
+  }
+}
+
 function loadData() {
   store.loadExecutions({
     workflow_type: filterType.value || undefined,
     status: filterStatus.value || undefined,
   });
+  void loadWebhookJobs();
 }
 
 onMounted(() => loadData());

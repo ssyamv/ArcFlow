@@ -16,6 +16,9 @@ import {
   syncCodegenExecutionStatus,
   updateWorkflowSubtaskStatusByStage,
   findLatestDispatchWorkspaceIdByExecution,
+  createWebhookJob,
+  claimWebhookJob,
+  finishWebhookJob,
 } from "../db/queries";
 import { getDb } from "../db";
 import { extractIssueIdFromBranch } from "../services/ibuild";
@@ -27,6 +30,7 @@ import {
   parseGitWebhookEvent,
   type GitWebhookEvent,
 } from "../services/git-webhook";
+import { processGitMergeEvent } from "../services/git-merge";
 
 type UnifiedCiStatus = "pending" | "running" | "success" | "failed";
 
@@ -323,6 +327,54 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
 
       const event = parseGitWebhookEvent(body, c.req.raw.headers);
       const classification = classifyGitWebhook(event);
+
+      if (classification.action === "code_merge") {
+        const jobId = createWebhookJob({
+          source: "git",
+          event_type: event.eventType,
+          action: "code_merge",
+          payload: body,
+          max_attempts: 3,
+        });
+        claimWebhookJob(jobId);
+        const result = processGitMergeEvent(event);
+        if (result.status === "recorded") {
+          finishWebhookJob(jobId, {
+            status: "success",
+            result: {
+              execution_id: result.executionId,
+              target: result.target,
+              plane_issue_id: result.planeIssueId,
+            },
+          });
+        } else {
+          finishWebhookJob(jobId, {
+            status: "failed",
+            error: result.reason,
+            result: {
+              target: result.target,
+              plane_issue_id: result.planeIssueId,
+            },
+            retryDelayMs: 0,
+          });
+        }
+        return c.json(
+          {
+            received: true,
+            source: "git",
+            action: "code_merge",
+            job_id: jobId,
+            status: result.status,
+            reason: result.status === "unmatched" ? result.reason : undefined,
+            repository: event.repository,
+            branch: event.merge?.sourceBranch ?? event.branch,
+            target: result.target,
+            plane_issue_id: result.planeIssueId,
+            execution_id: result.status === "recorded" ? result.executionId : undefined,
+          },
+          200,
+        );
+      }
 
       if (classification.action === "ignored") {
         return c.json(
