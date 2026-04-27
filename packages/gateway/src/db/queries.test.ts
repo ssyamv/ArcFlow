@@ -51,6 +51,7 @@ describe("workflow_execution", () => {
       trigger_source: "plane_webhook",
       plane_issue_id: "ISSUE-1",
       input_path: "/docs/prd/test.md",
+      correlation_id: "plane:delivery-1:ISSUE-1",
     });
 
     expect(id).toBeGreaterThan(0);
@@ -64,6 +65,7 @@ describe("workflow_execution", () => {
     expect(exec!.input_path).toBe("/docs/prd/test.md");
     expect(exec!.status).toBe("pending");
     expect(exec!.retry_count).toBe(0);
+    expect(exec!.correlation_id).toBe("plane:delivery-1:ISSUE-1");
   });
 
   it("update status from running to success sets completed_at", () => {
@@ -166,6 +168,7 @@ describe("workflow_execution", () => {
       error_message: "no error",
       started_at: "2026-04-16T08:00:00Z",
       finished_at: "2026-04-16T08:05:00Z",
+      correlation_id: "corr-subtask",
     });
 
     const subtasks = listWorkflowSubtasks(executionId);
@@ -185,6 +188,7 @@ describe("workflow_execution", () => {
       error_message: "no error",
       started_at: "2026-04-16T08:00:00Z",
       finished_at: "2026-04-16T08:05:00Z",
+      correlation_id: "corr-subtask",
     });
   });
 
@@ -765,12 +769,13 @@ describe("dispatch", () => {
       sourceExecutionId: executionId,
       sourceStage: "dispatch",
       timeoutAt: 9999,
+      correlationId: "corr-dispatch",
     });
     const row = db
       .prepare(
         `SELECT status, plane_issue_id, source_execution_id, source_stage, started_at,
                 last_callback_at, error_message, result_summary, callback_replay_count,
-                timeout_at
+                timeout_at, correlation_id
            FROM dispatch WHERE id=?`,
       )
       .get(id) as {
@@ -784,6 +789,7 @@ describe("dispatch", () => {
       result_summary: string | null;
       callback_replay_count: number;
       timeout_at: number;
+      correlation_id: string | null;
     };
     expect(row.status).toBe("pending");
     expect(row.plane_issue_id).toBe("ISS-121");
@@ -795,6 +801,7 @@ describe("dispatch", () => {
     expect(row.result_summary).toBeNull();
     expect(row.callback_replay_count).toBe(0);
     expect(row.timeout_at).toBe(9999);
+    expect(row.correlation_id).toBe("corr-dispatch");
   });
 
   it("updateDispatchStatus marks success idempotently", () => {
@@ -1118,6 +1125,7 @@ describe("webhook_job", () => {
       event_type: "pull_request",
       action: "code_merge",
       payload: { branch: "feature/ISS-120-backend" },
+      correlation_id: "git:pr:ISS-120",
       max_attempts: 3,
     });
 
@@ -1131,6 +1139,7 @@ describe("webhook_job", () => {
         status: "pending",
         attempt_count: 0,
         max_attempts: 3,
+        correlation_id: "git:pr:ISS-120",
         payload_json: JSON.stringify({ branch: "feature/ISS-120-backend" }),
       }),
     );
@@ -1256,6 +1265,19 @@ describe("webhook_job", () => {
           action: "code_merge",
         }),
       ],
+      total: 1,
+    });
+
+    const correlatedId = createWebhookJob({
+      source: "plane",
+      event_type: "issue",
+      action: "approved",
+      payload: {},
+      correlation_id: "plane:delivery:ISS-9",
+    });
+    const correlated = listWebhookJobs({ correlation_id: "plane:delivery:ISS-9", limit: 10 });
+    expect(correlated).toEqual({
+      data: [expect.objectContaining({ id: correlatedId, correlation_id: "plane:delivery:ISS-9" })],
       total: 1,
     });
   });

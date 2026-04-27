@@ -262,6 +262,7 @@ import {
   List,
   Settings,
   FileText,
+  ListRestart,
   Sun,
   Moon,
   PanelLeft,
@@ -291,6 +292,7 @@ const navItems = computed(() => {
     { path: "/chat", label: "AI 对话", icon: MessageSquare },
     { path: "/docs", label: "文档", icon: FileText },
     { path: "/workflows", label: "工作流", icon: List },
+    { path: "/webhook-jobs", label: "Webhook Jobs", icon: ListRestart },
   ];
   if (wsStore.isAdmin) {
     items.push({ path: "/workspace/settings", label: "工作空间设置", icon: Settings });

@@ -36,6 +36,7 @@ type UnifiedCiStatus = "pending" | "running" | "success" | "failed";
 
 interface UnifiedCiEvent {
   planeIssueId?: string;
+  correlationId?: string;
   target: string;
   provider: "generic" | "ibuild";
   externalRunId: string;
@@ -56,6 +57,7 @@ function dispatchToNanoclaw(params: {
   skill: string;
   workspaceId: string;
   planeIssueId?: string;
+  correlationId?: string;
   input: unknown;
   sourceExecutionId?: number;
   sourceStage?: string;
@@ -68,6 +70,7 @@ function dispatchToNanoclaw(params: {
     planeIssueId: params.planeIssueId,
     sourceExecutionId: params.sourceExecutionId,
     sourceStage: params.sourceStage,
+    correlationId: params.correlationId,
     timeoutAt: Date.now() + 10 * 60 * 1000,
   });
   const nanoclawUrl = process.env.NANOCLAW_URL;
@@ -83,6 +86,18 @@ function dispatchToNanoclaw(params: {
     }).catch((err) => console.error("[webhook] nanoclaw dispatch error:", err));
   }
   return dispatchId;
+}
+
+function cleanCorrelationPart(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  return raw.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 120);
+}
+
+function buildCorrelationId(source: string, ...parts: unknown[]): string {
+  const cleaned = parts.map(cleanCorrelationPart).filter((part): part is string => Boolean(part));
+  return [source, ...cleaned].join(":") || `${source}:${crypto.randomUUID()}`;
 }
 
 function normalizeCiStatus(raw: string): UnifiedCiStatus | null {
@@ -113,6 +128,13 @@ function mapCiEvent(body: Record<string, unknown>): UnifiedCiEvent | null {
         : typeof body.plane_issue_id === "string"
           ? body.plane_issue_id
           : undefined,
+    correlationId:
+      typeof body.correlation_id === "string"
+        ? body.correlation_id
+        : buildCorrelationId(
+            "cicd",
+            body.run_id ?? body.build_id ?? body.buildId ?? body.branch ?? body.gitBranch,
+          ),
     target: String(body.target ?? body.repository ?? body.repo ?? "backend"),
     provider: "generic",
     externalRunId: String(body.run_id ?? body.build_id ?? body.buildId ?? ""),
@@ -202,6 +224,7 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
     external_run_id: event.externalRunId || undefined,
     branch_name: event.branchName ?? undefined,
     log_url: event.logUrl ?? undefined,
+    correlation_id: event.correlationId ?? execution.correlation_id,
   });
 
   syncCodegenExecutionStatus(execution.id);
@@ -223,6 +246,7 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
       trigger_source: event.provider === "ibuild" ? "ibuild_webhook" : "cicd_webhook",
       plane_issue_id: effectivePlaneIssueId,
       input_path: event.logUrl ?? undefined,
+      correlation_id: event.correlationId ?? execution.correlation_id ?? undefined,
     });
     createWorkflowLink({
       source_execution_id: execution.id,
@@ -234,6 +258,7 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
         external_run_id: event.externalRunId || undefined,
         branch_name: event.branchName ?? undefined,
         payload: event.rawPayload,
+        correlation_id: event.correlationId ?? execution.correlation_id,
       },
     });
     const workspaceId = findLatestDispatchWorkspaceIdByExecution(execution.id) ?? "system";
@@ -243,9 +268,11 @@ function handleCiEvent(event: UnifiedCiEvent): boolean {
       planeIssueId: effectivePlaneIssueId,
       sourceExecutionId: bugExecutionId,
       sourceStage: "analysis_dispatch",
+      correlationId: event.correlationId ?? execution.correlation_id ?? undefined,
       input: {
         execution_id: bugExecutionId,
         source_execution_id: execution.id,
+        correlation_id: event.correlationId ?? execution.correlation_id,
         workspace_id: workspaceId,
         target: event.target,
         provider: event.provider,
@@ -287,6 +314,11 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
           );
         }
 
+        const correlationId = buildCorrelationId(
+          "plane",
+          c.req.header("X-Plane-Delivery"),
+          body.data.id,
+        );
         triggerWorkflow({
           workspace_id: ws.id,
           workflow_type: "prd_to_tech",
@@ -294,6 +326,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
           plane_issue_id: body.data.id,
           input_path: prdPath,
           chat_id: ws.feishu_chat_id || undefined,
+          correlation_id: correlationId,
         });
 
         // NanoClaw skill dispatch (new path, co-exists until Task 21 removes triggerWorkflow)
@@ -301,7 +334,13 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
           skill: "arcflow-prd-to-tech",
           workspaceId: String(ws.id),
           planeIssueId: body.data.id,
-          input: { prd_path: prdPath, workspace_id: String(ws.id), plane_issue_id: body.data.id },
+          correlationId,
+          input: {
+            prd_path: prdPath,
+            workspace_id: String(ws.id),
+            plane_issue_id: body.data.id,
+            correlation_id: correlationId,
+          },
         });
       }
 
@@ -329,15 +368,22 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
       const classification = classifyGitWebhook(event);
 
       if (classification.action === "code_merge") {
+        const correlationId = buildCorrelationId(
+          "git",
+          event.eventType,
+          event.merge?.id ?? event.merge?.sourceBranch,
+          event.repository,
+        );
         const jobId = createWebhookJob({
           source: "git",
           event_type: event.eventType,
           action: "code_merge",
           payload: body,
+          correlation_id: correlationId,
           max_attempts: 3,
         });
         claimWebhookJob(jobId);
-        const result = processGitMergeEvent(event);
+        const result = processGitMergeEvent(event, { correlationId });
         if (result.status === "recorded") {
           finishWebhookJob(jobId, {
             status: "success",
@@ -511,6 +557,7 @@ export function createWebhookRoutes(deps: WebhookRouteDeps = {}): Hono {
     const targetRepo = config.ibuildAppRepoMap[appKey] ?? appKey ?? "backend";
     const baseEvent: UnifiedCiEvent = {
       planeIssueId,
+      correlationId: buildCorrelationId("ibuild", buildId, gitBranch),
       target: targetRepo,
       provider: "ibuild",
       externalRunId: buildId,

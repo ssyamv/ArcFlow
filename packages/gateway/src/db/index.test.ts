@@ -82,6 +82,7 @@ describe("db startup migration", () => {
     expect(names.has("error_message")).toBe(true);
     expect(names.has("result_summary")).toBe(true);
     expect(names.has("callback_replay_count")).toBe(true);
+    expect(names.has("correlation_id")).toBe(true);
 
     const row = db
       .prepare(

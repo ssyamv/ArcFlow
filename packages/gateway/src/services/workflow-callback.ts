@@ -17,6 +17,7 @@ export interface DispatchRecord {
   callbackReplayCount?: number;
   sourceExecutionId?: number | null;
   sourceStage?: string | null;
+  correlationId?: string | null;
 }
 
 export interface CallbackDeps {
@@ -53,6 +54,7 @@ export interface CallbackDeps {
     plane_issue_id?: string;
     source_execution_id?: number;
     source_stage?: string;
+    correlation_id?: string;
     target_repos?: string[];
     input_path?: string;
   }) => Promise<number>;
@@ -68,6 +70,7 @@ export interface CallbackDeps {
     repo_name?: string;
     log_url?: string;
     error_message?: string;
+    correlation_id?: string | null;
   }) => Promise<void> | void;
 }
 
@@ -124,6 +127,7 @@ function parseExecutionContext(input: unknown) {
         ? payload.targets.filter((value): value is string => typeof value === "string")
         : undefined,
     input_path: typeof payload.input_path === "string" ? payload.input_path : undefined,
+    correlation_id: typeof payload.correlation_id === "string" ? payload.correlation_id : undefined,
   };
 }
 
@@ -371,6 +375,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
                 repo_name: dispatchInput.repo_name,
                 log_url: dispatchInput.log_url,
                 error_message: message,
+                correlation_id: rec.correlationId,
               });
             } catch {
               try {
@@ -384,6 +389,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
                   repo_name: dispatchInput.repo_name,
                   log_url: dispatchInput.log_url,
                   error_message: message,
+                  correlation_id: rec.correlationId,
                 });
               } catch {
                 // Best-effort fallback only; execution failure propagation must still continue.
@@ -415,6 +421,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
               repo_name: dispatchInput.repo_name,
               log_url: dispatchInput.log_url,
               error_message: p.error,
+              correlation_id: rec.correlationId,
             });
             await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
           } else if (skill === "arcflow-bug-analysis") {
@@ -429,6 +436,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
               repo_name: dispatchInput.repo_name,
               log_url: dispatchInput.log_url,
               error_message: p.error,
+              correlation_id: rec.correlationId,
             });
             await deps.updateExecutionStatus?.(dispatchInput.execution_id, "failed", p.error);
           }
@@ -457,6 +465,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
               plane_issue_id: piid,
               source_execution_id: context.execution_id,
               source_stage: "success",
+              correlation_id: rec.correlationId ?? context.correlation_id,
               target_repos: context.target_repos,
               input_path: context.input_path,
             });
@@ -474,6 +483,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
             repo_name: dispatchInput.repo_name,
             log_url: dispatchInput.log_url,
             output_ref: JSON.stringify(report),
+            correlation_id: rec.correlationId,
           });
           if (piid) {
             await deps.commentPlaneIssue({
@@ -494,6 +504,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
             branch_name: result.branch_name,
             repo_name: result.repo_name,
             log_url: result.log_url,
+            correlation_id: rec.correlationId,
           });
           await markSubtaskProgress({
             execution_id: result.execution_id,
@@ -501,6 +512,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
             stage: "ci_pending",
             status: "pending",
             provider: "generic",
+            correlation_id: rec.correlationId,
           });
         }
       } catch (error) {
@@ -518,6 +530,7 @@ export function createCallbackHandler(deps: CallbackDeps) {
               repo_name: dispatchInput.repo_name,
               log_url: dispatchInput.log_url,
               error_message: message,
+              correlation_id: rec.correlationId,
             });
           } catch {
             // Best-effort fallback only; keep propagating the original error path.

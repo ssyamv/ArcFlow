@@ -1,6 +1,7 @@
 import {
   createWorkflowExecution,
   createWorkflowLink,
+  getWorkflowExecution,
   updateWorkflowStatus,
   getWorkspace,
   createWorkflowSubtask,
@@ -21,6 +22,7 @@ interface TriggerParams {
   chat_id?: string;
   source_execution_id?: number;
   source_stage?: string;
+  correlation_id?: string;
 }
 
 /** 加载 workspace 并注册其 git 仓库到动态注册表 */
@@ -47,11 +49,16 @@ function wsRepoName(workspaceId: number, repo: string): string {
 }
 
 export async function triggerWorkflow(params: TriggerParams): Promise<number> {
+  const sourceCorrelationId = params.source_execution_id
+    ? getWorkflowExecution(params.source_execution_id)?.correlation_id
+    : null;
+  const correlationId = params.correlation_id ?? sourceCorrelationId ?? `wf-${crypto.randomUUID()}`;
   const executionId = createWorkflowExecution({
     workflow_type: params.workflow_type,
     trigger_source: params.trigger_source,
     plane_issue_id: params.plane_issue_id,
     input_path: params.input_path,
+    correlation_id: correlationId,
   });
 
   if (params.source_execution_id) {
@@ -59,7 +66,10 @@ export async function triggerWorkflow(params: TriggerParams): Promise<number> {
       source_execution_id: params.source_execution_id,
       target_execution_id: executionId,
       link_type: "derived_from",
-      metadata: params.source_stage ? { source_stage: params.source_stage } : undefined,
+      metadata: {
+        ...(params.source_stage ? { source_stage: params.source_stage } : {}),
+        correlation_id: correlationId,
+      },
     });
   }
 
@@ -106,6 +116,8 @@ async function flowCodeGen(
   params: TriggerParams,
   ws: Workspace,
 ): Promise<void> {
+  const correlationId =
+    params.correlation_id ?? getWorkflowExecution(executionId)?.correlation_id ?? null;
   const targets = params.target_repos ?? ["backend"];
   const repoMap = safeParseRepos(ws.git_repos);
   const invalidTargets = targets.filter((target) => !repoMap[target]);
@@ -128,6 +140,7 @@ async function flowCodeGen(
       provider: "nanoclaw",
       status: "pending",
       repo_name: target,
+      correlation_id: correlationId,
     });
 
     const dispatchResult = await dispatchToNanoclaw({
@@ -136,8 +149,10 @@ async function flowCodeGen(
       planeIssueId: params.plane_issue_id,
       sourceExecutionId: executionId,
       sourceStage: "dispatch",
+      correlationId,
       input: {
         execution_id: executionId,
+        correlation_id: correlationId,
         target,
         workspace_id: ws.id,
         plane_issue_id: params.plane_issue_id,

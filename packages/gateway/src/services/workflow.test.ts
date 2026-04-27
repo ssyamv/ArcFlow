@@ -25,6 +25,7 @@ const getWorkspace = mock(() => ({
 const createWorkflowSubtask = mock(() => 1001);
 const createWorkflowLink = mock(() => 2001);
 const insertDispatch = mock(() => "dispatch-1");
+const getWorkflowExecution = mock(() => null);
 
 mock.module("../db/queries", () => ({
   createWorkflowExecution,
@@ -33,13 +34,13 @@ mock.module("../db/queries", () => ({
   createWorkflowSubtask,
   createWorkflowLink,
   insertDispatch,
+  getWorkflowExecution,
   // Include all exports to avoid missing export errors for other importers
   recordWebhookEvent: mock(() => {}),
   isEventProcessed: mock(() => false),
   recordWebhookLog: mock(() => {}),
   listWebhookLogs: mock(() => []),
   cleanExpiredEvents: mock(() => 0),
-  getWorkflowExecution: mock(() => null),
   listWorkflowExecutions: mock(() => ({ data: [], total: 0 })),
 }));
 
@@ -102,6 +103,7 @@ function clearAllMocks() {
   createWorkflowSubtask.mockClear();
   createWorkflowLink.mockClear();
   insertDispatch.mockClear();
+  getWorkflowExecution.mockClear();
   dispatchToNanoclaw.mockClear();
   ensureRepo.mockClear();
   readFileMock.mockClear();
@@ -142,6 +144,7 @@ describe("triggerWorkflow", () => {
       trigger_source: "manual",
       plane_issue_id: "ISS-1",
       input_path: "tech-design/feature-x.md",
+      correlation_id: expect.stringMatching(/^wf-/),
     });
   });
 
@@ -269,8 +272,32 @@ describe("flowCodeGen", () => {
       source_execution_id: 31,
       target_execution_id: 42,
       link_type: "derived_from",
-      metadata: { source_stage: "success" },
+      metadata: { source_stage: "success", correlation_id: expect.stringMatching(/^wf-/) },
     });
+  });
+
+  it("propagates explicit correlation id into subtasks and dispatches", async () => {
+    await triggerWorkflow({
+      workspace_id: 1,
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISS-CORR",
+      correlation_id: "plane:delivery-1:ISS-CORR",
+    });
+    await tick();
+
+    expect(createWorkflowExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ correlation_id: "plane:delivery-1:ISS-CORR" }),
+    );
+    expect(createWorkflowSubtask).toHaveBeenCalledWith(
+      expect.objectContaining({ correlation_id: "plane:delivery-1:ISS-CORR" }),
+    );
+    expect(dispatchToNanoclaw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "plane:delivery-1:ISS-CORR",
+        input: expect.objectContaining({ correlation_id: "plane:delivery-1:ISS-CORR" }),
+      }),
+    );
   });
 
   it("reads docs input once and includes task_context in dispatch payload", async () => {

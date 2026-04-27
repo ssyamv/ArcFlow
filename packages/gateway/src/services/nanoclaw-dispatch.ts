@@ -7,6 +7,7 @@ interface DispatchToNanoclawParams {
   planeIssueId?: string;
   sourceExecutionId?: number;
   sourceStage?: string;
+  correlationId?: string;
   input: unknown;
   swallowDispatchError?: boolean;
 }
@@ -29,6 +30,7 @@ export async function dispatchToNanoclaw(
     planeIssueId: params.planeIssueId,
     sourceExecutionId: params.sourceExecutionId,
     sourceStage: params.sourceStage,
+    correlationId: params.correlationId,
     timeoutAt: Date.now() + 10 * 60 * 1000,
   });
 

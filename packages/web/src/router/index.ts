@@ -35,6 +35,11 @@ const router = createRouter({
       component: () => import("../pages/WorkflowDetail.vue"),
     },
     {
+      path: "/webhook-jobs",
+      name: "webhook-jobs",
+      component: () => import("../pages/WebhookJobs.vue"),
+    },
+    {
       path: "/chat",
       name: "chat",
       component: () => import("../pages/AiChat.vue"),

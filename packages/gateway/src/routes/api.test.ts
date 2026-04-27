@@ -214,6 +214,44 @@ describe("api routes", () => {
     });
   });
 
+  it("GET /api/webhook/jobs/:id returns payload, result, retry, and dead reason detail", async () => {
+    const { claimWebhookJob, createWebhookJob, finishWebhookJob } = await import("../db/queries");
+    const jobId = createWebhookJob({
+      source: "git",
+      event_type: "pull_request",
+      action: "code_merge",
+      payload: { branch: "feature/ISS-404-backend", repository: "backend" },
+      max_attempts: 1,
+      next_run_at: 123_000,
+    });
+    claimWebhookJob(jobId);
+    finishWebhookJob(jobId, {
+      status: "failed",
+      error: "code_gen_execution_not_found",
+      result: { matched: false },
+      retryDelayMs: 60_000,
+    });
+
+    const res = await app.request(`/api/webhook/jobs/${jobId}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual(
+      expect.objectContaining({
+        id: jobId,
+        status: "dead",
+        next_run_at: null,
+        last_error: "code_gen_execution_not_found",
+        payload: { branch: "feature/ISS-404-backend", repository: "backend" },
+        result: { matched: false },
+      }),
+    );
+  });
+
+  it("GET /api/webhook/jobs/:id returns 404 for missing job", async () => {
+    const res = await app.request("/api/webhook/jobs/99999");
+    expect(res.status).toBe(404);
+  });
+
   it("GET /api/workflow/executions returns code_gen summary", async () => {
     const { createWorkflowExecution, createWorkflowSubtask } = await import("../db/queries");
     const id = createWorkflowExecution({
@@ -572,6 +610,69 @@ describe("api routes", () => {
         expect.objectContaining({
           id: webDispatchId,
           status: "running",
+        }),
+      ]),
+    );
+  });
+
+  it("GET /api/workflow/executions/:id returns an anomaly-first workflow diagnostic summary", async () => {
+    const { createWorkflowExecution, createWorkflowSubtask, insertDispatch, updateDispatchStatus } =
+      await import("../db/queries");
+    const id = createWorkflowExecution({
+      workflow_type: "code_gen",
+      trigger_source: "manual",
+      plane_issue_id: "ISSUE-DIAGNOSTICS",
+    });
+    createWorkflowSubtask({
+      execution_id: id,
+      stage: "generate_failed",
+      target: "backend",
+      provider: "nanoclaw",
+      status: "failed",
+      error_message: "failed to write generated code",
+    });
+    const dispatchId = insertDispatch(getDb(), {
+      workspaceId: "ws-diagnostics",
+      skill: "arcflow-code-gen",
+      input: { execution_id: id, target: "backend" },
+      planeIssueId: "ISSUE-DIAGNOSTICS",
+      sourceExecutionId: id,
+      sourceStage: "dispatch",
+      timeoutAt: 17_000,
+    });
+    updateDispatchStatus(getDb(), dispatchId, {
+      status: "failed",
+      lastCallbackAt: 22_222,
+      resultSummary: "callback:success; side_effect_failed; duplicate_callback_ignored",
+      errorMessage: "side effect failed: failed to write generated code",
+      replayIncrement: true,
+    });
+
+    const res = await app.request(`/api/workflow/executions/${id}`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.workflow_diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "side_effect_failed",
+          severity: "error",
+          dispatch_id: dispatchId,
+          target: "backend",
+          message: "side effect failed: failed to write generated code",
+        }),
+        expect.objectContaining({
+          kind: "callback_replay",
+          severity: "warning",
+          dispatch_id: dispatchId,
+          target: "backend",
+        }),
+        expect.objectContaining({
+          kind: "subtask_failed",
+          severity: "error",
+          target: "backend",
+          stage: "generate_failed",
+          message: "failed to write generated code",
         }),
       ]),
     );

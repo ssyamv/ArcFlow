@@ -33,6 +33,7 @@ export interface WorkflowExecution {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  correlation_id: string | null;
 }
 
 export interface WorkflowSubtask {
@@ -53,6 +54,7 @@ export interface WorkflowSubtask {
   finished_at: string | null;
   created_at: string;
   updated_at: string;
+  correlation_id: string | null;
 }
 
 export interface WorkflowLink {
@@ -81,6 +83,7 @@ export interface WorkflowDispatch {
   result_summary: string | null;
   callback_replay_count: number;
   timeout_at: number | null;
+  correlation_id: string | null;
   diagnostic_flags: string[];
 }
 
@@ -105,6 +108,28 @@ export interface WorkflowCurrentStageSummary {
   status: WorkflowStatus | WorkflowDispatchStatus;
 }
 
+export type WorkflowDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface WorkflowDiagnostic {
+  kind:
+    | "waiting_callback"
+    | "dispatch_timeout"
+    | "late_callback"
+    | "callback_replay"
+    | "side_effect_failed"
+    | "dispatch_failed"
+    | "subtask_failed"
+    | "execution_failed";
+  severity: WorkflowDiagnosticSeverity;
+  title: string;
+  message: string;
+  target: string | null;
+  stage: string | null;
+  dispatch_id: string | null;
+  subtask_id: number | null;
+  timestamp: number | string | null;
+}
+
 export interface WorkflowExecutionListItem extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
 }
@@ -113,6 +138,7 @@ export interface WorkflowExecutionDetail extends WorkflowExecution {
   summary: WorkflowExecutionSummary | null;
   bug_report_summary: WorkflowBugReportSummary | null;
   current_stage_summary: WorkflowCurrentStageSummary | null;
+  workflow_diagnostics: WorkflowDiagnostic[];
   dispatches: WorkflowDispatch[];
   subtasks: WorkflowSubtask[];
   links: WorkflowLink[];
@@ -132,6 +158,7 @@ export interface WebhookJob {
   result_json: string | null;
   created_at: number;
   updated_at: number;
+  correlation_id: string | null;
 }
 
 // Bug 修复重试记录
@@ -159,6 +186,7 @@ export interface TriggerWorkflowRequest {
   plane_issue_id?: string;
   source_execution_id?: number;
   source_stage?: string;
+  correlation_id?: string;
   params?: {
     input_path?: string;
     target_repos?: string[];

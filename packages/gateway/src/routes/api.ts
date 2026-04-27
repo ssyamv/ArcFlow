@@ -4,6 +4,7 @@ import {
   listWorkflowExecutionsWithSummary,
   listWebhookLogs,
   listWebhookJobs,
+  getWebhookJob,
   getWorkspace,
   getWorkspaceMemberRole,
   buildMemorySnapshot,
@@ -47,6 +48,7 @@ apiRoutes.post("/workflow/trigger", async (c) => {
     plane_issue_id: body.plane_issue_id,
     source_execution_id: body.source_execution_id,
     source_stage: body.source_stage,
+    correlation_id: body.correlation_id,
     input_path: body.params?.input_path,
     target_repos:
       body.params?.target_repos ??
@@ -99,8 +101,9 @@ apiRoutes.get("/webhook/jobs", (c) => {
   const source = c.req.query("source") as WebhookSource | undefined;
   const status = c.req.query("status") as WebhookJobStatus | undefined;
   const action = c.req.query("action") || undefined;
+  const correlationId = c.req.query("correlation_id") || undefined;
   const limit = Number(c.req.query("limit")) || 20;
-  const result = listWebhookJobs({ source, status, action, limit });
+  const result = listWebhookJobs({ source, status, action, correlation_id: correlationId, limit });
   return c.json({
     data: result.data.map((job) => ({
       ...job,
@@ -108,6 +111,20 @@ apiRoutes.get("/webhook/jobs", (c) => {
       result: job.result_json ? JSON.parse(job.result_json) : null,
     })),
     total: result.total,
+  });
+});
+
+apiRoutes.get("/webhook/jobs/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id) || id <= 0) return c.json({ error: "Invalid ID" }, 400);
+
+  const job = getWebhookJob(id);
+  if (!job) return c.json({ error: "Not found" }, 404);
+
+  return c.json({
+    ...job,
+    payload: JSON.parse(job.payload_json),
+    result: job.result_json ? JSON.parse(job.result_json) : null,
   });
 });
 
@@ -162,6 +179,7 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
       skill?: string;
       workspace_id?: number | string;
       plane_issue_id?: string;
+      correlation_id?: string;
       user_id?: number;
       input?: unknown;
     }>()) ?? {};
@@ -178,6 +196,7 @@ apiRoutes.post("/nanoclaw/dispatch", async (c) => {
     skill: body.skill,
     input: body.input ?? {},
     planeIssueId: body.plane_issue_id,
+    correlationId: body.correlation_id,
     swallowDispatchError: true,
   });
   const dispatchId = dispatchResult.dispatchId;

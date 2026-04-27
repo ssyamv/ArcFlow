@@ -89,6 +89,12 @@
             <div class="field-label">Plane Issue ID</div>
             <div class="field-value">{{ execution.plane_issue_id ?? "-" }}</div>
           </div>
+          <div>
+            <div class="field-label">Correlation ID</div>
+            <div class="field-value font-mono text-xs break-all">
+              {{ execution.correlation_id ?? "-" }}
+            </div>
+          </div>
           <div v-if="execution.input_path">
             <div class="field-label">输入路径</div>
             <div class="field-value font-mono text-xs">{{ execution.input_path }}</div>
@@ -225,6 +231,82 @@
         </div>
       </div>
 
+      <div
+        v-if="execution.workflow_diagnostics?.length"
+        class="rounded-lg p-5"
+        style="
+          background-color: var(--color-surface-02);
+          border: 1px solid var(--color-border-default);
+        "
+      >
+        <div
+          class="text-xs uppercase mb-4"
+          style="font-weight: 510; color: var(--color-text-quaternary); letter-spacing: 0.05em"
+        >
+          异常诊断
+        </div>
+        <div class="space-y-3">
+          <div
+            v-for="diagnostic in execution.workflow_diagnostics"
+            :key="`${diagnostic.kind}-${diagnostic.dispatch_id ?? diagnostic.subtask_id ?? diagnostic.title}`"
+            class="rounded-md p-3"
+            style="border: 1px solid var(--color-border-subtle)"
+          >
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span
+                style="font-weight: 510; color: var(--color-text-primary)"
+                data-testid="workflow-diagnostic-title"
+              >
+                {{ diagnostic.title }}
+              </span>
+              <span
+                class="status-pill"
+                style="border-color: var(--color-border-solid)"
+                :style="{
+                  color: severityColor(diagnostic.severity),
+                  borderColor: `${severityColor(diagnostic.severity)}33`,
+                }"
+              >
+                {{ severityLabel(diagnostic.severity) }}
+              </span>
+              <span class="field-value">{{ diagnostic.kind }}</span>
+            </div>
+            <div class="mt-2 text-xs break-all" style="color: var(--color-text-secondary)">
+              {{ diagnostic.message }}
+            </div>
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Target · {{ diagnostic.target ?? "-" }}
+              </div>
+              <div class="text-xs" style="color: var(--color-text-quaternary)">
+                Stage · {{ diagnostic.stage ?? "-" }}
+              </div>
+              <div
+                v-if="diagnostic.dispatch_id"
+                class="text-xs break-all"
+                style="color: var(--color-text-quaternary)"
+              >
+                Dispatch ID · {{ diagnostic.dispatch_id }}
+              </div>
+              <div
+                v-if="diagnostic.subtask_id"
+                class="text-xs"
+                style="color: var(--color-text-quaternary)"
+              >
+                Subtask ID · {{ diagnostic.subtask_id }}
+              </div>
+              <div
+                v-if="diagnostic.timestamp"
+                class="text-xs"
+                style="color: var(--color-text-quaternary)"
+              >
+                Time · {{ formatDiagnosticTimestamp(diagnostic.timestamp) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Error Message -->
       <div
         v-if="execution.error_message"
@@ -306,6 +388,13 @@
               </div>
               <div class="text-xs" style="color: var(--color-text-quaternary)">
                 Callback Replay · {{ dispatch.callback_replay_count }}
+              </div>
+              <div
+                v-if="dispatch.correlation_id"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-text-quaternary)"
+              >
+                Correlation ID · {{ dispatch.correlation_id }}
               </div>
               <div
                 v-if="dispatch.result_summary"
@@ -395,6 +484,13 @@
                 style="color: var(--color-text-quaternary)"
               >
                 Branch · {{ targetGroup.branch_name ?? "-" }}
+              </div>
+              <div
+                v-if="targetGroup.correlation_id"
+                class="text-xs md:col-span-2 break-all"
+                style="color: var(--color-text-quaternary)"
+              >
+                Correlation ID · {{ targetGroup.correlation_id }}
               </div>
             </div>
             <div class="mt-3 space-y-2">
@@ -542,6 +638,24 @@ function statusLabel(status: string | null | undefined) {
   return statusLabelMap[status] ?? status;
 }
 
+function severityLabel(severity: string) {
+  const map: Record<string, string> = {
+    info: "提示",
+    warning: "警告",
+    error: "错误",
+  };
+  return map[severity] ?? severity;
+}
+
+function severityColor(severity: string) {
+  const map: Record<string, string> = {
+    info: "var(--color-accent)",
+    warning: "var(--color-warning)",
+    error: "var(--color-error)",
+  };
+  return map[severity] ?? "var(--color-text-quaternary)";
+}
+
 function bugNextActionLabel(value: WorkflowBugReportSummary["next_action"]) {
   return value === "auto_fix_candidate" ? "可进入自动修复" : "需人工接管";
 }
@@ -559,6 +673,11 @@ function formatTimestamp(value: number | null) {
     );
 }
 
+function formatDiagnosticTimestamp(value: number | string) {
+  if (typeof value === "number") return formatTimestamp(value);
+  return value;
+}
+
 const groupedSubtasks = computed(() => {
   const subtasks = execution.value?.subtasks ?? [];
   const groups = new Map<
@@ -568,6 +687,7 @@ const groupedSubtasks = computed(() => {
       provider: string;
       repo_name: string | null;
       branch_name: string | null;
+      correlation_id: string | null;
       status: string;
       latestSubtaskId: number;
       subtasks: typeof subtasks;
@@ -584,6 +704,7 @@ const groupedSubtasks = computed(() => {
         existing.provider = subtask.provider;
         existing.repo_name = subtask.repo_name ?? null;
         existing.branch_name = subtask.branch_name ?? null;
+        existing.correlation_id = subtask.correlation_id ?? null;
       }
       continue;
     }
@@ -593,6 +714,7 @@ const groupedSubtasks = computed(() => {
       provider: subtask.provider,
       repo_name: subtask.repo_name ?? null,
       branch_name: subtask.branch_name ?? null,
+      correlation_id: subtask.correlation_id ?? null,
       status: subtask.status,
       latestSubtaskId: subtask.id,
       subtasks: [subtask],

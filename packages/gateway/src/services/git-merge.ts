@@ -26,7 +26,10 @@ function repositoryTarget(repository: string | null): string | null {
   return parts.at(-1) ?? repository;
 }
 
-export function processGitMergeEvent(event: GitWebhookEvent): GitMergeProcessingResult {
+export function processGitMergeEvent(
+  event: GitWebhookEvent,
+  options: { correlationId?: string } = {},
+): GitMergeProcessingResult {
   const target = repositoryTarget(event.repository);
   const sourceBranch = event.merge?.sourceBranch ?? null;
   const planeIssueId = sourceBranch
@@ -64,6 +67,7 @@ export function processGitMergeEvent(event: GitWebhookEvent): GitMergeProcessing
     branch_name: sourceBranch,
     repo_name: target,
     log_url: event.merge?.url ?? undefined,
+    correlation_id: options.correlationId,
     output_ref: JSON.stringify({
       merge_commit_sha: event.merge?.mergeCommitSha ?? undefined,
       title: event.merge?.title ?? undefined,

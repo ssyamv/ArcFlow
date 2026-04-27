@@ -97,7 +97,10 @@
               code_merge pending / dead
             </div>
           </div>
-          <button class="filter-pill" @click.stop="loadWebhookJobs">刷新</button>
+          <div class="flex items-center gap-2">
+            <router-link to="/webhook-jobs" class="filter-pill no-underline">查看全部</router-link>
+            <button class="filter-pill" @click.stop="loadWebhookJobs">刷新</button>
+          </div>
         </div>
         <table class="w-full">
           <thead>

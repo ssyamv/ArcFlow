@@ -61,6 +61,7 @@ export interface WorkflowSubtask {
   finished_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  correlation_id?: string | null;
 }
 
 export interface WorkflowLink {
@@ -77,6 +78,18 @@ export interface CurrentStageSummary {
   target: string | null;
   stage: string | null;
   status: string | null;
+}
+
+export interface WorkflowDiagnostic {
+  kind: string;
+  severity: "info" | "warning" | "error";
+  title: string;
+  message: string;
+  target: string | null;
+  stage: string | null;
+  dispatch_id: string | null;
+  subtask_id: number | null;
+  timestamp: number | string | null;
 }
 
 export interface WorkflowBugReportSummary {
@@ -104,6 +117,7 @@ export interface WorkflowDispatch {
   result_summary: string | null;
   callback_replay_count: number;
   timeout_at: number | null;
+  correlation_id?: string | null;
   diagnostic_flags: string[];
 }
 
@@ -117,6 +131,7 @@ export interface ExecutionListItem {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  correlation_id?: string | null;
   summary?: WorkflowSummary | null;
 }
 
@@ -148,6 +163,7 @@ export interface WebhookJob {
   result: unknown;
   created_at: number;
   updated_at: number;
+  correlation_id?: string | null;
 }
 
 export interface WebhookJobListResponse {
@@ -166,9 +182,11 @@ export interface ExecutionDetail {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  correlation_id: string | null;
   summary?: WorkflowSummary | null;
   bug_report_summary?: WorkflowBugReportSummary | null;
   current_stage_summary?: CurrentStageSummary | null;
+  workflow_diagnostics?: WorkflowDiagnostic[];
   subtasks?: WorkflowSubtask[];
   dispatches?: WorkflowDispatch[];
   links?: WorkflowLink[];
@@ -194,14 +212,20 @@ export function fetchWebhookJobs(filters?: {
   source?: string;
   action?: string;
   status?: string;
+  correlation_id?: string;
   limit?: number;
 }): Promise<WebhookJobListResponse> {
   const params = new URLSearchParams();
   if (filters?.source) params.set("source", filters.source);
   if (filters?.action) params.set("action", filters.action);
   if (filters?.status) params.set("status", filters.status);
+  if (filters?.correlation_id) params.set("correlation_id", filters.correlation_id);
   if (filters?.limit) params.set("limit", String(filters.limit));
   return request<WebhookJobListResponse>(`/api/webhook/jobs?${params}`);
+}
+
+export function fetchWebhookJob(id: number): Promise<WebhookJob> {
+  return request<WebhookJob>(`/api/webhook/jobs/${id}`);
 }
 
 export function triggerWorkflow(params: {

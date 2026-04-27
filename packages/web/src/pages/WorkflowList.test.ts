@@ -66,6 +66,7 @@ describe("WorkflowList", () => {
             result: null,
             created_at: Date.now(),
             updated_at: Date.now(),
+            correlation_id: "git:pr:ISS-120",
           },
         ],
       })

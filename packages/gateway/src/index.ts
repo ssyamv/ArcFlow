@@ -196,7 +196,8 @@ const callbackHandler = createCallbackHandler({
                 result_summary,
                 callback_replay_count,
                 source_execution_id,
-                source_stage
+                source_stage,
+                correlation_id
            FROM dispatch
           WHERE id=?`,
       )
@@ -215,6 +216,7 @@ const callbackHandler = createCallbackHandler({
       callback_replay_count: number;
       source_execution_id: number | null;
       source_stage: string | null;
+      correlation_id: string | null;
     } | null;
     if (!row) return null;
     return {
@@ -232,6 +234,7 @@ const callbackHandler = createCallbackHandler({
       callbackReplayCount: row.callback_replay_count,
       sourceExecutionId: row.source_execution_id,
       sourceStage: row.source_stage,
+      correlationId: row.correlation_id,
     };
   },
   claimDispatch: async (id) => {

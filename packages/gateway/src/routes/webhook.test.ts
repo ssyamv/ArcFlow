@@ -87,7 +87,7 @@ describe("webhook routes", () => {
   it("POST /webhook/plane returns received", async () => {
     const res = await app.request("/webhook/plane", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Plane-Delivery": "delivery-42" },
       body: JSON.stringify({
         event: "project",
         action: "update",
@@ -131,6 +131,7 @@ describe("webhook routes", () => {
         plane_issue_id: "issue-42",
         input_path: "prd/2026-04/login.md",
         chat_id: "oc_ws_chat",
+        correlation_id: "plane:issue-42",
       }),
     );
   });
@@ -138,7 +139,7 @@ describe("webhook routes", () => {
   it("POST /webhook/plane does not trigger workflow for non-Approved state", async () => {
     await app.request("/webhook/plane", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Plane-Delivery": "delivery-99" },
       body: JSON.stringify({
         event: "issue",
         action: "update",
@@ -1086,9 +1087,20 @@ describe("webhook routes", () => {
 
     const db = getDb();
     const row = db
-      .prepare("SELECT skill, plane_issue_id FROM dispatch WHERE plane_issue_id=?")
-      .get("issue-99") as { skill: string; plane_issue_id: string } | null;
+      .prepare(
+        "SELECT skill, plane_issue_id, correlation_id, input_json FROM dispatch WHERE plane_issue_id=?",
+      )
+      .get("issue-99") as {
+      skill: string;
+      plane_issue_id: string;
+      correlation_id: string | null;
+      input_json: string;
+    } | null;
     expect(row?.skill).toBe("arcflow-prd-to-tech");
     expect(row?.plane_issue_id).toBe("issue-99");
+    expect(row?.correlation_id).toBe("plane:issue-99");
+    expect(JSON.parse(row?.input_json ?? "{}")).toEqual(
+      expect.objectContaining({ correlation_id: "plane:issue-99" }),
+    );
   });
 });

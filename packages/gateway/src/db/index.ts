@@ -4,6 +4,19 @@ import { join } from "path";
 
 let db: Database | null = null;
 
+function addColumnIfMissing(db: Database, table: string, columnName: string, sql: string): void {
+  const tableExists = db
+    .query("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { ok: number } | null;
+  if (!tableExists) return;
+
+  const columns = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (!columnNames.has(columnName)) {
+    db.exec(sql);
+  }
+}
+
 function migrateDispatchColumns(db: Database): void {
   const tableExists = db
     .query("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dispatch'")
@@ -26,6 +39,7 @@ function migrateDispatchColumns(db: Database): void {
       "callback_replay_count",
       "ALTER TABLE dispatch ADD COLUMN callback_replay_count INTEGER NOT NULL DEFAULT 0",
     ],
+    ["correlation_id", "ALTER TABLE dispatch ADD COLUMN correlation_id TEXT"],
   ] as const;
 
   for (const [columnName, sql] of migrations) {
@@ -44,6 +58,58 @@ function migrateDispatchColumns(db: Database): void {
   `);
 }
 
+function migrateCorrelationColumns(db: Database): void {
+  addColumnIfMissing(
+    db,
+    "workflow_execution",
+    "correlation_id",
+    "ALTER TABLE workflow_execution ADD COLUMN correlation_id TEXT",
+  );
+  addColumnIfMissing(
+    db,
+    "workflow_subtask",
+    "correlation_id",
+    "ALTER TABLE workflow_subtask ADD COLUMN correlation_id TEXT",
+  );
+  addColumnIfMissing(
+    db,
+    "webhook_job",
+    "correlation_id",
+    "ALTER TABLE webhook_job ADD COLUMN correlation_id TEXT",
+  );
+  addColumnIfMissing(
+    db,
+    "dispatch",
+    "correlation_id",
+    "ALTER TABLE dispatch ADD COLUMN correlation_id TEXT",
+  );
+
+  db.exec(`
+    UPDATE workflow_execution
+       SET correlation_id = 'wf-' || id
+     WHERE correlation_id IS NULL
+  `);
+  db.exec(`
+    UPDATE workflow_subtask
+       SET correlation_id = (
+         SELECT workflow_execution.correlation_id
+           FROM workflow_execution
+          WHERE workflow_execution.id = workflow_subtask.execution_id
+       )
+     WHERE correlation_id IS NULL
+  `);
+  db.exec(`
+    UPDATE dispatch
+       SET correlation_id = (
+         SELECT workflow_execution.correlation_id
+           FROM workflow_execution
+          WHERE workflow_execution.id = dispatch.source_execution_id
+       )
+     WHERE correlation_id IS NULL
+       AND source_execution_id IS NOT NULL
+  `);
+}
+
 export function getDb(): Database {
   if (!db) {
     const dbPath =
@@ -54,8 +120,21 @@ export function getDb(): Database {
     migrateDispatchColumns(db);
     const schema = readFileSync(join(import.meta.dir, "schema.sql"), "utf-8");
     db.exec(schema);
+    migrateCorrelationColumns(db);
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_dispatch_source_execution ON dispatch(source_execution_id, created_at)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_dispatch_correlation ON dispatch(correlation_id, created_at)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_workflow_execution_correlation ON workflow_execution(correlation_id, created_at)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_workflow_subtask_correlation ON workflow_subtask(correlation_id, created_at)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_webhook_job_correlation ON webhook_job(correlation_id, created_at)",
     );
 
     // Migrations — add columns that may not exist yet

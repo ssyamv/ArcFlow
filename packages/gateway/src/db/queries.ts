@@ -6,6 +6,7 @@ import type {
   WorkflowExecutionListItem,
   WorkflowExecutionSummary,
   WorkflowCurrentStageSummary,
+  WorkflowDiagnostic,
   WorkflowDispatchStatus,
   WorkflowDispatch,
   WorkflowSubtask,
@@ -32,16 +33,24 @@ export function createWorkflowExecution(params: {
   trigger_source: TriggerSource;
   plane_issue_id?: string;
   input_path?: string;
+  correlation_id?: string;
 }): number {
   const db = getDb();
+  const correlationId = params.correlation_id ?? `wf-${crypto.randomUUID()}`;
   db.query(
-    `INSERT INTO workflow_execution (workflow_type, trigger_source, plane_issue_id, input_path)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO workflow_execution (
+       workflow_type,
+       trigger_source,
+       plane_issue_id,
+       input_path,
+       correlation_id
+     ) VALUES (?, ?, ?, ?, ?)`,
   ).run(
     params.workflow_type,
     params.trigger_source,
     params.plane_issue_id ?? null,
     params.input_path ?? null,
+    correlationId,
   );
   const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
   return row.id;
@@ -147,6 +156,161 @@ function getDispatchTarget(dispatch: Pick<WorkflowDispatch, "input_json">): stri
   return null;
 }
 
+function hasDiagnostic(dispatch: WorkflowDispatch, flag: string): boolean {
+  return dispatch.diagnostic_flags.includes(flag);
+}
+
+function buildWorkflowDiagnostics(params: {
+  execution: WorkflowExecution;
+  subtasks: WorkflowSubtask[];
+  dispatches: WorkflowDispatch[];
+  currentStageSummary: WorkflowCurrentStageSummary | null;
+  now?: number;
+}): WorkflowDiagnostic[] {
+  const diagnostics: WorkflowDiagnostic[] = [];
+  const now = params.now ?? Date.now();
+
+  for (const dispatch of params.dispatches) {
+    const target = getDispatchTarget(dispatch);
+    const base = {
+      target,
+      stage: dispatch.source_stage,
+      dispatch_id: dispatch.id,
+      subtask_id: null,
+    };
+
+    if (
+      (dispatch.status === "pending" || dispatch.status === "running") &&
+      dispatch.timeout_at != null &&
+      dispatch.timeout_at < now
+    ) {
+      diagnostics.push({
+        kind: "dispatch_timeout",
+        severity: "error",
+        title: "Dispatch 已超过回调窗口",
+        message: `${dispatch.skill} 尚未终态化，timeout_at 已过期。`,
+        timestamp: dispatch.timeout_at,
+        ...base,
+      });
+    } else if (dispatch.status === "timeout") {
+      diagnostics.push({
+        kind: "dispatch_timeout",
+        severity: "error",
+        title: "Dispatch callback 超时",
+        message: dispatch.error_message ?? `${dispatch.skill} 未在回调窗口内完成。`,
+        timestamp: dispatch.completed_at ?? dispatch.timeout_at,
+        ...base,
+      });
+    }
+
+    if (dispatch.status === "failed") {
+      diagnostics.push({
+        kind: hasDiagnostic(dispatch, "side_effect_failed")
+          ? "side_effect_failed"
+          : "dispatch_failed",
+        severity: "error",
+        title: hasDiagnostic(dispatch, "side_effect_failed")
+          ? "Callback 副作用失败"
+          : "Dispatch 执行失败",
+        message:
+          dispatch.error_message ?? dispatch.result_summary ?? `${dispatch.skill} 返回失败。`,
+        timestamp: dispatch.completed_at ?? dispatch.last_callback_at,
+        ...base,
+      });
+    } else if (hasDiagnostic(dispatch, "side_effect_failed")) {
+      diagnostics.push({
+        kind: "side_effect_failed",
+        severity: "error",
+        title: "Callback 副作用失败",
+        message:
+          dispatch.error_message ?? dispatch.result_summary ?? "Callback 已到达，但后续落地失败。",
+        timestamp: dispatch.last_callback_at ?? dispatch.completed_at,
+        ...base,
+      });
+    }
+
+    if (hasDiagnostic(dispatch, "late_callback_ignored")) {
+      diagnostics.push({
+        kind: "late_callback",
+        severity: dispatch.status === "timeout" ? "error" : "warning",
+        title: "晚到 callback 已忽略",
+        message: dispatch.result_summary ?? "Callback 在超时后到达，核心副作用未再执行。",
+        timestamp: dispatch.last_callback_at,
+        ...base,
+      });
+    }
+
+    if (
+      dispatch.callback_replay_count > 0 ||
+      hasDiagnostic(dispatch, "duplicate_callback_ignored")
+    ) {
+      diagnostics.push({
+        kind: "callback_replay",
+        severity: "warning",
+        title: "重复 callback 已忽略",
+        message: `已记录 ${dispatch.callback_replay_count} 次 replay，不会重复执行副作用。`,
+        timestamp: dispatch.last_callback_at,
+        ...base,
+      });
+    }
+  }
+
+  for (const subtask of params.subtasks) {
+    if (subtask.status !== "failed") continue;
+    diagnostics.push({
+      kind: "subtask_failed",
+      severity: "error",
+      title: `${subtask.target} 子任务失败`,
+      message: subtask.error_message ?? `${subtask.stage} 阶段失败。`,
+      target: subtask.target,
+      stage: subtask.stage,
+      dispatch_id: null,
+      subtask_id: subtask.id,
+      timestamp: subtask.finished_at ?? subtask.updated_at ?? subtask.created_at,
+    });
+  }
+
+  if (params.execution.status === "failed" && params.execution.error_message) {
+    const hasSameMessage = diagnostics.some(
+      (diagnostic) => diagnostic.message === params.execution.error_message,
+    );
+    if (!hasSameMessage) {
+      diagnostics.push({
+        kind: "execution_failed",
+        severity: "error",
+        title: "工作流失败",
+        message: params.execution.error_message,
+        target: null,
+        stage: params.currentStageSummary?.stage ?? null,
+        dispatch_id: null,
+        subtask_id: null,
+        timestamp: params.execution.completed_at,
+      });
+    }
+  }
+
+  if (
+    diagnostics.length === 0 &&
+    params.currentStageSummary &&
+    (params.currentStageSummary.stage === "dispatch_running" ||
+      params.currentStageSummary.stage === "dispatch")
+  ) {
+    diagnostics.push({
+      kind: "waiting_callback",
+      severity: "info",
+      title: "等待 NanoClaw callback",
+      message: params.currentStageSummary.label,
+      target: params.currentStageSummary.target,
+      stage: params.currentStageSummary.stage,
+      dispatch_id: null,
+      subtask_id: null,
+      timestamp: null,
+    });
+  }
+
+  return diagnostics;
+}
+
 function listDispatchesForExecution(executionId: number): WorkflowDispatch[] {
   const db = getDb();
   const rows = db
@@ -162,6 +326,12 @@ function listDispatchesForExecution(executionId: number): WorkflowDispatch[] {
     ...row,
     diagnostic_flags: buildDispatchDiagnosticFlags(row),
   }));
+}
+
+function resolveWorkflowCorrelationId(executionId: number | undefined | null): string | null {
+  if (!executionId) return null;
+  const execution = getWorkflowExecution(executionId);
+  return execution?.correlation_id ?? null;
 }
 
 function buildCurrentStageSummary(
@@ -316,13 +486,20 @@ export function getWorkflowExecutionDetail(id: number): WorkflowExecutionDetail 
   const dispatches = listDispatchesForExecution(id);
   const links = listWorkflowLinksForExecution(id);
   const summary = execution.workflow_type === "code_gen" ? buildExecutionSummary(subtasks) : null;
+  const currentStageSummary = buildCurrentStageSummary(subtasks, dispatches);
 
   return {
     ...execution,
     summary,
     bug_report_summary:
       execution.workflow_type === "bug_analysis" ? parseBugReportSummary(subtasks) : null,
-    current_stage_summary: buildCurrentStageSummary(subtasks, dispatches),
+    current_stage_summary: currentStageSummary,
+    workflow_diagnostics: buildWorkflowDiagnostics({
+      execution,
+      subtasks,
+      dispatches,
+      currentStageSummary,
+    }),
     dispatches,
     subtasks,
     links,
@@ -391,8 +568,10 @@ export function createWorkflowSubtask(params: {
   error_message?: string;
   started_at?: string;
   finished_at?: string;
+  correlation_id?: string | null;
 }): number {
   const db = getDb();
+  const correlationId = params.correlation_id ?? resolveWorkflowCorrelationId(params.execution_id);
   db.query(
     `INSERT INTO workflow_subtask (
        execution_id,
@@ -408,8 +587,9 @@ export function createWorkflowSubtask(params: {
        log_url,
        error_message,
        started_at,
-       finished_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       finished_at,
+       correlation_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     params.execution_id,
     params.stage,
@@ -425,6 +605,7 @@ export function createWorkflowSubtask(params: {
     params.error_message ?? null,
     params.started_at ?? null,
     params.finished_at ?? null,
+    correlationId,
   );
   const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
   return row.id;
@@ -454,6 +635,7 @@ export function updateWorkflowSubtaskStatusByStage(params: {
   repo_name?: string;
   log_url?: string;
   error_message?: string;
+  correlation_id?: string | null;
 }): number {
   const db = getDb();
   const existing = db
@@ -488,9 +670,14 @@ export function updateWorkflowSubtaskStatusByStage(params: {
       error_message: params.error_message,
       started_at: startedAt ?? undefined,
       finished_at: finishedAt ?? undefined,
+      correlation_id: params.correlation_id,
     });
   }
 
+  const correlationId =
+    params.correlation_id ??
+    existing.correlation_id ??
+    resolveWorkflowCorrelationId(params.execution_id);
   db.query(
     `UPDATE workflow_subtask
      SET provider = ?,
@@ -504,6 +691,7 @@ export function updateWorkflowSubtaskStatusByStage(params: {
          error_message = ?,
          started_at = ?,
          finished_at = ?,
+         correlation_id = ?,
          updated_at = datetime('now')
      WHERE id = ?`,
   ).run(
@@ -518,6 +706,7 @@ export function updateWorkflowSubtaskStatusByStage(params: {
     params.error_message ?? existing.error_message,
     startedAt,
     finishedAt,
+    correlationId,
     existing.id,
   );
 
@@ -742,6 +931,7 @@ export function createWebhookJob(params: {
   event_type: string;
   action: string;
   payload: unknown;
+  correlation_id?: string;
   max_attempts?: number;
   next_run_at?: number;
 }): number {
@@ -758,8 +948,9 @@ export function createWebhookJob(params: {
        next_run_at,
        payload_json,
        created_at,
-       updated_at
-     ) VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+       updated_at,
+       correlation_id
+     ) VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?)`,
   ).run(
     params.source,
     params.event_type,
@@ -769,6 +960,7 @@ export function createWebhookJob(params: {
     JSON.stringify(params.payload ?? {}),
     now,
     now,
+    params.correlation_id ?? null,
   );
   const row = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
   return row.id;
@@ -880,6 +1072,7 @@ export function listWebhookJobs(params: {
   source?: WebhookSource;
   action?: string;
   status?: WebhookJobStatus;
+  correlation_id?: string;
   limit?: number;
 }): { data: WebhookJob[]; total: number } {
   const db = getDb();
@@ -897,6 +1090,10 @@ export function listWebhookJobs(params: {
   if (params.status) {
     conditions.push("status = ?");
     values.push(params.status);
+  }
+  if (params.correlation_id) {
+    conditions.push("correlation_id = ?");
+    values.push(params.correlation_id);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -1313,15 +1510,25 @@ export interface InsertDispatchInput {
   sourceExecutionId?: number;
   sourceStage?: string;
   timeoutAt?: number;
+  correlationId?: string;
 }
 
 export function insertDispatch(db: Database, x: InsertDispatchInput): string {
   const id = crypto.randomUUID();
+  const correlationId =
+    x.correlationId ??
+    (x.sourceExecutionId
+      ? (
+          db
+            .query("SELECT correlation_id FROM workflow_execution WHERE id = ?")
+            .get(x.sourceExecutionId) as { correlation_id: string | null } | null
+        )?.correlation_id
+      : null);
   db.run(
     `INSERT INTO dispatch(
        id, workspace_id, skill, input_json, status, created_at, plane_issue_id,
-       source_execution_id, source_stage, callback_replay_count, timeout_at
-     ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+       source_execution_id, source_stage, callback_replay_count, timeout_at, correlation_id
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       x.workspaceId,
@@ -1334,6 +1541,7 @@ export function insertDispatch(db: Database, x: InsertDispatchInput): string {
       x.sourceStage ?? null,
       0,
       x.timeoutAt ?? null,
+      correlationId,
     ],
   );
   return id;

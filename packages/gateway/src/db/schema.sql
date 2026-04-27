@@ -10,8 +10,11 @@ CREATE TABLE IF NOT EXISTS workflow_execution (
   retry_count INTEGER NOT NULL DEFAULT 0,
   started_at TEXT,
   completed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  correlation_id TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_workflow_execution_correlation
+  ON workflow_execution(correlation_id, created_at);
 
 CREATE TABLE IF NOT EXISTS workflow_subtask (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,10 +33,13 @@ CREATE TABLE IF NOT EXISTS workflow_subtask (
   started_at TEXT,
   finished_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  correlation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_subtask_execution
   ON workflow_subtask(execution_id, target, stage);
+CREATE INDEX IF NOT EXISTS idx_workflow_subtask_correlation
+  ON workflow_subtask(correlation_id, created_at);
 
 CREATE TABLE IF NOT EXISTS workflow_link (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,10 +87,13 @@ CREATE TABLE IF NOT EXISTS webhook_job (
   payload_json TEXT NOT NULL DEFAULT '{}',
   result_json TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  correlation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_job_due
   ON webhook_job(status, source, next_run_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_webhook_job_correlation
+  ON webhook_job(correlation_id, created_at);
 
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,11 +182,13 @@ CREATE TABLE IF NOT EXISTS dispatch (
   error_message TEXT,
   result_summary TEXT,
   callback_replay_count INTEGER NOT NULL DEFAULT 0,
-  timeout_at INTEGER
+  timeout_at INTEGER,
+  correlation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_dispatch_plane_issue ON dispatch(plane_issue_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_source_execution ON dispatch(source_execution_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_dispatch_correlation ON dispatch(correlation_id, created_at);
 
 -- RAG 索引元数据
 CREATE TABLE IF NOT EXISTS rag_docs (

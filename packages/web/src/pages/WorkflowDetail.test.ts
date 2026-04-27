@@ -71,6 +71,30 @@ describe("WorkflowDetail", () => {
         stage: "dispatch_running",
         status: "running",
       },
+      workflow_diagnostics: [
+        {
+          kind: "dispatch_timeout",
+          severity: "error",
+          title: "Dispatch callback 超时",
+          message: "callback timeout",
+          target: "backend",
+          stage: "dispatch",
+          dispatch_id: "disp_123",
+          subtask_id: null,
+          timestamp: 1713326580000,
+        },
+        {
+          kind: "callback_replay",
+          severity: "warning",
+          title: "重复 callback 已忽略",
+          message: "已记录 2 次 replay，不会重复执行副作用。",
+          target: "backend",
+          stage: "dispatch",
+          dispatch_id: "disp_123",
+          subtask_id: null,
+          timestamp: 1713326570000,
+        },
+      ],
       subtasks: [
         {
           id: 3,
@@ -180,6 +204,10 @@ describe("WorkflowDetail", () => {
     expect(wrapper.text()).toContain("当前阶段摘要");
     expect(wrapper.text()).toContain("backend 等待 callback");
     expect(wrapper.text()).toContain("dispatch_running");
+    expect(wrapper.text()).toContain("异常诊断");
+    expect(wrapper.text()).toContain("Dispatch callback 超时");
+    expect(wrapper.text()).toContain("重复 callback 已忽略");
+    expect(wrapper.text()).toContain("已记录 2 次 replay，不会重复执行副作用。");
     expect(wrapper.text()).toContain("Dispatch / Callback 诊断");
     expect(wrapper.text()).toContain("disp_123");
     expect(wrapper.text()).toContain("arcflow-codegen");
